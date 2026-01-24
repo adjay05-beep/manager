@@ -30,5 +30,9 @@ def main(page: ft.Page):
     navigate_to("login")
 
 if __name__ == "__main__":
-    # 외부 접속(모바일) 허용을 위해 host="0.0.0.0"으로 실행합니다.
-    ft.app(target=main, port=8555, host="0.0.0.0")
+    import os
+    # 클라우드 환경(Render 등)에서 제공하는 PORT 변수를 우선 사용합니다.
+    port = int(os.getenv("PORT", 8555))
+    host = "0.0.0.0"
+    ft.app(target=main, port=port, host=host)
+
