@@ -164,32 +164,43 @@ def get_chat_controls(page: ft.Page, navigate_to):
         chat_header_title.value = topic['name']
         msg_input.disabled = False
         
+        # [NEW] Show Loading Indicator to prevent freeze
+        message_list_view.controls = [
+            ft.Container(
+                content=ft.Column([
+                    ft.ProgressRing(color="#00C73C"),
+                    ft.Text("메시지를 불러오는 중...", color="#666666", size=12)
+                ], horizontal_alignment="center", spacing=10),
+                alignment=ft.alignment.center,
+                expand=True
+            )
+        ]
+        page.update()
+
         # Mark as read
         try:
-            # [FIX] Use timezone-aware UTC for consistent comparison with Supabase TIMESTAMPTZ
             now_utc = datetime.now(timezone.utc).isoformat()
             supabase.table("chat_user_reading").upsert({
                 "topic_id": topic['id'],
                 "user_id": current_user_id,
                 "last_read_at": now_utc
             }).execute()
-            print(f"DEBUG: Marked topic {topic['id']} as read at {now_utc}")
-        except Exception as e:
-            print(f"Update Read Status Error: {e}")
+        except: pass
             
         load_topics(True) 
-        load_messages()
+        # [NEW] Run loading as a non-blocking task
+        page.run_task(load_messages_async)
 
-    def load_messages():
+    async def load_messages_async():
         if not state["current_topic_id"]: return
         try:
-            # Explicit selection to ENSURE image_url is fetched
-            res = supabase.table("chat_messages").select("id, topic_id, user_id, content, image_url, created_at, profiles(username, full_name)").eq("topic_id", state["current_topic_id"]).order("created_at").execute()
+            # Fetch data in background
+            res = supabase.table("chat_messages").select("id, topic_id, user_id, content, image_url, created_at, profiles(username, full_name)").eq("topic_id", state["current_topic_id"]).order("created_at", desc=True).limit(50).execute()
             messages = res.data or []
+            messages.reverse() # Show oldest at top
             
-            message_list_view.controls = []
+            new_controls = []
 
-            # Helper for image preview inside the loop's context
             def open_preview(url):
                 preview_dlg = ft.AlertDialog(
                     content=ft.Image(src=url, fit=ft.ImageFit.CONTAIN),
@@ -203,7 +214,6 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 if isinstance(prof_data, list) and prof_data: prof_data = prof_data[0]
                 user_name = prof_data.get('full_name', '익명') if prof_data else "익명"
                 
-                # Format time: "오후 6:52"
                 created_dt = dt_class.fromisoformat(m['created_at'].replace("Z", "+00:00"))
                 ampm = "오후" if created_dt.hour >= 12 else "오전"
                 h = created_dt.hour % 12
@@ -211,23 +221,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 time_str = f"{ampm} {h}:{created_dt.minute:02d}"
                 
                 content_elements = []
-                
                 img_url = m.get('image_url')
                 if img_url:
                     content_elements.append(
                         ft.Container(
-                            content=ft.Image(
-                                src=img_url, 
-                                width=250, 
-                                height=250, 
-                                fit=ft.ImageFit.CONTAIN, 
-                                border_radius=10,
-                                error_content=ft.Text("이미지 로드 실패", color="red", size=10)
-                            ),
-                            padding=5,
-                            border=ft.border.all(1, "#DDDDDD"),
-                            border_radius=10,
-                            bgcolor="white",
+                            content=ft.Image(src=img_url, width=250, height=250, fit=ft.ImageFit.CONTAIN, border_radius=10),
+                            padding=5, border=ft.border.all(1, "#DDDDDD"), border_radius=10, bgcolor="white",
                             on_click=lambda e, u=img_url: open_preview(u)
                         )
                     )
@@ -235,49 +234,41 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 if m.get('content') and m['content'] != "[이미지 파일]":
                     content_elements.append(ft.Text(m['content'], size=14, color="black"))
                 
-                # Bubble Styles
                 bubble_bg = "#FFFFFF" if is_me else "#F1F1F1"
-                bubble_border = ft.border.all(1, "#E0E0E0") if is_me else None
-                
                 content_box = ft.Container(
                     content=ft.Column(content_elements, spacing=5),
-                    bgcolor=bubble_bg,
-                    border=bubble_border,
-                    padding=12, 
-                    border_radius=15, 
-                    width=260
+                    bgcolor=bubble_bg, padding=12, border_radius=15, width=260,
+                    border=ft.border.all(1, "#E0E0E0") if is_me else None
                 )
                 
                 time_text = ft.Text(time_str, size=10, color="#999999")
                 
                 if is_me:
-                    # My message: [Time] [Bubble]
-                    bubble_row = ft.Row([
-                        time_text,
-                        content_box
-                    ], alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.END, spacing=5)
+                    bubble_row = ft.Row([time_text, content_box], alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.END, spacing=5)
                 else:
-                    # Others' message: [Avatar] [Bubble] [Time]
                     bubble_row = ft.Row([
-                        ft.CircleAvatar(content=ft.Text(user_name[0] if user_name else "?", size=12), radius=15, bgcolor="#EEEEEE", color="black"),
-                        content_box,
-                        time_text
+                        ft.CircleAvatar(content=ft.Text(user_name[0], size=12), radius=15, bgcolor="#EEEEEE", color="black"),
+                        content_box, time_text
                     ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.END, spacing=5)
                 
-                message_list_view.controls.append(
-                    ft.Container(
-                        content=ft.Column([
-                            ft.Text(user_name, size=11, weight="bold", color="#666666") if not is_me else ft.Container(),
-                            bubble_row
-                        ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.START if not is_me else ft.CrossAxisAlignment.END),
-                        padding=ft.padding.symmetric(vertical=5)
-                    )
-                )
+                new_controls.append(ft.Container(
+                    content=ft.Column([
+                        ft.Text(user_name, size=11, weight="bold", color="#666666") if not is_me else ft.Container(),
+                        bubble_row
+                    ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.START if not is_me else ft.CrossAxisAlignment.END),
+                    padding=ft.padding.symmetric(vertical=5)
+                ))
             
+            message_list_view.controls = new_controls
             page.update()
         except Exception as e:
-            import traceback
-            print(f"Load Messages Error: {e}\n{traceback.format_exc()}")
+            print(f"Async Load Error: {e}")
+            message_list_view.controls = [ft.Text(f"로드 실패: {e}", color="red")]
+            page.update()
+
+    # Maintain old load_messages for compatibility with realtime callback if needed
+    def load_messages():
+        page.run_task(load_messages_async)
 
     def send_message(content=None, image_url=None):
         # Use pending URL if not provided explicitly
@@ -1525,17 +1516,16 @@ def get_order_controls(page: ft.Page, navigate_to):
             try:
                 path = audio_recorder.stop_recording()
                 if not path or "blob" in path:
-                    # Mobile web browsers (especially iOS/Chrome on Android) return blob URLs
-                    # This requires a native app build (APK) for full file system access.
-                    status_text.value = "모바일 웹 제약 발생\n(앱 설치 권장)"
-                    page.snack_bar = ft.SnackBar(ft.Text("모바일 웹에서는 녹음이 제한됩니다. 앱을 설치하거나 PC에서 사용해 주세요."), open=True)
+                    status_text.value = "모바일 앱 환경 필요"
+                    status_text.color = "red"
+                    page.snack_bar = ft.SnackBar(ft.Text("브라우저에서는 녹음이 제한됩니다. 앱을 사용하거나 PC에서 사용해 주세요."), open=True)
                     page.update()
                     return
             except Exception as ex:
-                print(f"Stop Recording Error: {ex}")
-                status_text.value = "환경 오류 (마이크 접근 불가)"
+                status_text.value = "마이크 종료 에러"
                 page.update()
                 return
+
             def proc():
                 try:
                     # Get keywords for prompt
@@ -1544,13 +1534,23 @@ def get_order_controls(page: ft.Page, navigate_to):
                     prompt_str = ", ".join(keywords) if keywords else None
                     
                     t = transcribe_audio(path, prompt=prompt_str)
-                    if t: supabase.table("order_memos").insert({"content": t, "user_id": "00000000-0000-0000-0000-000000000001"}).execute(); load_memos()
-                    status_text.value = "기다리는 중..."
+                    if t:
+                        supabase.table("order_memos").insert({"content": t, "user_id": "00000000-0000-0000-0000-000000000001"}).execute()
+                        status_text.value = f"결과: {t[:10]}..."
+                        status_text.color = "green"
+                        load_memos()
+                    else:
+                        status_text.value = "인식 실패 (빈 내용)"
+                        status_text.color = "orange"
                 except Exception as ex:
                     print(f"Proc Error: {ex}")
+                    status_text.value = f"AI 에러: {str(ex)[:20]}"
+                    status_text.color = "red"
                 finally:
                     page.update()
-            threading.Thread(target=proc).start(); page.update()
+            
+            threading.Thread(target=proc, daemon=True).start()
+            page.update()
 
     def open_dictionary(e):
         # 1. 컴포넌트 선언을 먼저 합니다.
