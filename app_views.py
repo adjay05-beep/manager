@@ -1545,7 +1545,7 @@ def get_order_controls(page: ft.Page, navigate_to):
                     # Native / Local mode
                     with open(local_path, "rb") as f:
                         supabase.storage.from_("uploads").upload(fname, f.read())
-                    await start_transcription(public_url)
+                    page.run_task(lambda: start_transcription(public_url))
 
             except Exception as ex:
                 status_text.value = f"전송 에러: {str(ex)[:20]}"
