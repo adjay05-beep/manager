@@ -119,42 +119,183 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.open(dlg)
 
     sidebar = ft.Container(
-        width=240, bgcolor="#F7F7F9",
-        border=ft.border.only(right=ft.border.BorderSide(1, "#E0E0E0")),
+        width=240, bgcolor="#1A1A1A",
+        border=ft.border.only(right=ft.border.BorderSide(1, "#333333")),
         content=ft.Column([
-            ft.Container(ft.Text("이자카야 주월", size=20, weight="bold"), padding=20),
-            ft.Divider(height=1),
-            ft.Container(content=ft.Row([ft.Text("토픽", weight="bold", size=14, color="#666666"), ft.IconButton(ft.Icons.ADD, icon_size=18, on_click=open_create_topic_dialog)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=ft.padding.only(left=20, right=10, top=10)),
+            ft.Container(ft.Text("THE MANAGER", size=20, weight="bold", color="white", letter_spacing=1), padding=20),
+            ft.Divider(height=1, color="#333333"),
+            ft.Container(content=ft.Row([ft.Text("토픽", weight="bold", size=14, color="white70"), ft.IconButton(ft.Icons.ADD, icon_color="white", icon_size=18, on_click=open_create_topic_dialog)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=ft.padding.only(left=20, right=10, top=10)),
             ft.Container(content=topic_list_view, expand=True, padding=ft.padding.only(left=5, right=5)),
-            ft.Container(content=ft.TextButton("🏠 홈으로 가기", on_click=lambda _: navigate_to("home")), padding=15, alignment=ft.Alignment(0,0))
+            ft.Container(content=ft.TextButton("🏠 홈으로 가기", style=ft.ButtonStyle(color="white70"), on_click=lambda _: navigate_to("home")), padding=15, alignment=ft.Alignment(0,0))
         ])
     )
 
     main_area = ft.Container(
-        expand=True, bgcolor="white",
+        expand=True, bgcolor="#2D3436",
         content=ft.Column([
-            ft.Container(content=ft.Row([chat_header_title, ft.IconButton(ft.Icons.REFRESH, on_click=lambda _: load_topics(True))], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=15, border=ft.border.only(bottom=ft.border.BorderSide(1, "#E0E0E0"))),
+            ft.Container(content=ft.Row([chat_header_title, ft.IconButton(ft.Icons.REFRESH, icon_color="white", on_click=lambda _: load_topics(True))], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=15, border=ft.border.only(bottom=ft.border.BorderSide(1, "#444444"))),
             ft.Container(content=message_list_view, expand=True, padding=20),
-            ft.Container(content=ft.Row([msg_input, ft.IconButton(ft.Icons.SEND, icon_color="#00C73C", on_click=lambda _: send_message())], spacing=10), padding=10, border=ft.border.only(top=ft.border.BorderSide(1, "#E0E0E0")))
+            ft.Container(content=ft.Row([msg_input, ft.IconButton(ft.Icons.SEND, icon_color="#00C73C", on_click=lambda _: send_message())], spacing=10), padding=10, border=ft.border.only(top=ft.border.BorderSide(1, "#444444")))
         ])
     )
+    # Update state for dark theme
+    chat_header_title.color = "white"
+    msg_input.bgcolor = "#3D4446"
+    msg_input.color = "white"
+    msg_input.border_color = "#555555"
+
     load_topics(False)
     return [ft.Row([sidebar, main_area], expand=True, spacing=0)]
 
 # [1] 로그인 화면
 def get_login_controls(page, navigate_to):
-    pw = ft.TextField(label="직원 PIN 코드 (1234)", password=True, text_align=ft.TextAlign.CENTER, width=240, on_submit=lambda e: navigate_to("home") if pw.value=="1234" else None)
-    return [ft.Container(expand=True, bgcolor="white", content=ft.Column([ft.Text("이자카야 주월", size=40, weight="bold", color="black"), ft.Text("Full-Auto Management OS", size=16, color="grey"), ft.Container(height=40), pw, ft.ElevatedButton("출근하기", on_click=lambda _: navigate_to("home") if pw.value=="1234" else None, width=240, height=50)], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER))]
+    pw = ft.TextField(
+        label="PIN CODE", 
+        password=True, 
+        text_align=ft.TextAlign.CENTER, 
+        width=240, 
+        on_submit=lambda e: navigate_to("home") if pw.value=="1234" else None,
+        border_color="white",
+        cursor_color="white",
+        color="white"
+    )
+    
+    login_card = ft.Container(
+        content=ft.Column([
+            ft.Text("THE MANAGER", size=32, weight="bold", color="white", letter_spacing=2),
+            ft.Text("Izakaya Ju-wol OS", size=14, color="white70"),
+            ft.Container(height=40),
+            pw,
+            ft.ElevatedButton(
+                "출근하기", 
+                on_click=lambda _: navigate_to("home") if pw.value=="1234" else None, 
+                width=240, height=50,
+                style=ft.ButtonStyle(
+                    color="black",
+                    bgcolor="white",
+                    shape=ft.RoundedRectangleBorder(radius=10)
+                )
+            )
+        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        padding=40,
+        border_radius=30,
+        bgcolor=ft.Colors.with_opacity(0.15, "white"),
+        blur=ft.Blur(20, 20),
+        border=ft.border.all(1, ft.Colors.with_opacity(0.2, "white")),
+    )
+
+    return [
+        ft.Stack([
+            ft.Image(src="images/login_bg.png", width=page.window_width, height=page.window_height, fit=ft.ImageFit.COVER),
+            ft.Container(expand=True, bgcolor=ft.Colors.with_opacity(0.4, "black")), # Overlay
+            ft.Container(content=login_card, alignment=ft.alignment.center, expand=True)
+        ], expand=True)
+    ]
 
 # [2] 메인 대시보드
 def get_home_controls(page, navigate_to):
-    def action_btn(label, emoji, color, route):
-        return ft.Container(content=ft.Column([ft.Text(emoji, size=30), ft.Text(label, weight="bold", size=16, color="black")], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER), width=160, height=160, bgcolor=color, border_radius=15, on_click=lambda _: navigate_to(route), alignment=ft.Alignment(0,0), ink=True)
-    return [ft.Container(padding=30, expand=True, bgcolor="white", content=ft.Column([ft.Row([ft.Text("The Manager", size=28, weight="bold", color="black"), ft.TextButton("🚪 로그아웃", on_click=lambda _: navigate_to("login"))], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), ft.Divider(height=40), ft.Row([action_btn("업무 채팅", "💬", "#FFCC80", "chat"), action_btn("마감 점검", "📸", "#90CAF9", "closing")], alignment=ft.MainAxisAlignment.CENTER, spacing=20), ft.Container(height=20), ft.Row([action_btn("발주 메모", "🎤", "#A5D6A7", "order"), action_btn("근무 캘린더", "📅", "#CE93D8", "calendar")], alignment=ft.MainAxisAlignment.CENTER, spacing=20)], scroll=ft.ScrollMode.AUTO))]
+    def action_btn(label, icon_path, route):
+        return ft.Container(
+            content=ft.Column([
+                ft.Image(src=icon_path, width=80, height=80),
+                ft.Text(label, weight="bold", size=16, color="white"),
+            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            width=165, height=180,
+            bgcolor=ft.Colors.with_opacity(0.1, "white"),
+            border_radius=25,
+            on_click=lambda _: navigate_to(route),
+            alignment=ft.alignment.center,
+            ink=True,
+            blur=ft.Blur(10, 10),
+            border=ft.border.all(0.5, ft.Colors.with_opacity(0.1, "white"))
+        )
+
+    header = ft.Container(
+        padding=ft.padding.only(left=20, right=20, top=40, bottom=20),
+        content=ft.Row([
+            ft.Column([
+                ft.Text("Welcome back,", size=14, color="white70"),
+                ft.Text("The Manager", size=24, weight="bold", color="white"),
+            ], spacing=2),
+            ft.IconButton(ft.Icons.LOGOUT_ROUNDED, icon_color="white", on_click=lambda _: navigate_to("login"))
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+    )
+
+    grid = ft.Column([
+        ft.Row([
+            action_btn("업무 채팅", "images/icon_chat.png", "chat"),
+            action_btn("마감 점검", "images/icon_check.png", "closing"),
+        ], alignment=ft.MainAxisAlignment.CENTER, spacing=15),
+        ft.Row([
+            action_btn("발주 메모", "images/icon_voice.png", "order"),
+            action_btn("근무 캘린더", "images/icon_calendar.png", "calendar"),
+        ], alignment=ft.MainAxisAlignment.CENTER, spacing=15),
+    ], spacing=15)
+
+    return [
+        ft.Stack([
+            # 다크한 배경 그라데이션
+            ft.Container(
+                gradient=ft.LinearGradient(
+                    begin=ft.alignment.top_left,
+                    end=ft.alignment.bottom_right,
+                    colors=["#1A1A1A", "#2D3436"]
+                ),
+                expand=True
+            ),
+            ft.Column([
+                header,
+                ft.Container(content=grid, padding=20, expand=True)
+            ], scroll=ft.ScrollMode.AUTO)
+        ], expand=True)
+    ]
 
 # [3] 마감 점검
 def get_closing_controls(page, navigate_to):
-    return [ft.Container(padding=30, expand=True, bgcolor="white", content=ft.Column([ft.Row([ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda _: navigate_to("home")), ft.Text("마감 안전 점검", size=24, weight="bold")]), ft.Divider(height=40), ft.Checkbox(label="주방 가스 밸브 차단 확인"), ft.Checkbox(label="홀 에어컨 및 조명 OFF 확인"), ft.ElevatedButton("퇴근", on_click=lambda _: navigate_to("home"), width=300, height=50)]))]
+    checklist = ft.Column([
+        ft.Container(
+            content=ft.Checkbox(label="주방 가스 밸브 차단 확인", label_style=ft.TextStyle(color="white")),
+            padding=15, bgcolor=ft.Colors.with_opacity(0.1, "white"), border_radius=10
+        ),
+        ft.Container(
+            content=ft.Checkbox(label="홀 에어컨 및 조명 OFF 확인", label_style=ft.TextStyle(color="white")),
+            padding=15, bgcolor=ft.Colors.with_opacity(0.1, "white"), border_radius=10
+        ),
+    ], spacing=10)
+
+    header = ft.Row([
+        ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="white", on_click=lambda _: navigate_to("home")),
+        ft.Text("마감 안전 점검", size=24, weight="bold", color="white")
+    ])
+
+    return [
+        ft.Container(
+            expand=True,
+            gradient=ft.LinearGradient(
+                begin=ft.alignment.top_center,
+                end=ft.alignment.bottom_center,
+                colors=["#1A1A1A", "#2D3436"]
+            ),
+            padding=30,
+            content=ft.Column([
+                header,
+                ft.Container(height=30),
+                ft.Text("Safety Checklist", color="white70", size=14),
+                checklist,
+                ft.Container(height=40),
+                ft.ElevatedButton(
+                    "점검 완료 및 퇴근", 
+                    on_click=lambda _: navigate_to("home"), 
+                    width=400, height=60,
+                    style=ft.ButtonStyle(
+                        color="white",
+                        bgcolor="#00C73C",
+                        shape=ft.RoundedRectangleBorder(radius=12)
+                    )
+                )
+            ])
+        )
+    ]
 
 # [5] 근무 캘린더
 def get_calendar_controls(page: ft.Page, navigate_to):

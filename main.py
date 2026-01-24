@@ -34,5 +34,6 @@ if __name__ == "__main__":
     # 클라우드 환경(Render 등)에서 제공하는 PORT 변수를 우선 사용합니다.
     port = int(os.getenv("PORT", 8555))
     host = "0.0.0.0"
-    ft.app(target=main, port=port, host=host)
+    ft.app(target=main, port=port, host=host, assets_dir="assets")
+
 
