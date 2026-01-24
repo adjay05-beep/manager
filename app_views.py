@@ -122,7 +122,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
         width=240, bgcolor="#1A1A1A",
         border=ft.border.only(right=ft.border.BorderSide(1, "#333333")),
         content=ft.Column([
-            ft.Container(ft.Text("THE MANAGER", size=20, weight="bold", color="white", letter_spacing=1), padding=20),
+            ft.Container(ft.Text("THE MANAGER", size=20, weight="bold", color="white", style=ft.TextStyle(letter_spacing=1)), padding=20),
             ft.Divider(height=1, color="#333333"),
             ft.Container(content=ft.Row([ft.Text("토픽", weight="bold", size=14, color="white70"), ft.IconButton(ft.Icons.ADD, icon_color="white", icon_size=18, on_click=open_create_topic_dialog)], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), padding=ft.padding.only(left=20, right=10, top=10)),
             ft.Container(content=topic_list_view, expand=True, padding=ft.padding.only(left=5, right=5)),
@@ -162,7 +162,7 @@ def get_login_controls(page, navigate_to):
     
     login_card = ft.Container(
         content=ft.Column([
-            ft.Text("THE MANAGER", size=32, weight="bold", color="white", letter_spacing=2),
+            ft.Text("THE MANAGER", size=32, weight="bold", color="white", style=ft.TextStyle(letter_spacing=2)),
             ft.Text("Izakaya Ju-wol OS", size=14, color="white70"),
             ft.Container(height=40),
             pw,
