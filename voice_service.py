@@ -1,14 +1,15 @@
 import os
 import requests
+import tempfile
 from dotenv import load_dotenv
 
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-def transcribe_audio(file_path, prompt=None):
+def transcribe_audio(file_input, prompt=None):
     """
-    Transcribes audio file using OpenAI Whisper API.
+    Transcribes audio from a local file path or a URL using OpenAI Whisper API.
     """
     if not OPENAI_API_KEY or "your_openai" in OPENAI_API_KEY:
         raise Exception("OpenAI API Key is missing or invalid. Please check .env file.")
@@ -17,9 +18,30 @@ def transcribe_audio(file_path, prompt=None):
     headers = {
         "Authorization": f"Bearer {OPENAI_API_KEY}"
     }
-    
+
+    temp_file = None
     try:
-        with open(file_path, "rb") as audio_file:
+        # Check if input is a URL
+        if file_input.startswith(("http://", "https://")):
+            print(f"DEBUG: Downloading audio from {file_input}")
+            r = requests.get(file_input)
+            if r.status_code != 200:
+                raise Exception(f"Failed to download audio: {r.status_code}")
+            
+            # Create a temporary file to hold the downloaded audio
+            suffix = ".wav" if ".wav" in file_input.lower() else ".m4a"
+            fd, temp_path = tempfile.mkstemp(suffix=suffix)
+            with os.fdopen(fd, 'wb') as tmp:
+                tmp.write(r.content)
+            file_to_open = temp_path
+            temp_file = temp_path
+        else:
+            file_to_open = file_input
+
+        if not os.path.exists(file_to_open):
+            raise Exception(f"Audio file not found: {file_to_open}")
+
+        with open(file_to_open, "rb") as audio_file:
             files = {
                 "file": audio_file,
                 "model": (None, "whisper-1")
@@ -38,3 +60,8 @@ def transcribe_audio(file_path, prompt=None):
     except Exception as e:
         print(f"Transcription Error: {e}")
         raise e
+    finally:
+        # Cleanup temp file if created
+        if temp_file and os.path.exists(temp_file):
+            try: os.remove(temp_file)
+            except: pass
