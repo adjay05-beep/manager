@@ -518,53 +518,44 @@ def get_chat_controls(page: ft.Page, navigate_to):
     msg_input.hint_style = ft.TextStyle(color="#999999")
 
     # --- [NEW] REALTIME INTEGRATION (Zero Latency) ---
-    def start_realtime_bridge():
-        async def realtime_loop():
-            rt_client = supabase.get_realtime_client()
-            if not rt_client: return
-            
-            # 1. Listen for new messages
-            msg_channel = rt_client.channel("realtime-msgs")
-            
-            def handle_new_msg(payload):
-                if DEBUG_MODE: print(f"REALTIME: New message -> {payload}")
-                # Refresh topics (badges) and messages (if current topic)
-                load_topics(True)
-                new_tid = payload.get('record', {}).get('topic_id')
-                if str(new_tid) == str(state["current_topic_id"]):
-                    load_messages()
+    async def realtime_task():
+        rt_client = supabase.get_realtime_client()
+        if not rt_client: return
+        
+        # 1. Listen for new messages
+        msg_channel = rt_client.channel("realtime-msgs")
+        
+        def handle_new_msg(payload):
+            if DEBUG_MODE: print(f"REALTIME: New message -> {payload}")
+            load_topics(True)
+            new_tid = payload.get('record', {}).get('topic_id')
+            if str(new_tid) == str(state["current_topic_id"]):
+                load_messages()
 
-            msg_channel.on("postgres_changes", {"event": "INSERT", "schema": "public", "table": "chat_messages"}, handle_new_msg)
-            
-            # 2. Listen for topic changes (renames, new topics)
-            topic_channel = rt_client.channel("realtime-topics")
-            
-            def handle_topic_change(payload):
-                if DEBUG_MODE: print(f"REALTIME: Topic change -> {payload}")
-                load_topics(True)
+        msg_channel.on("postgres_changes", {"event": "INSERT", "schema": "public", "table": "chat_messages"}, handle_new_msg)
+        
+        # 2. Listen for topic changes
+        topic_channel = rt_client.channel("realtime-topics")
+        def handle_topic_change(payload):
+            if DEBUG_MODE: print(f"REALTIME: Topic change -> {payload}")
+            load_topics(True)
 
-            topic_channel.on("postgres_changes", {"event": "*", "schema": "public", "table": "chat_topics"}, handle_topic_change)
+        topic_channel.on("postgres_changes", {"event": "*", "schema": "public", "table": "chat_topics"}, handle_topic_change)
 
-            try:
-                await rt_client.connect()
-                await msg_channel.subscribe()
-                await topic_channel.subscribe()
-                
-                # Keep loop alive
-                while not page.is_disconnected:
-                    await asyncio.sleep(1)
-            except Exception as e:
-                if DEBUG_MODE: print(f"REALTIME ERROR: {e}")
-            finally:
-                try: await rt_client.disconnect()
-                except: pass
+        try:
+            await rt_client.connect()
+            await msg_channel.subscribe()
+            await topic_channel.subscribe()
+            while not page.is_disconnected:
+                await asyncio.sleep(1)
+        except Exception as e:
+            if DEBUG_MODE: print(f"REALTIME ERROR: {e}")
+        finally:
+            try: await rt_client.disconnect()
+            except: pass
 
-        # Run the async loop in this thread
-        asyncio.run(realtime_loop())
-
-    # Replace polling thread with Realtime thread
-    rt_thread = threading.Thread(target=start_realtime_bridge, daemon=True)
-    rt_thread.start()
+    # Start the realtime bridge using Flet's reliable task runner
+    page.run_task(realtime_task)
 
     load_topics(False)
     return [ft.Row([sidebar, main_area], expand=True, spacing=0)]
@@ -806,8 +797,14 @@ def get_calendar_controls(page: ft.Page, navigate_to):
 
                     grid.controls.append(
                         ft.Container(
-                            content=ft.Column([ft.Container(date_box, padding=4), ft.Container(ev_stack, padding=1)], spacing=2),
-                            border=ft.border.all(0.5, "#EEEEEE"), bgcolor="white", ink=True, 
+                            content=ft.Column([
+                                ft.Container(date_box, padding=4), 
+                                ft.Container(ev_stack, padding=1, height=60, clip_behavior=ft.ClipBehavior.HARD_EDGE) # [FIX] Prevent overflow
+                            ], spacing=2, tight=True),
+                            border=ft.border.all(0.5, "#EEEEEE"), 
+                            bgcolor="white", 
+                            height=100, # [FIX] Fixed height for grid cells
+                            ink=True, 
                             on_click=make_day_click(day)
                         )
                     )
@@ -1511,8 +1508,20 @@ def get_order_controls(page: ft.Page, navigate_to):
             path = os.path.join(tempfile.gettempdir(), "order_voice.wav"); audio_recorder.start_recording(path); page.update()
         else:
             state["is_recording"] = False; status_text.value = "변환 중..."; recording_timer.visible = False
-            path = audio_recorder.stop_recording()
-            if not path or "blob" in path: status_text.value = "환경 오류 (데스크탑 앱 권장)"; page.update(); return
+            try:
+                path = audio_recorder.stop_recording()
+                if not path or "blob" in path:
+                    # In mobile web browsers, stop_recording often returns a blob URL string
+                    # or fails to write to a local temp file.
+                    if DEBUG_MODE: print(f"DEBUG: stop_recording path -> {path}")
+                    status_text.value = "환경 오류 (브라우저 제약)\n데스크톱 앱을 사용하세요"
+                    page.update()
+                    return
+            except Exception as ex:
+                print(f"Stop Recording Error: {ex}")
+                status_text.value = "환경 오류 (마이크 접근 불가)"
+                page.update()
+                return
             def proc():
                 try:
                     # Get keywords for prompt
