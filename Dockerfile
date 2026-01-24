@@ -3,10 +3,12 @@ FROM python:3.11-slim
 
 # Install system dependencies for Flet (UI and Audio)
 RUN apt-get update && apt-get install -y \
+    build-essential \
     libgstreamer1.0-0 \
     libgstreamer-plugins-base1.0-0 \
     libasound2 \
     libportaudio2 \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory

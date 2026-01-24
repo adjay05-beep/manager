@@ -2,5 +2,3 @@ flet==0.28.3
 supabase==2.11.0
 requests==2.32.3
 python-dotenv==1.0.1
-postgrest==0.16.8
-supabase-auth==2.4.5
