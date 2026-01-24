@@ -18,41 +18,20 @@ DEBUG_MODE = True
 
 # --- [4] 채팅 화면 (Jandi Style) ---
 def get_chat_controls(page: ft.Page, navigate_to):
-    state = {"current_topic_id": None, "edit_mode": False}
-    current_user_id = "00000000-0000-0000-0000-000000000001"
-    
-    def on_topic_reorder(e: ft.ReorderableListViewReorderEvent):
-        # Sync to DB
-        # Note: In ReorderableListView mode, we get controls from the list within container
-        controls = topic_list_container.content.controls
-        moved_control = controls.pop(e.old_index)
-        controls.insert(e.new_index, moved_control)
-        
-        # Update display_order for all visible topics
-        # Lower index = higher priority/top (or vice-versa, let's go with top-to-bottom)
-        try:
-            for idx, ctrl in enumerate(controls):
-                tid = ctrl.data # Storing ID in data attribute
-                supabase.table("chat_topics").update({"display_order": 1000 - idx}).eq("id", tid).execute()
-        except Exception as ex:
-            print(f"Reorder DB Sync Error: {ex}")
-        
-        page.update()
-
-    topic_list_container = ft.Container(expand=True)
-    message_list_view = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=15)
+    # --- [1] UI Elements (Skeleton Defaults) ---
+    topic_list_container = ft.Container(expand=True, content=ft.Column([ft.ProgressBar(color="#00C73C")], alignment=ft.MainAxisAlignment.CENTER))
+    message_list_view = ft.ListView(expand=True, spacing=15, auto_scroll=True, padding=10)
+    chat_header_title = ft.Text("불러오는 중...", weight="bold", size=18, color="#333333")
     
     msg_input = ft.TextField(
-        hint_text="메시지 입력...", 
-        expand=True, 
-        border_radius=10, 
-        bgcolor="white", 
-        border_color="#E0E0E0",
-        on_submit=lambda e: send_message()
+        hint_text="메시지 입력...", expand=True, border_radius=10, bgcolor="#F5F5F5", 
+        border_color="transparent", on_submit=lambda e: send_message(), disabled=True
     )
     
-    chat_header_title = ft.Text("스레드를 선택하세요", weight="bold", size=18, color="#333333")
-    
+    # --- [2] State & Logic ---
+    state = {"current_topic_id": None, "edit_mode": False}
+    current_user_id = "00000000-0000-0000-0000-000000000001"
+
     async def load_topics_async(update_ui=True):
         try:
             # [OPTIMIZATION] Initial skeleton state for topics
@@ -523,27 +502,30 @@ def get_chat_controls(page: ft.Page, navigate_to):
             # Step 1: Rapidly populate topics (Sidebar)
             await load_topics_async(True)
             
-            # Step 2: Start background Realtime engine
+            # 2. Pick default topic if none selected
+            if not state["current_topic_id"] and topic_list_container.content:
+                if len(topic_list_container.content.controls) > 0:
+                    first_item = topic_list_container.content.controls[0]
+                    # Simulate click on first topic
+                    state["current_topic_id"] = first_item.data
+                    chat_header_title.value = first_item.content.controls[0].controls[1].value.replace("# ", "")
+            
+            # 3. Populate Messages
+            await load_messages_async()
+            msg_input.disabled = False
+            
+            # 4. Start Realtime Engine in background
             page.run_task(realtime_task)
             
-            # Step 3: Lazy-load messages if a topic is pre-selected or default
-            if state["current_topic_id"]:
-                await load_messages_async()
-            elif topic_list_container.content and isinstance(topic_list_container.content, (ft.ListView, ft.Column)):
-                if topic_list_container.content.controls:
-                    first_topic_id = topic_list_container.content.controls[0].data
-                    # Auto-select first topic quietly
-                    state["current_topic_id"] = first_topic_id
-                    await load_messages_async()
-                    
             if DEBUG_MODE: print("DEBUG: Hydration Complete")
+            page.update()
         except Exception as e:
-            print(f"Hydration Error: {e}")
+            print(f"Hydration Fail: {e}")
 
-    # Launch hydration in background
+    # Start hydration in a separate task
     page.run_task(init_chat_async)
     
-    # [INSTANT RETURN] No blocking calls here. Return UI structure immediately.
+    # RETURN UI STRUCTURE IMMEDIATELY - THIS ELIMINATES THE BLACK SCREEN
     return [ft.Row([sidebar, main_area], expand=True, spacing=0)]
 
 # [1] 로그인 화면
@@ -1515,58 +1497,55 @@ def get_order_controls(page: ft.Page, navigate_to):
                 fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
                 public_url = f"{supabase.url}/storage/v1/object/public/uploads/{fname}"
                 
-                # [ARCH] Remote Server 정공법: Client-Side JS Upload
-                if "blob" in local_path or (":" in local_path and not os.path.isabs(local_path)):
-                    status_text.value = "클라우드 전송 중 (Client)..."
+                # REMOTE SERVER FIX: Client-Side Browser Upload via JavaScript
+                if "blob" in local_path or not os.path.isabs(local_path):
+                    status_text.value = "기기에서 업로드 중..."
                     signed_res = supabase.storage.from_("uploads").create_signed_upload_url(fname)
                     signed_url = signed_res['signed_url']
                     
-                    # JS Bridge: Fetch blob and PUT to Supabase
-                    js_code = f"""
-                    (async () => {{
+                    # This script instructs the PHONE'S browser to fetch the local blob and PUT it to Supabase
+                    js_upload = f"""
+                    (async function() {{
                         try {{
-                            const response = await fetch("{local_path}");
-                            const blob = await response.blob();
-                            const up_res = await fetch("{signed_url}", {{
+                            console.log("Starting Cloud Bridge Upload...");
+                            const res = await fetch("{local_path}");
+                            const blob = await res.blob();
+                            const up = await fetch("{signed_url}", {{
                                 method: "PUT",
+                                headers: {{ "Content-Type": "audio/wav" }},
                                 body: blob
                             }});
-                            if (up_res.ok) {{
-                                // Notify Python side via hidden value & click
-                                const url_text = document.querySelector('div[data-flet-id="voice_up_url_id"]'); 
-                                // Actually better to use Flet's set_value if possible, 
-                                // but for robustness, we'll try to find the hidden notify elements
-                                // Let's use a simpler way: Trigger the button after a small delay
-                                setTimeout(() => {{
-                                    window.flet_js_callback("{public_url}");
-                                }}, 500);
+                            if (up.ok) {{
+                                console.log("Upload Success!");
+                            }} else {{
+                                console.error("Upload Failed Status:", up.status);
                             }}
-                        }} catch (err) {{
-                            console.error("Upload Bridge Error:", err);
+                        }} catch (e) {{
+                            console.error("Cloud Bridge Error:", e);
                         }}
                     }})();
                     """
-                    # We need a proper way to get the URL back. 
-                    # Let's use a global callback if Flet supports it, or just use page.session_id trick.
-                    # Simpler: Just use the public_url since we already pre-calculated it.
+                    page.run_javascript(js_upload)
                     
-                    # Store public_url in a hidden field
-                    voice_up_url.value = public_url
-                    page.run_javascript(js_code)
+                    # Python waits for the cloud file to exist (Polling Bridge)
+                    async def poll_and_convert():
+                        status_text.value = "서버 수신 대기..."
+                        page.update()
+                        for _ in range(10): # Timeout 10s
+                            await asyncio.sleep(1)
+                            # Check if file exists in Supabase Storage meta-data or just try transcribing
+                            try:
+                                await start_transcription(public_url)
+                                return
+                            except: pass
+                        status_text.value = "전송 타임아웃"; page.update()
                     
-                    # Instead of complex JS callback, we'll poll or use a simpler bridge
-                    # For now, let's just trigger the transcription after a safety delay or use a real callback if possible.
-                    # Let's use a Task to wait for the upload 
-                    async def wait_for_up():
-                        await asyncio.sleep(3) # Safety buffer for upload
-                        await start_transcription(public_url)
-                    page.run_task(wait_for_up)
+                    page.run_task(poll_and_convert)
                 else:
-                    # Native app with local file access
+                    # Native / Local mode
                     with open(local_path, "rb") as f:
                         supabase.storage.from_("uploads").upload(fname, f.read())
-                    status_text.value = "변환 중..."
-                    page.run_task(lambda: start_transcription(public_url))
+                    await start_transcription(public_url)
 
             except Exception as ex:
                 status_text.value = f"전송 에러: {str(ex)[:20]}"
