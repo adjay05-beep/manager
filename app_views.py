@@ -550,13 +550,32 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try: await rt_client.disconnect()
             except: pass
 
-    # Start the realtime bridge with a slight safety delay
-    page.run_task(realtime_task)
+    # --- [INITIALIZATION] ---
+    async def init_chat_async():
+        if DEBUG_MODE: print("DEBUG: Initializing Chat UI components...")
+        try:
+            # 1. Load Topics
+            load_topics(True)
+            page.update()
+            
+            # 2. Start Realtime (Non-blocking)
+            page.run_task(realtime_task)
+            
+            # 3. Load first topic messages if available
+            if state["current_topic_id"]:
+                await load_messages_async()
+                
+            if DEBUG_MODE: print("DEBUG: Chat UI Initialization Complete")
+        except Exception as e:
+            print(f"Chat Init Error: {e}")
+            if page:
+                page.snack_bar = ft.SnackBar(ft.Text("데이터 연결 실패: 나중에 다시 시도해 주세요."), open=True)
+                page.update()
 
-    load_topics(False)
-    # [FIX] Force a quick update to ensure UI is interactive before bridge starts
-    if page: page.update()
+    # Launch initialization in background
+    page.run_task(init_chat_async)
     
+    # Return UI IMMEDIATELY (Zero network calls here)
     return [ft.Row([sidebar, main_area], expand=True, spacing=0)]
 
 # [1] 로그인 화면
