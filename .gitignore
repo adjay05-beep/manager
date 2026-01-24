@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.wav
+*.mp3
+.gemini/
+brain/
+*.log
