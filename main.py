@@ -9,6 +9,11 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
     page.spacing = 0
+    page.bgcolor = "#0A1929" # SaaS Navy Global Default
+    
+    # Global FilePicker for all views
+    page.file_picker = ft.FilePicker()
+    page.overlay.append(page.file_picker)
     
     def navigate_to(route):
         page.clean()

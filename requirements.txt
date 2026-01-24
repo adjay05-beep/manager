@@ -4,3 +4,5 @@ requests==2.32.3
 python-dotenv==1.0.1
 supabase-auth>=2.4.0
 postgrest>=0.16.0
+realtime>=2.27.2
+httpx>=0.28.1

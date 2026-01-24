@@ -1,8 +1,12 @@
 import os
+import mimetypes
 from dotenv import load_dotenv
 from supabase_auth import SyncGoTrueClient
 from postgrest import SyncPostgrestClient
-# from realtime import SyncRealtimeClient # Realtime setup can be complex, adding if needed later
+try:
+    from realtime import AsyncRealtimeClient
+except ImportError:
+    AsyncRealtimeClient = None
 
 load_dotenv()
 
@@ -29,6 +33,16 @@ class SupabaseClient:
             headers=self.headers, 
             schema="public"
         )
+        
+        # Manual Storage Client using httpx (Stable in all environments)
+        self.storage = ManualStorageManager(f"{url}/storage/v1", self.headers)
+
+    def get_realtime_client(self):
+        if not AsyncRealtimeClient:
+            print("ERROR: AsyncRealtimeClient not available. Please check dependencies.")
+            return None
+        socket_url = f"{self.url.replace('https', 'wss')}/realtime/v1"
+        return AsyncRealtimeClient(socket_url, self.key)
 
     # Mimic the standard supabase-py interface
     def table(self, table_name: str):
@@ -39,6 +53,101 @@ class SupabaseClient:
 
     def rpc(self, fn: str, params: dict = None):
         return self.rest.rpc(fn, params)
+
+    def get_upload_headers(self):
+        # Essential headers for Supabase Storage without Content-Type
+        return {
+            "apikey": self.key,
+            "Authorization": f"Bearer {self.key}"
+        }
+
+import httpx
+class ManualStorageManager:
+    def __init__(self, url, headers):
+        self.url = url
+        self.headers = headers
+    def from_(self, bucket):
+        return ManualBucket(self.url, self.headers, bucket)
+
+class ManualBucket:
+    def __init__(self, url, headers, bucket):
+        self.url = f"{url}/object/{bucket}"
+        self.headers = headers
+    def upload(self, path, content):
+        # [CRITICAL FIX] Avoid sending 'Content-Type: application/json' for binary files
+        upload_headers = self.headers.copy()
+        
+        # Determine MIME Type
+        mime_type, _ = mimetypes.guess_type(path)
+        if mime_type:
+            upload_headers["Content-Type"] = mime_type
+        elif "Content-Type" in upload_headers:
+            # Drop if we can't guess but it's binary
+            del upload_headers["Content-Type"]
+            
+        resp = httpx.post(f"{self.url}/{path}", headers=upload_headers, content=content)
+        if resp.status_code not in [200, 201]:
+            print(f"STORAGE ERROR: {resp.status_code} {resp.text}")
+        resp.raise_for_status()
+        return resp.json()
+
+    def create_upload_url(self, path):
+        # Fallback for simple POST (Often fails with auth)
+        return f"{self.url}/{path}"
+
+    def create_signed_upload_url(self, path, expires_in=120):
+        # Implementation with bucket name fallback (uploads vs upload)
+        import urllib.parse
+        safe_path = urllib.parse.quote(path)
+        
+        parts = self.url.split("/object/")
+        base_storage_url = parts[0]
+        original_bucket = parts[1]
+        
+        headers = self.headers.copy()
+        headers["Content-Type"] = "application/json"
+        
+        # Robust candidate list for bucket names
+        buckets_to_try = [original_bucket, "uploads", "upload", "storage"]
+        # Filter duplicates
+        buckets_to_try = list(dict.fromkeys(buckets_to_try))
+        
+        print(f"DEBUG: Attempting Signed URL for path: {path} (safe: {safe_path})")
+        print(f"DEBUG: Trying buckets: {buckets_to_try}")
+        
+        last_error = ""
+        for bucket in buckets_to_try:
+            # 1. Primary Syntax
+            endpoint = f"{base_storage_url}/object/upload/sign/{bucket}/{safe_path}"
+            try:
+                resp = httpx.post(endpoint, headers=headers, json={"expiresIn": expires_in})
+                if resp.status_code == 200:
+                    print(f"DEBUG: Found bucket '{bucket}' using primary syntax.")
+                    data = resp.json()
+                    s_url = data.get("url") or data.get("signedUrl")
+                    if s_url and s_url.startswith("/"):
+                        s_url = f"{base_storage_url}{s_url}"
+                    return s_url
+                
+                # 2. Fallback Syntax
+                fb_endpoint = f"{base_storage_url}/object/{bucket}/{safe_path}/sign"
+                resp = httpx.post(fb_endpoint, headers=headers, json={"expiresIn": expires_in})
+                if resp.status_code == 200:
+                    print(f"DEBUG: Found bucket '{bucket}' using fallback syntax.")
+                    data = resp.json()
+                    s_url = data.get("url") or data.get("signedUrl")
+                    if s_url and s_url.startswith("/"):
+                        s_url = f"{base_storage_url}{s_url}"
+                    return s_url
+                
+                last_error = f"Bucket '{bucket}': {resp.status_code} {resp.text}"
+            except Exception as e:
+                last_error = str(e)
+                continue
+        
+        msg = f"SIGNED URL ERROR: Failed after trying {buckets_to_try}. Last response: {last_error}"
+        print(msg)
+        raise Exception(msg)
 
 url = os.environ.get("SUPABASE_URL")
 key = os.environ.get("SUPABASE_KEY")
