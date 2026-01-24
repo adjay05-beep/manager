@@ -53,88 +53,55 @@ def get_chat_controls(page: ft.Page, navigate_to):
     
     chat_header_title = ft.Text("스레드를 선택하세요", weight="bold", size=18, color="#333333")
     
-    def load_topics(update_ui=True):
+    async def load_topics_async(update_ui=True):
         try:
             res = supabase.table("chat_topics").select("*").execute()
             topics = res.data or []
             
-            # Reorder handles are only needed in Edit Mode.
-            # Normal Mode: Column (clean, no handles). Edit Mode: ReorderableListView.
             if state["edit_mode"]:
-                list_view = ft.ReorderableListView(
-                    expand=True, 
-                    on_reorder=on_topic_reorder,
-                    show_default_drag_handles=False # Hide the right-side handle
-                )
+                list_view = ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False)
             else:
                 list_view = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=0)
 
-            # Sort
             sorted_topics = sorted(topics, key=lambda x: (x.get('is_priority', False), x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
 
-            # [OPTIMIZATION] Batch Fetch Reading Status
             read_res = supabase.table("chat_user_reading").select("topic_id, last_read_at").eq("user_id", current_user_id).execute()
             reading_map = {r['topic_id']: r['last_read_at'] for r in read_res.data} if read_res.data else {}
             
-            # [OPTIMIZATION] Batch Fetch Recent Messages to count unreads in memory
-            # Get the earliest last_read_at to fetch only necessary messages
             default_old = "1970-01-01T00:00:00Z"
             earliest_read = min(reading_map.values()) if reading_map else default_old
-            
-            # Limit message fetch to a reasonable window or just since earliest_read
             msg_res = supabase.table("chat_messages").select("topic_id, created_at").gt("created_at", earliest_read).execute()
             recent_msgs = msg_res.data or []
             
-            # Pre-group counts
             unread_counts = {}
             for m in recent_msgs:
-                tid_m = m['topic_id']
-                lr_m = reading_map.get(tid_m, default_old)
-                if m['created_at'] > lr_m:
-                    unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
+                tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
+                if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
             for t in sorted_topics:
-                tid = t['id']
-                is_selected = tid == state["current_topic_id"]
-                is_priority = t.get('is_priority', False)
-                unread_count = unread_counts.get(tid, 0)
-
-                # Row construction
-                row_items = []
-                if state["edit_mode"]:
-                    # Visual handle on the left (since ft.DragHandle is missing in this version)
-                    row_items.append(ft.Icon(ft.Icons.DRAG_HANDLE_ROUNDED, size=20, color="#BDBDBD"))
-                else:
-                    row_items.append(ft.IconButton(
-                        ft.Icons.PRIORITY_HIGH_ROUNDED, 
-                        icon_color="#FF5252" if is_priority else "#BDBDBD", 
-                        icon_size=16,
-                        on_click=lambda e, tid=tid, p=is_priority: toggle_priority(tid, p)
-                    ))
+                tid = t['id']; is_selected = tid == state["current_topic_id"]; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
                 
-                row_items.append(ft.Text(t['name'], size=14, weight="bold" if is_selected else "normal", color="#1A1A1A", expand=True))
+                bg = "#E8F5E9" if is_selected else "transparent"
+                txt_color = "#00C73C" if is_selected else "#333333"
                 
-                if not state["edit_mode"] and unread_count > 0:
-                    row_items.append(ft.Container(
-                        content=ft.Text(str(unread_count), size=10, color="white", weight="bold"),
-                        bgcolor="#FF5252",
-                        padding=ft.padding.symmetric(horizontal=6, vertical=2),
-                        border_radius=10
-                    ))
+                badge = ft.Container(
+                    content=ft.Text(str(unread_count), size=10, color="white", weight="bold"),
+                    bgcolor="#FF5252", padding=ft.padding.symmetric(horizontal=6, vertical=2), border_radius=10
+                ) if unread_count > 0 and not is_selected else ft.Container()
+                
+                prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=16, color="#FF5252") if is_priority else ft.Container()
 
                 item = ft.Container(
-                    key=str(tid),
-                    data=tid,
-                    content=ft.Row(row_items, spacing=5),
-                    padding=ft.padding.symmetric(horizontal=10, vertical=8),
-                    border_radius=8,
-                    bgcolor="#F0F7FF" if is_selected else "transparent",
-                    on_click=lambda e, topic=t: select_topic(topic),
-                    ink=True
+                    content=ft.Row([
+                        ft.Row([prio_icon, ft.Text(f"# {t['name']}", size=14, weight="bold" if is_selected else "normal", color=txt_color)], spacing=5),
+                        badge
+                    ], alignment="spaceBetween"),
+                    padding=ft.padding.symmetric(horizontal=15, vertical=12),
+                    bgcolor=bg, border_radius=8, ink=True,
+                    on_click=lambda e, topic=t: select_topic(topic), data=tid
                 )
                 
                 if state["edit_mode"]:
-                    # Wrap the item in a draggable that doesn't add forced right handles
                     list_view.controls.append(
                         ft.ReorderableDraggable(
                             index=sorted_topics.index(t),
@@ -145,10 +112,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     list_view.controls.append(item)
             
             topic_list_container.content = list_view
-            if DEBUG_MODE: print(f"DEBUG: Setting container content to {type(list_view).__name__} with {len(list_view.controls)} items")
             if update_ui: page.update()
         except Exception as e:
-            print(f"Load Topics Fail: {e}")
+            print(f"Load Topics Error: {e}")
             import traceback
             traceback.print_exc()
 
@@ -240,7 +206,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
         chat_header_title.value = topic['name']
         msg_input.disabled = False
         
-        # Immediate UI Feedback
+        # [NEW] Virtualized ListView for high performance
         message_list_view.controls = [
             ft.Container(
                 content=ft.Column([ft.ProgressRing(color="#00C73C"), ft.Text("불러오는 중...", size=11)], horizontal_alignment="center"),
@@ -249,16 +215,15 @@ def get_chat_controls(page: ft.Page, navigate_to):
         ]
         page.update()
 
-        # Background sync
-        def sync():
+        # [REFACTOR] Everything Async
+        async def run_select():
             try:
                 now_utc = datetime.now(timezone.utc).isoformat()
                 supabase.table("chat_user_reading").upsert({"topic_id": topic['id'], "user_id": current_user_id, "last_read_at": now_utc}).execute()
+                await load_topics_async(True)
+                await load_messages_async()
             except: pass
-        threading.Thread(target=sync, daemon=True).start()
-            
-        load_topics(True) 
-        page.run_task(load_messages_async)
+        page.run_task(run_select)
 
     # Maintain old load_messages for compatibility with realtime callback if needed
     def load_messages():
