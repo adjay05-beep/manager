@@ -186,7 +186,7 @@ def get_login_controls(page, navigate_to):
 
     return [
         ft.Stack([
-            ft.Image(src="images/login_bg.png", width=page.window_width, height=page.window_height, fit=ft.ImageFit.COVER),
+            ft.Image(src="images/login_bg.png", fit=ft.ImageFit.COVER, expand=True),
             ft.Container(expand=True, bgcolor=ft.Colors.with_opacity(0.4, "black")), # Overlay
             ft.Container(content=login_card, alignment=ft.alignment.center, expand=True)
         ], expand=True)
