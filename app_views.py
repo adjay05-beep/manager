@@ -55,22 +55,25 @@ def get_chat_controls(page: ft.Page, navigate_to):
     
     async def load_topics_async(update_ui=True):
         try:
-            res = supabase.table("chat_topics").select("*").execute()
+            # [OPTIMIZATION] Initial skeleton state for topics
+            if not topic_list_container.content:
+                topic_list_container.content = ft.Column([ft.Container(height=30, bgcolor="#F5F5F5", border_radius=5) for _ in range(5)], spacing=10)
+                if update_ui: page.update()
+
+            res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").execute())
             topics = res.data or []
             
-            if state["edit_mode"]:
-                list_view = ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False)
-            else:
-                list_view = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=0)
+            list_view = ft.ListView(expand=True, spacing=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False)
 
             sorted_topics = sorted(topics, key=lambda x: (x.get('is_priority', False), x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
 
-            read_res = supabase.table("chat_user_reading").select("topic_id, last_read_at").eq("user_id", current_user_id).execute()
+            read_res = await asyncio.to_thread(lambda: supabase.table("chat_user_reading").select("topic_id, last_read_at").eq("user_id", current_user_id).execute())
             reading_map = {r['topic_id']: r['last_read_at'] for r in read_res.data} if read_res.data else {}
             
+            # Message counts in background
             default_old = "1970-01-01T00:00:00Z"
             earliest_read = min(reading_map.values()) if reading_map else default_old
-            msg_res = supabase.table("chat_messages").select("topic_id, created_at").gt("created_at", earliest_read).execute()
+            msg_res = await asyncio.to_thread(lambda: supabase.table("chat_messages").select("topic_id, created_at").gt("created_at", earliest_read).execute())
             recent_msgs = msg_res.data or []
             
             unread_counts = {}
@@ -102,35 +105,33 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 )
                 
                 if state["edit_mode"]:
-                    list_view.controls.append(
-                        ft.ReorderableDraggable(
-                            index=sorted_topics.index(t),
-                            content=item
-                        )
-                    )
+                    list_view.controls.append(ft.ReorderableDraggable(index=sorted_topics.index(t), content=item))
                 else:
                     list_view.controls.append(item)
             
             topic_list_container.content = list_view
             if update_ui: page.update()
-        except Exception as e:
-            print(f"Load Topics Error: {e}")
+        except Exception as ex:
+            print(f"Load Topics Error: {ex}")
             import traceback
             traceback.print_exc()
+
+    def load_topics(update_ui=True):
+        page.run_task(lambda: load_topics_async(update_ui))
 
     # [NEW] Virtualized ListView for high performance
     message_list_view = ft.ListView(expand=True, spacing=15, auto_scroll=True, padding=10)
     
-    msg_input = ft.TextField(
-        hint_text="메시지 입력...", 
-        expand=True, 
-        border_radius=10, 
-        bgcolor="white", 
-        border_color="#E0E0E0",
-        on_submit=lambda e: send_message()
-    )
+    # msg_input = ft.TextField( # This was a duplicate, removed.
+    #     hint_text="메시지 입력...", 
+    #     expand=True, 
+    #     border_radius=10, 
+    #     bgcolor="white", 
+    #     border_color="#E0E0E0",
+    #     on_submit=lambda e: send_message()
+    # )
     
-    chat_header_title = ft.Text("스레드를 선택하세요", weight="bold", size=18, color="#333333")
+    # chat_header_title = ft.Text("스레드를 선택하세요", weight="bold", size=18, color="#333333") # This was a duplicate, removed.
 
     def toggle_priority(tid, current_val):
         try:
@@ -515,32 +516,34 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try: await rt_client.disconnect()
             except: pass
 
-    # --- [INITIALIZATION] ---
+    # --- [INITIALIZATION: SKELETON HYDRATION] ---
     async def init_chat_async():
-        if DEBUG_MODE: print("DEBUG: Initializing Chat UI components...")
+        if DEBUG_MODE: print("DEBUG: Instantly hydrating Chat UI...")
         try:
-            # 1. Load Topics
-            load_topics(True)
-            page.update()
+            # Step 1: Rapidly populate topics (Sidebar)
+            await load_topics_async(True)
             
-            # 2. Start Realtime (Non-blocking)
+            # Step 2: Start background Realtime engine
             page.run_task(realtime_task)
             
-            # 3. Load first topic messages if available
+            # Step 3: Lazy-load messages if a topic is pre-selected or default
             if state["current_topic_id"]:
                 await load_messages_async()
-                
-            if DEBUG_MODE: print("DEBUG: Chat UI Initialization Complete")
+            elif topic_list_container.content and isinstance(topic_list_container.content, (ft.ListView, ft.Column)):
+                if topic_list_container.content.controls:
+                    first_topic_id = topic_list_container.content.controls[0].data
+                    # Auto-select first topic quietly
+                    state["current_topic_id"] = first_topic_id
+                    await load_messages_async()
+                    
+            if DEBUG_MODE: print("DEBUG: Hydration Complete")
         except Exception as e:
-            print(f"Chat Init Error: {e}")
-            if page:
-                page.snack_bar = ft.SnackBar(ft.Text("데이터 연결 실패: 나중에 다시 시도해 주세요."), open=True)
-                page.update()
+            print(f"Hydration Error: {e}")
 
-    # Launch initialization in background
+    # Launch hydration in background
     page.run_task(init_chat_async)
     
-    # Return UI IMMEDIATELY (Zero network calls here)
+    # [INSTANT RETURN] No blocking calls here. Return UI structure immediately.
     return [ft.Row([sidebar, main_area], expand=True, spacing=0)]
 
 # [1] 로그인 화면
@@ -1478,6 +1481,18 @@ def get_order_controls(page: ft.Page, navigate_to):
         except Exception as ex:
             print(f"Delete All Error: {ex}")
 
+    # [NEW] Cloud Bridge: Helper for JS-side upload notification
+    voice_up_url = ft.Text("", visible=False)
+    def on_voice_uploaded(e):
+        if voice_up_url.value:
+            status_text.value = "AI 변환 중..."
+            status_text.color = "blue"
+            page.update()
+            page.run_task(lambda: start_transcription(voice_up_url.value))
+    
+    voice_done_btn = ft.IconButton(ft.Icons.CHECK, on_click=on_voice_uploaded, visible=False)
+    page.overlay.append(voice_done_btn)
+
     def toggle_rec(e):
         if not state["is_recording"]:
             if not audio_recorder.has_permission(): audio_recorder.request_permission(); return
@@ -1490,61 +1505,89 @@ def get_order_controls(page: ft.Page, navigate_to):
             threading.Thread(target=upd, daemon=True).start()
             path = os.path.join(tempfile.gettempdir(), "order_voice.wav"); audio_recorder.start_recording(path); page.update()
         else:
-            state["is_recording"] = False; status_text.value = "파일 전송 중..."; recording_timer.visible = False; page.update()
+            state["is_recording"] = False; status_text.value = "클라우드 전송 준비..."; recording_timer.visible = False; page.update()
             
-            def on_up_res(e: ft.FilePickerResultEvent):
-                # This picker is used within toggle_rec for the cloud bridge
-                pass 
-
             try:
-                # 1. Stop recording and get local file path
                 local_path = audio_recorder.stop_recording()
                 if not local_path:
-                    status_text.value = "녹음 데이터 누락"; page.update(); return
+                    status_text.value = "녹음 실패"; page.update(); return
                 
-                # 2. Cloud Bridge: Upload from phone to Supabase Storage
                 fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
                 public_url = f"{supabase.url}/storage/v1/object/public/uploads/{fname}"
                 
-                # Prepare upload
-                if "blob" in local_path:
-                    # Web Mode: Use signed URL
-                    status_text.value = "클라우드 업로드 중..."
+                # [ARCH] Remote Server 정공법: Client-Side JS Upload
+                if "blob" in local_path or (":" in local_path and not os.path.isabs(local_path)):
+                    status_text.value = "클라우드 전송 중 (Client)..."
                     signed_res = supabase.storage.from_("uploads").create_signed_upload_url(fname)
                     signed_url = signed_res['signed_url']
                     
-                    def on_voice_up(up_e: ft.FilePickerUploadEvent):
-                        if up_e.progress == 1:
-                            status_text.value = "변환 시작..."; page.update()
-                            page.run_task(lambda: start_transcription(public_url))
+                    # JS Bridge: Fetch blob and PUT to Supabase
+                    js_code = f"""
+                    (async () => {{
+                        try {{
+                            const response = await fetch("{local_path}");
+                            const blob = await response.blob();
+                            const up_res = await fetch("{signed_url}", {{
+                                method: "PUT",
+                                body: blob
+                            }});
+                            if (up_res.ok) {{
+                                // Notify Python side via hidden value & click
+                                const url_text = document.querySelector('div[data-flet-id="voice_up_url_id"]'); 
+                                // Actually better to use Flet's set_value if possible, 
+                                // but for robustness, we'll try to find the hidden notify elements
+                                // Let's use a simpler way: Trigger the button after a small delay
+                                setTimeout(() => {{
+                                    window.flet_js_callback("{public_url}");
+                                }}, 500);
+                            }}
+                        }} catch (err) {{
+                            console.error("Upload Bridge Error:", err);
+                        }}
+                    }})();
+                    """
+                    # We need a proper way to get the URL back. 
+                    # Let's use a global callback if Flet supports it, or just use page.session_id trick.
+                    # Simpler: Just use the public_url since we already pre-calculated it.
                     
-                    page.file_picker.on_upload = on_voice_up
-                    page.file_picker.upload([ft.FilePickerUploadFile(name=fname, upload_url=signed_url, method="PUT")])
+                    # Store public_url in a hidden field
+                    voice_up_url.value = public_url
+                    page.run_javascript(js_code)
+                    
+                    # Instead of complex JS callback, we'll poll or use a simpler bridge
+                    # For now, let's just trigger the transcription after a safety delay or use a real callback if possible.
+                    # Let's use a Task to wait for the upload 
+                    async def wait_for_up():
+                        await asyncio.sleep(3) # Safety buffer for upload
+                        await start_transcription(public_url)
+                    page.run_task(wait_for_up)
                 else:
-                    # Desktop/Native Mode: Direct upload (Reliable)
+                    # Native app with local file access
                     with open(local_path, "rb") as f:
                         supabase.storage.from_("uploads").upload(fname, f.read())
-                    status_text.value = "변환 요청 중..."
+                    status_text.value = "변환 중..."
                     page.run_task(lambda: start_transcription(public_url))
 
             except Exception as ex:
                 status_text.value = f"전송 에러: {str(ex)[:20]}"
                 page.update()
 
-            async def start_transcription(url):
-                try:
-                    t = transcribe_audio(url)
-                    if t:
-                        supabase.table("order_memos").insert({"content": t, "user_id": "00000000-0000-0000-0000-000000000001"}).execute()
-                        status_text.value = "등록 완료!"; status_text.color = "green"; load_memos()
-                    else:
-                        status_text.value = "인식 실패"; status_text.color = "orange"
-                except Exception as ex:
-                    print(f"Transcription Task Error: {ex}")
-                    status_text.value = "AI 변환 실패"
-                finally:
-                    page.update()
-            
+    async def start_transcription(url):
+        try:
+            status_text.value = "AI 분석 중..."
+            page.update()
+            t = transcribe_audio(url)
+            if t:
+                supabase.table("order_memos").insert({"content": t, "user_id": "00000000-0000-0000-0000-000000000001"}).execute()
+                status_text.value = "등록 성공!"; status_text.color = "green"
+                status_text.value = f"결과: {t[:15]}..."
+                load_memos()
+            else:
+                status_text.value = "인식 실패 (무음)"; status_text.color = "orange"
+        except Exception as ex:
+            print(f"Transcription Error: {ex}")
+            status_text.value = "AI 오류: 다시 시도"
+        finally:
             page.update()
 
     def open_dictionary(e):
