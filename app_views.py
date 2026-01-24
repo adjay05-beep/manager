@@ -519,45 +519,59 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     # --- [NEW] REALTIME INTEGRATION (Zero Latency) ---
     async def realtime_task():
-        rt_client = supabase.get_realtime_client()
-        if not rt_client: return
+        # [OPTIMIZATION] Lazy start: Wait for UI to stabilize
+        await asyncio.sleep(2)
+        if DEBUG_MODE: print("REALTIME: Engine starting...")
         
-        # 1. Listen for new messages
-        msg_channel = rt_client.channel("realtime-msgs")
-        
-        def handle_new_msg(payload):
-            if DEBUG_MODE: print(f"REALTIME: New message -> {payload}")
-            load_topics(True)
-            new_tid = payload.get('record', {}).get('topic_id')
-            if str(new_tid) == str(state["current_topic_id"]):
-                load_messages()
-
-        msg_channel.on("postgres_changes", {"event": "INSERT", "schema": "public", "table": "chat_messages"}, handle_new_msg)
-        
-        # 2. Listen for topic changes
-        topic_channel = rt_client.channel("realtime-topics")
-        def handle_topic_change(payload):
-            if DEBUG_MODE: print(f"REALTIME: Topic change -> {payload}")
-            load_topics(True)
-
-        topic_channel.on("postgres_changes", {"event": "*", "schema": "public", "table": "chat_topics"}, handle_topic_change)
-
         try:
+            rt_client = supabase.get_realtime_client()
+            if not rt_client: 
+                if DEBUG_MODE: print("REALTIME: Client init failed")
+                return
+            
+            # 1. Listen for new messages
+            msg_channel = rt_client.channel("realtime-msgs")
+            
+            def handle_new_msg(payload):
+                if DEBUG_MODE: print(f"REALTIME: New message -> {payload}")
+                load_topics(True)
+                new_tid = payload.get('record', {}).get('topic_id')
+                if str(new_tid) == str(state["current_topic_id"]):
+                    load_messages()
+
+            msg_channel.on("postgres_changes", {"event": "INSERT", "schema": "public", "table": "chat_messages"}, handle_new_msg)
+            
+            # 2. Listen for topic changes
+            topic_channel = rt_client.channel("realtime-topics")
+            def handle_topic_change(payload):
+                if DEBUG_MODE: print(f"REALTIME: Topic change -> {payload}")
+                load_topics(True)
+
+            topic_channel.on("postgres_changes", {"event": "*", "schema": "public", "table": "chat_topics"}, handle_topic_change)
+
             await rt_client.connect()
             await msg_channel.subscribe()
             await topic_channel.subscribe()
+            
+            if DEBUG_MODE: print("REALTIME: Engine connected and subscribed")
+            
             while not page.is_disconnected:
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
+                
         except Exception as e:
-            if DEBUG_MODE: print(f"REALTIME ERROR: {e}")
+            print(f"REALTIME CRITICAL ERROR: {e}")
+            # Do not show snackbar here as it might cause infinite loop or flicker on retry
         finally:
             try: await rt_client.disconnect()
             except: pass
 
-    # Start the realtime bridge using Flet's reliable task runner
+    # Start the realtime bridge with a slight safety delay
     page.run_task(realtime_task)
 
     load_topics(False)
+    # [FIX] Force a quick update to ensure UI is interactive before bridge starts
+    if page: page.update()
+    
     return [ft.Row([sidebar, main_area], expand=True, spacing=0)]
 
 # [1] 로그인 화면
@@ -1511,10 +1525,10 @@ def get_order_controls(page: ft.Page, navigate_to):
             try:
                 path = audio_recorder.stop_recording()
                 if not path or "blob" in path:
-                    # In mobile web browsers, stop_recording often returns a blob URL string
-                    # or fails to write to a local temp file.
-                    if DEBUG_MODE: print(f"DEBUG: stop_recording path -> {path}")
-                    status_text.value = "환경 오류 (브라우저 제약)\n데스크톱 앱을 사용하세요"
+                    # Mobile web browsers (especially iOS/Chrome on Android) return blob URLs
+                    # This requires a native app build (APK) for full file system access.
+                    status_text.value = "모바일 웹 제약 발생\n(앱 설치 권장)"
+                    page.snack_bar = ft.SnackBar(ft.Text("모바일 웹에서는 녹음이 제한됩니다. 앱을 설치하거나 PC에서 사용해 주세요."), open=True)
                     page.update()
                     return
             except Exception as ex:
