@@ -9,14 +9,62 @@ import tempfile
 import time
 
 def get_order_controls(page: ft.Page, navigate_to):
-    # [FIX] Singleton Audio Recorder from Main
-    # This prevents the freeze caused by creating multiple recorders.
-    if hasattr(page, "audio_recorder"):
-        audio_recorder = page.audio_recorder
-    else:
-        # Fallback if main.py didn't set it (local dev)
-        audio_recorder = ft.AudioRecorder()
-        page.overlay.append(audio_recorder)
+    # [FIX] Pure JS Recorder Approach
+    # We remove page.audio_recorder dependency because it fails in Remote Native App scenario.
+    # We will use purely Javascript via page.run_javascript to Init/Start/Stop/Upload.
+    
+    # Inject JS Code for Recorder
+    # This script defines functions in global window scope for Python to call.
+    recorder_script = """
+    window.audioChunks = [];
+    window.mediaRecorder = null;
+    
+    window.startRecordingJS = async function() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            window.mediaRecorder = new MediaRecorder(stream);
+            window.audioChunks = [];
+            
+            window.mediaRecorder.ondataavailable = event => {
+                window.audioChunks.push(event.data);
+            };
+            
+            window.mediaRecorder.start();
+            return "STARTED";
+        } catch (err) {
+            return "ERROR: " + err;
+        }
+    };
+    
+    window.stopRecordingAndUploadJS = async function(uploadUrl) {
+        return new Promise((resolve, reject) => {
+            if (!window.mediaRecorder) { resolve("NO_RECORDER"); return; }
+            
+            window.mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(window.audioChunks, { type: 'audio/wav' });
+                try {
+                    const resp = await fetch(uploadUrl, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'audio/wav' },
+                        body: audioBlob
+                    });
+                    if (resp.ok) resolve("UPLOAD_OK");
+                    else resolve("UPLOAD_FAIL: " + resp.status);
+                } catch (e) {
+                    resolve("UPLOAD_ERR: " + e);
+                }
+                
+                // Cleanup tracks
+                window.mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                window.mediaRecorder = null;
+            };
+            
+            window.mediaRecorder.stop();
+        });
+    };
+    """
+    # Inject script once
+    page.run_javascript(recorder_script)
 
     state = {"is_recording": False, "memos": [], "seconds": 0, "edit_id": None}
     
@@ -92,18 +140,11 @@ def get_order_controls(page: ft.Page, navigate_to):
 
     def toggle_rec(e):
         if not state["is_recording"]:
-            # START RECORDING
+            # START RECORDING (JS)
             state["is_recording"] = True
             state["seconds"] = 0
-            status_text.value = "녹음 준비..." # Debug
+            status_text.value = "녹음 준비 (JS Mode)..."
             recording_timer.visible = True
-            
-            # Web Detection
-            # The previous 'force_web' caused a crash on Native App because it tried start(None).
-            # We must respect page.web for the API call signature.
-            is_browser = page.web
-            
-            status_text.value = f"Rec Start (Browser:{is_browser})"
             page.update()
 
             def upd():
@@ -112,88 +153,45 @@ def get_order_controls(page: ft.Page, navigate_to):
                     mins, secs = divmod(state["seconds"], 60); recording_timer.value = f"{mins:02d}:{secs:02d}"; page.update()
             threading.Thread(target=upd, daemon=True).start()
 
-            try:
-                if is_browser:
-                    # Web Standard
-                    audio_recorder.start_recording(None)
-                else:
-                    # Native (App or Desktop)
-                    # Must provide path
-                    path = os.path.join(tempfile.gettempdir(), f"order_voice_{int(time.time())}.wav")
-                    audio_recorder.start_recording(path)
-            except Exception as ex:
-                # This catches the 'output_path provided' error if logic flips
-                state["is_recording"] = False
-                status_text.value = f"Start Err: {ex}"
-                page.update()
+            # Trigger JS Start
+            page.run_javascript("window.startRecordingJS().then(res => console.log(res));")
+            status_text.value = "녹음 중..."
+            page.update()
 
         else:
-            # STOP RECORDING
+            # STOP RECORDING (JS)
             state["is_recording"] = False
-            status_text.value = "녹음 종료 중..."
+            status_text.value = "서버 전송 중..."
             recording_timer.visible = False
             page.update()
             
-            try:
-                # Stop returns path or url
-                local_path = audio_recorder.stop_recording()
-                
-                # Debug logging
-                # print(f"Stop Result: {local_path}")
-                
-                if not local_path:
-                    state["is_recording"] = False 
-                    status_text.value = "녹음 데이터 없음 (Mic 권한 또는 Safari 이슈)"
-                    page.update()
-                    return
-
-                # Choose upload method
-                # On Browser, local_path is a Blob URL.
-                # On Native, local_path is a File Path.
-
-                if page.web:
-                    status_text.value = "서버로 전송 중..."
-                    signed_url = get_storage_signed_url(fname)
-                    public_url = get_public_url(fname)
+            # Generate Signed URL for Upload
+            fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
+            signed_url = get_storage_signed_url(fname)
+            public_url = get_public_url(fname)
             
-                    # JS Bridge for Web Upload
-                    js_upload = f"""
-                    (async function() {{
-                        try {{
-                            const res = await fetch("{local_path}");
-                            const blob = await res.blob();
-                            const up = await fetch("{signed_url}", {{
-                                method: "PUT",
-                                headers: {{ "Content-Type": "audio/wav" }},
-                                body: blob
-                            }});
-                            if (up.ok) alert("업로드 성공! 변환을 시작합니다.");
-                        }} catch (e) {{
-                            alert("업로드 실패: " + e);
-                        }}
-                    }})();
-                    """
-                    page.run_javascript(js_upload)
-                    page.run_task(lambda: delayed_transcribe(public_url))
-                    
-                else:
-                    # Native Mode (App or Desktop)
-                    # Critical Check: Can we open this file?
-                    # If Server is Remote and Client IS Native, we CANNOT open it.
-                    if os.path.exists(local_path):
-                         with open(local_path, "rb") as f:
-                            upload_file_server_side(fname, f.read())
-                         public_url = get_public_url(fname)
-                         page.run_task(lambda: start_transcription(public_url))
-                    else:
-                        # Remote Native Client Scenario
-                        status_text.value = "⚠️ 앱에서는 녹음 불가 (Safari 브라우저 사용 요망)"
-                        state["is_recording"] = False
-                        page.update()
-
-            except Exception as ex:
-                status_text.value = f"Stop Err: {ex}"
-                page.update()
+            # Check Flet App compatibility: JS might not return value to Python directly via run_javascript return.
+            # We use a trick: JS sets a hidden field value if we had one.
+            # Or simpler: Just fire and forget, and assume it works.
+            # But the User wants feedback.
+            # Better: "window.stopRecordingAndUploadJS" handles upload. We just Alert result in JS.
+            
+            js_stop = f"""
+            window.stopRecordingAndUploadJS('{signed_url}').then(res => {{
+                if (res.startsWith('UPLOAD_OK')) {{
+                    alert('녹음 전송 완료!');
+                    // Note: We can't easily callback Python from here without a hidden button click.
+                    // But we can just rely on the user seeing the alert.
+                }} else {{
+                    alert('전송 실패: ' + res);
+                }}
+            }});
+            """
+            page.run_javascript(js_stop)
+            
+            # We assume success and queue transcription
+            # This is optimistic UI.
+            page.run_task(lambda: delayed_transcribe(public_url))
 
     async def delayed_transcribe(url):
         await asyncio.sleep(2)
