@@ -19,7 +19,7 @@ DEBUG_MODE = True
 # --- [4] 채팅 화면 (Jandi Style) ---
 def get_chat_controls(page: ft.Page, navigate_to):
     # --- [1] UI Elements (Skeleton Defaults) ---
-    topic_list_container = ft.Container(expand=True, content=ft.Column([ft.ProgressRing(color="#00C73C")], alignment="center"))
+    topic_list_container = ft.Container(expand=True, content=ft.Column([ft.ProgressBar(color="#00C73C")], alignment=ft.MainAxisAlignment.CENTER))
     message_list_view = ft.ListView(expand=True, spacing=15, auto_scroll=True, padding=10)
     chat_header_title = ft.Text("불러오는 중...", weight="bold", size=18, color="#333333")
     
@@ -32,34 +32,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
     state = {"current_topic_id": None, "edit_mode": False}
     current_user_id = "00000000-0000-0000-0000-000000000001"
 
-    async def init_chat_async():
-        # [PRO] Hydrate Sidebar first, then messages
-        try:
-            await load_topics_async(True)
-            if not state["current_topic_id"] and topic_list_container.content:
-                if len(topic_list_container.content.controls) > 0:
-                    first_item = topic_list_container.content.controls[0]
-                    state["current_topic_id"] = first_item.data
-            await load_messages_async()
-            msg_input.disabled = False
-            page.run_task(realtime_task)
-            page.update()
-        except Exception as e: print(f"Hydration Error: {e}")
-
-    def on_topic_reorder(e: ft.ReorderableListViewReorderEvent):
-        controls = topic_list_container.content.controls
-        moved_control = controls.pop(e.old_index)
-        controls.insert(e.new_index, moved_control)
-        try:
-            for idx, ctrl in enumerate(controls):
-                tid = ctrl.data
-                supabase.table("chat_topics").update({"display_order": 1000 - idx}).eq("id", tid).execute()
-        except Exception as ex: print(f"Reorder Error: {ex}")
-        page.update()
-
     async def load_topics_async(update_ui=True):
         try:
-            # Check if we need to show skeleton or just live list
+            # [OPTIMIZATION] Initial skeleton state for topics
+            if not topic_list_container.content:
+                topic_list_container.content = ft.Column([ft.Container(height=30, bgcolor="#F5F5F5", border_radius=5) for _ in range(5)], spacing=10)
+                if update_ui: page.update()
+
             res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").execute())
             topics = res.data or []
             
@@ -71,16 +50,15 @@ def get_chat_controls(page: ft.Page, navigate_to):
             reading_map = {r['topic_id']: r['last_read_at'] for r in read_res.data} if read_res.data else {}
             
             # Message counts in background
+            default_old = "1970-01-01T00:00:00Z"
+            earliest_read = min(reading_map.values()) if reading_map else default_old
+            msg_res = await asyncio.to_thread(lambda: supabase.table("chat_messages").select("topic_id, created_at").gt("created_at", earliest_read).execute())
+            recent_msgs = msg_res.data or []
+            
             unread_counts = {}
-            try:
-                # Fetch recent messages to calculate unread counts
-                # Limit to 200 messages to avoid fetching too much data, assuming users mostly care about recent unreads
-                msg_res = await asyncio.to_thread(lambda: supabase.table("chat_messages").select("topic_id, created_at").order("created_at", desc=True).limit(200).execute())
-                for m in msg_res.data or []:
-                    lr = reading_map.get(m['topic_id'], "1970-01-01T00:00:00Z") # Default to very old date if not read
-                    if m['created_at'] > lr: unread_counts[m['topic_id']] = unread_counts.get(m['topic_id'], 0) + 1
-            except Exception as e:
-                print(f"Error fetching unread counts: {e}")
+            for m in recent_msgs:
+                tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
+                if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
             for t in sorted_topics:
                 tid = t['id']; is_selected = tid == state["current_topic_id"]; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
@@ -270,9 +248,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
     # Pending Attachment UI
     pending_container = ft.Container(visible=False, padding=10, bgcolor="#3D4446", border_radius=10)
     
-    # Local FilePicker
+    # Local FilePicker to avoid global conflict
     chat_file_picker = ft.FilePicker()
-    # No page.overlay.append here, we include it in return
+    page.overlay.append(chat_file_picker)
+    # [FIX] Do not call page.update() here, it causes transition freeze.
+    # navigate_to() will call update() after adding all controls.
 
     def on_chat_file_result(e: ft.FilePickerResultEvent):
         if e.files and state["current_topic_id"]:
@@ -515,11 +495,35 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try: await rt_client.disconnect()
             except: pass
 
-    # Launch hydration in background
-    page.run_task(init_chat_async())
+    # --- [INITIALIZATION: ZERO-LATENCY SKELETON HYDRATION] ---
+    async def init_chat_async():
+        if DEBUG_MODE: print("DEBUG: Global Hydration Engine starting (Phase 8.1)...")
+        try:
+            # 1. Populate Topics (Sidebar)
+            await load_topics_async(True)
+            
+            # 2. Start Realtime Engine in background
+            page.run_task(realtime_task)
+            
+            # 3. Auto-select first thread if none active
+            if not state["current_topic_id"]:
+                res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").order("is_priority", desc=True).order("display_order", desc=True).limit(1).execute())
+                if res.data:
+                    select_topic(res.data[0])
+            else:
+                await load_messages_async()
+            
+            msg_input.disabled = False
+            if DEBUG_MODE: print("DEBUG: Hydration Complete (Stable UI)")
+            page.update()
+        except Exception as e:
+            print(f"Hydration Fail: {e}")
+
+    # Start hydration in a separate task
+    page.run_task(init_chat_async)
     
-    # RETURN UI STRUCTURE IMMEDIATELY - NO ADD CALLS HERE
-    return [ft.Row([sidebar, main_area], expand=True, spacing=0), chat_file_picker]
+    # RETURN UI STRUCTURE IMMEDIATELY - ZERO NETWORK CALLS IN MAIN THREAD
+    return [ft.Row([sidebar, main_area], expand=True, spacing=0)]
 
 # [1] 로그인 화면
 def get_login_controls(page, navigate_to):
@@ -1456,23 +1460,17 @@ def get_order_controls(page: ft.Page, navigate_to):
         except Exception as ex:
             print(f"Delete All Error: {ex}")
 
-    # --- [ULTIMATE CLOUD BRIDGE: Base64 DATA TRANSFER] ---
-    async def on_data_arrived(e):
-        if data_bridge.value and data_bridge.value.startswith("data:"):
-            try:
-                status_text.value = "기기 데이터 전송 완료"; page.update()
-                import base64
-                b64_data = data_bridge.value.split(",")[1]
-                audio_bytes = base64.b64decode(b64_data)
-                fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
-                supabase.storage.from_("uploads").upload(fname, audio_bytes)
-                url = f"{supabase.url}/storage/v1/object/public/uploads/{fname}"
-                await start_transcription(url)
-                data_bridge.value = ""; page.update()
-            except Exception as ex:
-                status_text.value = f"전송 오류: {str(ex)[:15]}"; page.update()
-
-    data_bridge = ft.TextField(visible=False, on_change=on_data_arrived)
+    # [NEW] Cloud Bridge: Helper for JS-side upload notification
+    voice_up_url = ft.Text("", visible=False)
+    def on_voice_uploaded(e):
+        if voice_up_url.value:
+            status_text.value = "AI 변환 중..."
+            status_text.color = "blue"
+            page.update()
+            page.run_task(lambda: start_transcription(voice_up_url.value))
+    
+    voice_done_btn = ft.IconButton(ft.Icons.CHECK, on_click=on_voice_uploaded, visible=False)
+    page.overlay.append(voice_done_btn)
 
     def toggle_rec(e):
         if not state["is_recording"]:
@@ -1486,46 +1484,65 @@ def get_order_controls(page: ft.Page, navigate_to):
             threading.Thread(target=upd, daemon=True).start()
             path = os.path.join(tempfile.gettempdir(), "order_voice.wav"); audio_recorder.start_recording(path); page.update()
         else:
-            state["is_recording"] = False; status_text.value = "전달 준비 중..."; recording_timer.visible = False; page.update()
+            state["is_recording"] = False; status_text.value = "클라우드 전송 준비..."; recording_timer.visible = False; page.update()
             
             try:
                 local_path = audio_recorder.stop_recording()
                 if not local_path:
-                    status_text.value = "데이터 없음"; page.update(); return
+                    status_text.value = "녹음 실패"; page.update(); return
                 
-                # [ARCH] Base64 Proxy Bridge
-                status_text.value = "기기 데이터 추출 중..."
-                page.update()
+                fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
+                public_url = f"{supabase.url}/storage/v1/object/public/uploads/{fname}"
                 
-                # JS script will send the data as a custom event since TextField UID might be tricky
-                # Standard Flet way for JS to Python is page.on_event if available, 
-                # but simplest is setting a value on a control with a known ID.
-                # We will force the UID generation by calling page.update() once for the bridge.
-                page.update()
-                
-                js_bridge = f"""
-                (async function() {{
-                    try {{
-                        const res = await fetch("{local_path}");
-                        const blob = await res.blob();
-                        const reader = new FileReader();
-                        reader.onloadend = () => {{
-                            const bridge = document.querySelector('input[data-flet-id="{data_bridge.uid}"]');
-                            if (bridge) {{
-                                bridge.value = reader.result;
-                                bridge.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                bridge.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                # REMOTE SERVER FIX: Client-Side Browser Upload via JavaScript
+                if "blob" in local_path or not os.path.isabs(local_path):
+                    status_text.value = "기기에서 업로드 중..."
+                    signed_res = supabase.storage.from_("uploads").create_signed_upload_url(fname)
+                    signed_url = signed_res['signed_url']
+                    
+                    # This script instructs the PHONE'S browser to fetch the local blob and PUT it to Supabase
+                    js_upload = f"""
+                    (async function() {{
+                        try {{
+                            console.log("Starting Cloud Bridge Upload...");
+                            const res = await fetch("{local_path}");
+                            const blob = await res.blob();
+                            const up = await fetch("{signed_url}", {{
+                                method: "PUT",
+                                headers: {{ "Content-Type": "audio/wav" }},
+                                body: blob
+                            }});
+                            if (up.ok) {{
+                                console.log("Upload Success!");
                             }} else {{
-                                console.error("Flet Bridge Control not found!");
+                                console.error("Upload Failed Status:", up.status);
                             }}
-                        }};
-                        reader.readAsDataURL(blob);
-                    }} catch (e) {{
-                        console.error("Bridge JS Error:", e);
-                    }}
-                }})();
-                """
-                page.run_javascript(js_bridge)
+                        }} catch (e) {{
+                            console.error("Cloud Bridge Error:", e);
+                        }}
+                    }})();
+                    """
+                    page.run_javascript(js_upload)
+                    
+                    # Python waits for the cloud file to exist (Polling Bridge)
+                    async def poll_and_convert():
+                        status_text.value = "서버 수신 대기..."
+                        page.update()
+                        for _ in range(10): # Timeout 10s
+                            await asyncio.sleep(1)
+                            # Check if file exists in Supabase Storage meta-data or just try transcribing
+                            try:
+                                await start_transcription(public_url)
+                                return
+                            except: pass
+                        status_text.value = "전송 타임아웃"; page.update()
+                    
+                    page.run_task(poll_and_convert)
+                else:
+                    # Native / Local mode
+                    with open(local_path, "rb") as f:
+                        supabase.storage.from_("uploads").upload(fname, f.read())
+                    page.run_task(lambda: start_transcription(public_url))
 
             except Exception as ex:
                 status_text.value = f"전송 에러: {str(ex)[:20]}"
@@ -1538,13 +1555,14 @@ def get_order_controls(page: ft.Page, navigate_to):
             t = transcribe_audio(url)
             if t:
                 supabase.table("order_memos").insert({"content": t, "user_id": "00000000-0000-0000-0000-000000000001"}).execute()
-                status_text.value = f"등록 완료: {t[:10]}..."
-                status_text.color = "green"
+                status_text.value = "등록 성공!"; status_text.color = "green"
+                status_text.value = f"결과: {t[:15]}..."
                 load_memos()
             else:
-                status_text.value = "인식 실패 (무음)"
+                status_text.value = "인식 실패 (무음)"; status_text.color = "orange"
         except Exception as ex:
-            status_text.value = "AI 오류: {str(ex)[:15]}"
+            print(f"Transcription Error: {ex}")
+            status_text.value = "AI 오류: 다시 시도"
         finally:
             page.update()
 
@@ -1631,20 +1649,18 @@ def get_order_controls(page: ft.Page, navigate_to):
     
     header = ft.Container(
         content=ft.Row([
-            ft.Row([ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda _: navigate_to("home")), ft.Text("음성 메모", size=20, weight="bold")]), 
-            ft.Row([ft.IconButton(ft.Icons.BOOKMARK_ADDED, tooltip="단어장", on_click=open_dictionary), ft.IconButton(ft.Icons.DELETE_SWEEP, tooltip="전체 삭제", icon_color="red", on_click=lambda e: delete_all_memos())])
-        ], alignment="spaceBetween"), padding=10, border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE"))
+            ft.Row([
+                ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda _: navigate_to("home")), 
+                ft.Text("음성 메모", size=20, weight="bold")
+            ]), 
+            ft.Row([
+                ft.IconButton(ft.Icons.BOOKMARK_ADDED, tooltip="단어장", on_click=open_dictionary),
+                ft.IconButton(ft.Icons.DELETE_SWEEP, tooltip="전체 삭제", icon_color="red", on_click=lambda e: delete_all_memos())
+            ])
+        ], alignment="spaceBetween"), 
+        padding=10, 
+        border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE"))
     )
     
     load_memos()
-    return [
-        ft.Container(
-            expand=True, bgcolor="white",
-            content=ft.Column([
-                header, 
-                ft.Container(content=memo_list_view, expand=True, padding=20), 
-                ft.Container(content=ft.Column([status_text, recording_timer, mic_btn], horizontal_alignment="center"), padding=30)
-            ], spacing=0)
-        ),
-        data_bridge, audio_recorder
-    ]
+    return [ft.Container(expand=True, bgcolor="white", content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))]
