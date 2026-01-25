@@ -80,7 +80,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color=txt_color)], spacing=10),
                         ft.Row([badge, trailing], spacing=5)
                     ], alignment="spaceBetween"),
-                    padding=ft.padding.symmetric(horizontal=20, vertical=20),
+                    padding=ft.padding.symmetric(horizontal=20, vertical=15),
                     bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
                     on_click=lambda e, topic=t: select_topic(topic) if not state["edit_mode"] else None, data=tid
                 )
@@ -113,6 +113,24 @@ def get_chat_controls(page: ft.Page, navigate_to):
     # )
     
     # chat_header_title = ft.Text("스레드를 선택하세요", weight="bold", size=18, color="#333333") # This was a duplicate, removed.
+
+    def on_topic_reorder(e):
+        async def run_reorder():
+            try:
+                # [REORDER LOGIC] Simple swap/shift in DB
+                controls = topic_list_container.controls[0].controls # Get ReorderableListView's children
+                moved_item = controls.pop(e.old_index)
+                controls.insert(e.new_index, moved_item)
+                
+                # Update display_order in DB (Higher index = Higher display_order)
+                for i, ctrl in enumerate(controls):
+                    tid = ctrl.content.data # ReorderableDraggable -> Container -> data
+                    supabase.table("chat_topics").update({"display_order": len(controls) - i}).eq("id", tid).execute()
+                
+                load_topics(True)
+            except Exception as ex:
+                print(f"Reorder Error: {ex}")
+        page.run_task(run_reorder)
 
     def toggle_priority(tid, current_val):
         try:
@@ -342,17 +360,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
     chat_file_picker.on_result = on_chat_file_result
     chat_file_picker.on_upload = on_chat_upload_progress
 
-    def toggle_edit_mode():
-        if DEBUG_MODE: print(f"DEBUG: toggle_edit_mode triggered. Current: {state['edit_mode']}")
-        state["edit_mode"] = not state["edit_mode"]
-        # Update button text manually since it's already rendered
-        if edit_btn_ref.current:
-            edit_btn_ref.current.text = "완료" if state["edit_mode"] else "편집"
-            edit_btn_ref.current.style = ft.ButtonStyle(color="#2E7D32" if state["edit_mode"] else "#757575")
-            edit_btn_ref.current.update()
-        
-        load_topics(True)
-        if DEBUG_MODE: print(f"DEBUG: toggle_edit_mode done. New: {state['edit_mode']}")
+    # Removed redundant logic to prevent confusion
 
     def open_create_topic_dialog(e):
         new_name = ft.TextField(label="새 스레드 이름", autofocus=True)
@@ -395,11 +403,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#2E7D32", on_click=open_create_topic_dialog)
                     ], spacing=0)
                 ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=50, bottom=5),
+                padding=ft.padding.only(left=10, right=10, top=45, bottom=0),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
             ft.Container(content=topic_list_container, expand=True, padding=ft.padding.only(top=0)) 
-        ])
+        ], spacing=0) # Remove default column spacing
     )
 
     # 3.2 Chat View (Actual Conversation Layer)
