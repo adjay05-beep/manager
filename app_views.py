@@ -59,7 +59,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
                 if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
-            list_view = ft.ListView(expand=True, spacing=0, padding=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False, padding=0)
+            list_view = ft.ListView(expand=True, spacing=0, padding=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=True, padding=0)
             
             for t in sorted_topics:
                 tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
@@ -386,8 +386,14 @@ def get_chat_controls(page: ft.Page, navigate_to):
         state["edit_mode"] = not state["edit_mode"]
         if edit_btn_ref.current:
             edit_btn_ref.current.text = "완료" if state["edit_mode"] else "편집"
-            edit_btn_ref.current.style = ft.ButtonStyle(color="#2E7D32" if state["edit_mode"] else "#757575")
-            edit_btn_ref.current.update() # Immediate update for button text
+            edit_btn_ref.current.style = ft.ButtonStyle(
+                color="#2E7D32" if state["edit_mode"] else "#757575",
+                # Make it look like a real button
+                shape=ft.RoundedRectangleBorder(radius=8),
+                side=ft.BorderSide(1, "#2E7D32" if state["edit_mode"] else "#E0E0E0"),
+                padding=ft.padding.symmetric(horizontal=12, vertical=0)
+            )
+            edit_btn_ref.current.update()
         
         load_topics(True) # Re-render the list
         page.update() # Ensure global sync
@@ -401,15 +407,24 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
                     ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
                     ft.Row([
-                        ft.TextButton(ref=edit_btn_ref, text="편집", style=ft.ButtonStyle(color="#757575"), 
-                                      on_click=lambda _: toggle_edit_mode()),
+                        ft.OutlinedButton(
+                            ref=edit_btn_ref, 
+                            text="편집", 
+                            style=ft.ButtonStyle(
+                                color="#757575",
+                                shape=ft.RoundedRectangleBorder(radius=8),
+                                side=ft.BorderSide(1, "#E0E0E0"),
+                                padding=ft.padding.symmetric(horizontal=12, vertical=0)
+                            ), 
+                            on_click=lambda _: toggle_edit_mode()
+                        ),
                         ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#2E7D32", on_click=open_create_topic_dialog)
                     ], spacing=0)
                 ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=45, bottom=0),
+                padding=ft.padding.only(left=10, right=10, top=40, bottom=0),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
-            ft.Container(content=topic_list_container, expand=True, padding=ft.padding.only(top=0)) 
+            ft.Container(content=topic_list_container, expand=True, padding=0) 
         ], spacing=0) # Remove default column spacing
     )
 
