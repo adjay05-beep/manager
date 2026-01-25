@@ -120,7 +120,15 @@ def get_order_controls(page: ft.Page, navigate_to):
                     time.sleep(1); state["seconds"] += 1
                     mins, secs = divmod(state["seconds"], 60); recording_timer.value = f"{mins:02d}:{secs:02d}"; page.update()
             threading.Thread(target=upd, daemon=True).start()
-            path = os.path.join(tempfile.gettempdir(), f"order_voice_{int(time.time())}.wav"); audio_recorder.start_recording(path); page.update()
+            # [FIX] On Web, do NOT provide output_path, so Flet returns the Blob URL.
+            # On Desktop, provide a path to save the file.
+            if page.web:
+                audio_recorder.start_recording(None)
+            else:
+                path = os.path.join(tempfile.gettempdir(), f"order_voice_{int(time.time())}.wav")
+                audio_recorder.start_recording(path)
+            
+            page.update()
         else:
             state["is_recording"] = False; status_text.value = "클라우드 전송 준비..."; recording_timer.visible = False; page.update()
             
@@ -136,12 +144,16 @@ def get_order_controls(page: ft.Page, navigate_to):
                 
                 fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
                 
-                # REMOTE SERVER FIX Use logic from app_views.py
-                if "blob" in local_path or not os.path.isabs(local_path):
+                # REMOTE SERVER FIX
+                # If on Web, local_path should be a Blob URL.
+                # If on Desktop, it's a file path.
+                
+                if page.web:
                     status_text.value = "기기에서 업로드 중..."
                     signed_url = get_storage_signed_url(fname)
                     public_url = get_public_url(fname)
-                    
+            
+                    # JS Bridge for Web Upload
                     js_upload = f"""
                     (async function() {{
                         try {{
