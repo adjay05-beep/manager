@@ -41,6 +41,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     async def load_topics_async(update_ui=True):
         try:
+            # Fetch Categories & Topics
+            cat_res = await asyncio.to_thread(lambda: supabase.table("chat_categories").select("*").order("display_order", desc=True).execute())
+            categories = [c['name'] for c in cat_res.data] if cat_res.data else ["공지", "일반", "중요", "개별 업무"]
+
             res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").execute())
             topics = res.data or []
             
@@ -60,62 +64,70 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
                 if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
-            # --- GROUPING LOGIC ---
-            grouped = {}
-            for t in sorted_topics:
-                cat = t.get('category', '일반')
-                if cat not in grouped: grouped[cat] = []
-                grouped[cat].append(t)
+            # --- RENDER STRATEGY ---
+            # In Edit mode, we show a flat ReorderableListView for absolute drag focus.
+            # In View mode, we show a Grouped ListView with category headers.
             
-            # Define Category Order
-            cat_order = ["공지", "일반", "중요", "개별 업무"]
-            sorted_cats = sorted(grouped.keys(), key=lambda x: cat_order.index(x) if x in cat_order else 99)
+            list_view = ft.ListView(expand=True, spacing=0, padding=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=True, padding=0)
 
-            list_view = ft.ListView(expand=True, spacing=0, padding=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False, padding=0)
-            
-            for cat_name in sorted_cats:
-                # Add Category Header
-                list_view.controls.append(
-                    ft.Container(
-                        content=ft.Text(f"• {cat_name}", size=12, weight="bold", color="#757575"),
-                        padding=ft.padding.only(left=20, top=15, bottom=8),
-                        bgcolor="#FAFAFA"
-                    )
-                ) if not state["edit_mode"] else None
-
-                for t in grouped[cat_name]:
-                    tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
+            if state["edit_mode"]:
+                # Flat list for reordering
+                for i, t in enumerate(sorted_topics):
+                    tid = t['id']; unread_count = unread_counts.get(tid, 0)
                     
-                    badge = ft.Container(
-                        content=ft.Text(str(unread_count), size=10, color="white", weight="bold"),
-                        bgcolor="#FF5252", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=10
-                    ) if unread_count > 0 else ft.Container()
-                    
-                    prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=20, color="#FF5252") if is_priority else ft.Container()
-                    
-                    # [EDIT MODE COMPONENTS]
                     delete_btn = ft.IconButton(
                         ft.Icons.REMOVE_CIRCLE, icon_color="red", icon_size=20,
                         on_click=lambda e, tid=tid: confirm_delete_topic(tid)
-                    ) if state["edit_mode"] else ft.Container()
-                    
-                    drag_handle = ft.ReorderableDragHandle(
-                        ft.Container(ft.Icon(ft.Icons.REORDER, color="#BDBDBD", size=20), padding=10)
-                    ) if state["edit_mode"] else ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")
-
-                    item = ft.Container(
-                        content=ft.Row([
-                            ft.Row([delete_btn, prio_icon, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=10),
-                            ft.Row([badge, drag_handle], spacing=5)
-                        ], alignment="spaceBetween"),
-                        padding=ft.padding.symmetric(horizontal=20, vertical=12),
-                        bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
-                        on_click=lambda e, topic=t: select_topic(topic) if not state["edit_mode"] else None, data=tid
                     )
                     
-                    if state["edit_mode"]:
-                        list_view.controls.append(ft.ReorderableDraggable(index=sorted_topics.index(t), content=item))
-                    else:
+                    item = ft.Container(
+                        content=ft.Row([
+                            ft.Row([delete_btn, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=5),
+                            ft.Text(f"[{t.get('category','일반')}]", size=10, color="#9E9E9E")
+                        ], alignment="spaceBetween"),
+                        padding=ft.padding.symmetric(horizontal=15, vertical=12),
+                        bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
+                        data=tid # CRITICAL for reorder
+                    )
+                    list_view.controls.append(ft.ReorderableDraggable(index=i, content=item))
+            else:
+                # Grouped view with Headers
+                grouped = {}
+                for t in sorted_topics:
+                    cat = t.get('category', '일반')
+                    if cat not in grouped: grouped[cat] = []
+                    grouped[cat].append(t)
+                
+                for cat_name in [c for c in categories if c in grouped]:
+                    # Category Header
+                    list_view.controls.append(
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Text(f"• {cat_name}", size=12, weight="bold", color="#757575"),
+                                ft.Text(str(len(grouped[cat_name])), size=10, color="#BDBDBD")
+                            ], alignment="spaceBetween"),
+                            padding=ft.padding.only(left=20, right=20, top=10, bottom=5),
+                            bgcolor="#FAFAFA"
+                        )
+                    )
+                    for t in grouped[cat_name]:
+                        tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
+                        badge = ft.Container(
+                            content=ft.Text(str(unread_count), size=10, color="white", weight="bold"),
+                            bgcolor="#FF5252", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=10
+                        ) if unread_count > 0 else ft.Container()
+                        
+                        prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=20, color="#FF5252") if is_priority else ft.Container()
+
+                        item = ft.Container(
+                            content=ft.Row([
+                                ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=10),
+                                ft.Row([badge, ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")], spacing=5)
+                            ], alignment="spaceBetween"),
+                            padding=ft.padding.symmetric(horizontal=20, vertical=12),
+                            bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
+                            on_click=lambda e, topic=t: select_topic(topic)
+                        )
                         list_view.controls.append(item)
             
             topic_list_container.controls = [list_view]
@@ -144,14 +156,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     async def on_topic_reorder(e):
         try:
-            # [REORDER LOGIC] Extract actual topics from the list_view
-            # We must be careful because of categories. In Edit mode, categories are hidden.
-            controls = [c for c in topic_list_container.controls[0].controls if isinstance(c, ft.ReorderableDraggable)]
+            # ReorderableListView with flat list of topics (Edit mode strategy)
+            controls = topic_list_container.controls[0].controls
             moved_item = controls.pop(e.old_index)
             controls.insert(e.new_index, moved_item)
             
-            # Update display_order in DB (Higher index = Lower display_order to stay at bottom)
-            # Or Higher index = Higher display_order to stay at top. Let's use Len-i.
             for i, ctrl in enumerate(controls):
                 tid = ctrl.content.data
                 await asyncio.to_thread(lambda: supabase.table("chat_topics").update({"display_order": len(controls) - i}).eq("id", tid).execute())
@@ -166,6 +175,44 @@ def get_chat_controls(page: ft.Page, navigate_to):
             load_topics(True)
         except Exception as e:
             print(f"Priority Error: {e}")
+
+    # --- CATEGORY MANAGEMENT ---
+    def open_manage_categories_dialog(e):
+        cat_list = ft.Column(spacing=5)
+        new_cat_input = ft.TextField(hint_text="새 주제 이름", expand=True)
+        
+        def refresh_cats():
+            res = supabase.table("chat_categories").select("*").order("display_order", desc=True).execute()
+            items = []
+            for c in res.data or []:
+                items.append(ft.Row([
+                    ft.Text(c['name'], weight="bold", expand=True),
+                    ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color="red", on_click=lambda e, cid=c['id']: delete_cat(cid))
+                ]))
+            cat_list.controls = items
+            page.update()
+
+        def add_cat(e):
+            if new_cat_input.value:
+                supabase.table("chat_categories").insert({"name": new_cat_input.value}).execute()
+                new_cat_input.value = ""
+                refresh_cats(); load_topics(True)
+
+        def delete_cat(cid):
+            supabase.table("chat_categories").delete().eq("id", cid).execute()
+            refresh_cats(); load_topics(True)
+
+        refresh_cats()
+        dlg = ft.AlertDialog(
+            title=ft.Text("주제(그룹) 관리"),
+            content=ft.Column([
+                ft.Row([new_cat_input, ft.IconButton(ft.Icons.ADD, on_click=add_cat)]),
+                ft.Divider(),
+                cat_list
+            ], tight=True, scroll=ft.ScrollMode.AUTO, width=300),
+            actions=[ft.TextButton("닫기", on_click=lambda _: page.close(dlg))]
+        )
+        page.open(dlg)
 
     async def load_messages_async():
         if not state["current_topic_id"]: return
@@ -406,49 +453,49 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     def open_create_topic_dialog(e):
         new_name = ft.TextField(label="새 스레드 이름", autofocus=True)
-        new_cat = ft.Dropdown(
-            label="카테고리",
+        cat_dropdown = ft.Dropdown(
+            label="주제 분류",
             value="일반",
-            options=[
-                ft.dropdown.Option("공지"),
-                ft.dropdown.Option("일반"),
-                ft.dropdown.Option("중요"),
-                ft.dropdown.Option("개별 업무")
-            ]
+            options=[]
         )
+        
+        # Load dynamic categories
+        res = supabase.table("chat_categories").select("name").order("display_order", desc=True).execute()
+        cat_dropdown.options = [ft.dropdown.Option(c['name']) for c in res.data or [{"name": "일반"}]]
+        if not cat_dropdown.options: cat_dropdown.options = [ft.dropdown.Option("일반")]
+        cat_dropdown.value = cat_dropdown.options[0].key
+
         def create_it(e):
             if new_name.value:
                 try:
-                    supabase.table("chat_topics").insert({"name": new_name.value, "category": new_cat.value, "display_order": 0}).execute()
+                    supabase.table("chat_topics").insert({"name": new_name.value, "category": cat_dropdown.value, "display_order": 0}).execute()
                     page.close(dlg)
                     load_topics(True)
                 except Exception as ex:
                     page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red", open=True); page.update()
         dlg = ft.AlertDialog(
             title=ft.Text("새 스레드 만들기"),
-            content=ft.Column([new_name, new_cat], tight=True, spacing=15),
+            content=ft.Column([new_name, cat_dropdown], tight=True, spacing=15),
             actions=[ft.TextButton("취소", on_click=lambda _: page.close(dlg)), ft.TextButton("만들기", on_click=create_it)]
         )
         page.open(dlg)
 
-    # --- [3] UI Builds (List View & Chat View) ---
-    
-    edit_btn_ref = ft.Ref[ft.TextButton]()
+    edit_btn_ref = ft.Ref[ft.OutlinedButton]()
     def toggle_edit_mode():
         state["edit_mode"] = not state["edit_mode"]
         if edit_btn_ref.current:
             edit_btn_ref.current.text = "완료" if state["edit_mode"] else "편집"
             edit_btn_ref.current.style = ft.ButtonStyle(
-                color="#2E7D32" if state["edit_mode"] else "#757575",
-                # Make it look like a real button
+                color="white" if state["edit_mode"] else "#424242",
+                bgcolor="#2E7D32" if state["edit_mode"] else "transparent",
                 shape=ft.RoundedRectangleBorder(radius=8),
                 side=ft.BorderSide(1, "#2E7D32" if state["edit_mode"] else "#E0E0E0"),
                 padding=ft.padding.symmetric(horizontal=12, vertical=0)
             )
             edit_btn_ref.current.update()
         
-        load_topics(True) # Re-render the list
-        page.update() # Ensure global sync
+        load_topics(True)
+        page.update()
 
     # 3.1 List View (Topic List Page)
     list_page = ft.Container(
@@ -459,11 +506,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
                     ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
                     ft.Row([
+                        ft.IconButton(ft.Icons.SETTINGS_OUTLINED, icon_color="#757575", on_click=open_manage_categories_dialog, tooltip="분류 관리"),
                         ft.OutlinedButton(
                             ref=edit_btn_ref, 
                             text="편집", 
                             style=ft.ButtonStyle(
-                                color="#757575",
+                                color="#424242",
                                 shape=ft.RoundedRectangleBorder(radius=8),
                                 side=ft.BorderSide(1, "#E0E0E0"),
                                 padding=ft.padding.symmetric(horizontal=12, vertical=0)
@@ -477,7 +525,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
             ft.Container(content=topic_list_container, expand=True, padding=0) 
-        ], spacing=0) # Remove default column spacing
+        ], spacing=0) 
     )
 
     # 3.2 Chat View (Actual Conversation Layer)
