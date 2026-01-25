@@ -133,17 +133,22 @@ def get_order_controls(page: ft.Page, navigate_to):
             page.update()
         else:
             state["is_recording"] = False; status_text.value = "클라우드 전송 준비..."; recording_timer.visible = False; page.update()
-            
             try:
+                # Expecting a Blob URL on Web/Mobile
                 local_path = audio_recorder.stop_recording()
-                if not local_path:
-                    status_text.value = "녹음 데이터 없음 (None)"; page.update(); return
+            except Exception as e:
+                print(f"Stop Rec Error: {e}")
+                status_text.value = "녹음 데이터 수신 실패 (Timeout/권한)"; page.update(); return
+
+            if not local_path:
+                status_text.value = "녹음 데이터 없음 (None)"; page.update(); return
                 
                 # [DEBUG] Relaxed check. Trust Flet if it returns a path/url.
                 # Only fail if it's empty.
                 # if not local_path or (not os.path.exists(local_path) and "blob" not in local_path):
                 #    status_text.value = "녹음 파일 로드 실패"; page.update(); return
                 
+            try:
                 fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
                 
                 # REMOTE SERVER FIX
