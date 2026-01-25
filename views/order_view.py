@@ -116,21 +116,15 @@ def get_order_controls(page: ft.Page, navigate_to):
     
     voice_done_btn = ft.IconButton(ft.Icons.CHECK, on_click=on_voice_uploaded, visible=False)
     
-    # [DEBUG] Validating direct JS permission request (Safely)
-    def js_permission_check(e):
-        js = """
-        navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(function(stream) {
-            alert("SUCCESS: 브라우저 마이크 권한이 있습니다! (Flet 문제 가능성)");
-            stream.getTracks().forEach(track => track.stop());
-        })
-        .catch(function(err) {
-            alert("ERROR: 브라우저가 마이크를 차단했습니다.\\n설정 > Safari > 마이크 접근을 확인하세요.\\n에러: " + err);
-        });
-        """
-        page.run_javascript(js)
+    
+    # [FIX] Static HTML to bypass Flet's async gesture restriction on Safari
+    def open_permission_helper(e):
+        # Open the static HTML in the same window (or new tab)
+        # Assuming assets are served at root or /assets/ logic. 
+        # Flet usually serves assets at root if assets_dir is set.
+        page.launch_url("/permission_fix.html")
 
-    mic_check_btn = ft.TextButton("마이크 권한 직접 확인 (눌러보세요)", on_click=js_permission_check)
+    mic_check_btn = ft.ElevatedButton("마이크 권한 설정 도우미 (터치)", on_click=open_permission_helper, bgcolor="#007AFF", color="white")
 
     def toggle_rec(e):
         if not state["is_recording"]:
