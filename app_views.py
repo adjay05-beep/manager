@@ -152,11 +152,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     content_elements.append(ft.Text(m['content'], size=14, color="black"))
                 
                 bubble_bg = "#FFFFFF" if is_me else "#E3F2FD"
+                # [BUG FIX] Removing 'constraints' as it causes TypeError in some Flet versions.
+                # Returning to stable width until 원인 is identified.
                 content_box = ft.Container(
                     content=ft.Column(content_elements, spacing=5, tight=True),
                     bgcolor=bubble_bg, padding=12, border_radius=15, 
                     border=ft.border.all(1, "#E0E0E0"),
-                    constraints=ft.BoxConstraints(max_width=page.width * 0.7 if page.width else 280)
+                    width=260 
                 )
                 
                 time_text = ft.Text(time_str, size=10, color="#999999")
@@ -394,7 +396,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#2E7D32", on_click=open_create_topic_dialog)
                     ], spacing=0)
                 ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=40, bottom=20),
+                padding=ft.padding.only(left=10, right=10, top=60, bottom=20),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
             ft.Container(content=topic_list_container, expand=True) 
@@ -412,7 +414,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     chat_header_title,
                     ft.IconButton(ft.Icons.REFRESH_ROUNDED, icon_color="#BDBDBD", on_click=lambda _: load_messages())
                 ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=40, bottom=15),
+                padding=ft.padding.only(left=10, right=10, top=60, bottom=15),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
             ft.Container(content=message_list_view, expand=True, bgcolor="#F5F5F5"),
