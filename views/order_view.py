@@ -126,8 +126,13 @@ def get_order_controls(page: ft.Page, navigate_to):
             
             try:
                 local_path = audio_recorder.stop_recording()
-                if not local_path or (not os.path.exists(local_path) and "blob" not in local_path):
-                    status_text.value = "녹음 파일 로드 실패"; page.update(); return
+                if not local_path:
+                    status_text.value = "녹음 데이터 없음 (None)"; page.update(); return
+                
+                # [DEBUG] Relaxed check. Trust Flet if it returns a path/url.
+                # Only fail if it's empty.
+                # if not local_path or (not os.path.exists(local_path) and "blob" not in local_path):
+                #    status_text.value = "녹음 파일 로드 실패"; page.update(); return
                 
                 fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
                 
