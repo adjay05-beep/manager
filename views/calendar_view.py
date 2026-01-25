@@ -386,6 +386,22 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         elif view_state["month"] < 1: view_state["month"]=12; view_state["year"]-=1
         load()
 
-    header = ft.Container(height=60, bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE")), padding=ft.padding.symmetric(horizontal=20), content=ft.Row([ft.Row([ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=lambda _: change_m(-1)), month_label, ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=lambda _: change_m(1))], spacing=10), ft.IconButton(ft.Icons.REFRESH, on_click=lambda _: load()), ft.TextButton("나가기", icon=ft.Icons.LOGOUT, on_click=lambda _: navigate_to("home"))], alignment=ft.MainAxisAlignment.SPACE_BETWEEN))
+    header = ft.Container(
+        height=100, # Increased height for SafeArea
+        bgcolor="white", 
+        border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE")), 
+        padding=ft.padding.only(left=20, right=20, top=40), # Added top padding
+        content=ft.Row([
+            ft.Row([
+                ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=lambda _: change_m(-1)), 
+                month_label, 
+                ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=lambda _: change_m(1))
+            ], spacing=10), 
+            ft.Row([
+                ft.IconButton(ft.Icons.REFRESH, on_click=lambda _: load()), 
+                ft.TextButton("나가기", icon=ft.Icons.LOGOUT, on_click=lambda _: navigate_to("home"))
+            ])
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+    )
     load()
     return [ft.Column([header, ft.Container(grid, expand=True, padding=10)], expand=True, spacing=0)]
