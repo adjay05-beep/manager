@@ -64,13 +64,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
                 if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
-            # --- RENDER STRATEGY ---
-            # Clear old controls and show progress for better feedback
-            topic_list_container.controls = [ft.Container(ft.ProgressRing(color="#2E7D32"), alignment=ft.alignment.center, padding=50)]
-            if update_ui: page.update()
-
-            list_view = ft.ListView(expand=True, spacing=0, padding=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False, padding=0)
-
+            # --- RENDER STRATEGY (STABILITY VERSION) ---
+            # Instead of swapping the whole container, we build the controls list first.
+            new_controls = []
+            
+            # Use ReorderableListView only when needed, but keep it stable.
             if state["edit_mode"]:
                 # [EDIT MODE] Flat list for reordering + Deletion
                 for i, t in enumerate(sorted_topics):
@@ -97,7 +95,15 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
                         data=tid # For reorder
                     )
-                    list_view.controls.append(ft.ReorderableDraggable(index=i, content=item))
+                    new_controls.append(ft.ReorderableDraggable(index=i, content=item))
+                
+                list_view = ft.ReorderableListView(
+                    controls=new_controls,
+                    expand=True, 
+                    on_reorder=on_topic_reorder, 
+                    show_default_drag_handles=False, 
+                    padding=0
+                )
             else:
                 # [VIEW MODE] Grouped view with Headers
                 grouped = {}
@@ -107,10 +113,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     grouped[cat].append(t)
                 
                 for cat_name in [c for c in categories if c in grouped]:
-                    list_view.controls.append(
+                    new_controls.append(
                         ft.Container(
                             content=ft.Row([
-                                ft.Text(f"• {cat_name}", size=12, weight="bold", color="#757575"),
+                                ft.Row([ft.Icon(ft.Icons.DEBHAZARD, size=12, color="#757575"), ft.Text(cat_name, size=12, weight="bold", color="#757575")], spacing=4),
                                 ft.Text(str(len(grouped[cat_name])), size=10, color="#BDBDBD")
                             ], alignment="spaceBetween"),
                             padding=ft.padding.only(left=20, right=20, top=12, bottom=6),
@@ -135,7 +141,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                             bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
                             on_click=lambda e, topic=t: select_topic(topic)
                         )
-                        list_view.controls.append(item)
+                        new_controls.append(item)
+                
+                list_view = ft.ListView(controls=new_controls, expand=True, spacing=0, padding=0)
             
             topic_list_container.controls = [list_view]
             if update_ui: page.update()
@@ -249,6 +257,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.open(dlg)
 
     async def load_messages_async():
+        if not state["current_topic_id"]: return
         if DEBUG_MODE: print(f"DEBUG: Starting load_messages_async for topic {state['current_topic_id']}")
         try:
             # Fetch data (Async fetch)
@@ -514,31 +523,27 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.open(dlg)
 
     async def toggle_edit_mode():
+        # High-performance toggle: UI first, logic second
         state["edit_mode"] = not state["edit_mode"]
         
-        # Immediate UI feedback for the button
         if edit_btn_ref.current:
             edit_btn_ref.current.text = "완료" if state["edit_mode"] else "편집"
             edit_btn_ref.current.style = ft.ButtonStyle(
                 color="white",
-                bgcolor="#2E7D32" if state["edit_mode"] else "#757575",
+                bgcolor="#2E7D32" if state["edit_mode"] else "#424242",
                 shape=ft.RoundedRectangleBorder(radius=8),
                 side=ft.BorderSide(1, "#2E7D32" if state["edit_mode"] else "#E0E0E0"),
                 padding=ft.padding.symmetric(horizontal=12, vertical=0)
             )
             edit_btn_ref.current.update()
         
-        # Confirm mode change via SnackBar (Visible to user)
-        page.snack_bar = ft.SnackBar(ft.Text("🔄 편집 모드로 전환 중..." if state["edit_mode"] else "💾 저장 및 로드 중..."), open=True)
-        page.update()
-
-        await load_topics_async(True)
+        # Use run_task to avoid blocking the main UI thread during transition
+        page.run_task(lambda: load_topics_async(True))
         
-        # Secondary SnackBar to confirm completion
-        if state["edit_mode"]:
-            page.snack_bar = ft.SnackBar(ft.Text("🛠️ 편집 모드: 핸들을 잡고 순서를 바꾸세요"), bgcolor="orange", duration=2000, open=True)
-        else:
-            page.snack_bar = ft.SnackBar(ft.Text("✅ 편집이 완료되었습니다"), bgcolor="green", duration=2000, open=True)
+        # SnackBar for mobile feel
+        msg = "🛠️ 편집 모드: 순서를 바꾸거나 삭제하세요" if state["edit_mode"] else "✅ 변경 사항이 저장되었습니다"
+        color = "orange" if state["edit_mode"] else "green"
+        page.snack_bar = ft.SnackBar(ft.Text(msg), bgcolor=color, duration=2000, open=True)
         page.update()
 
     # --- [3] UI Builds (List View & Chat View) ---
