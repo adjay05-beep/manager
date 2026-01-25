@@ -8,12 +8,15 @@ from db import supabase
 DEBUG_MODE = True
 
 def get_chat_controls(page: ft.Page, navigate_to):
+    # [FIX] Stability: Use Global FilePicker and Robust Lifecycle Management
+    
     state = {
         "current_topic_id": None, 
         "edit_mode": False, 
         "view_mode": "list", 
         "pending_image_url": None,
-        "pending_file_name": None
+        "pending_file_name": None,
+        "is_active": True # Flag to control infinite loops
     }
     current_user_id = "00000000-0000-0000-0000-000000000001"
 
@@ -28,10 +31,17 @@ def get_chat_controls(page: ft.Page, navigate_to):
     
     root_view = ft.Stack(expand=True)
 
-    async def load_topics_async(update_ui=True):
-        try:
-            if DEBUG_MODE: print(f"DEBUG: load_topics_async (Edit: {state['edit_mode']})")
+    # [FIX] Use Global Picker from Main
+    if hasattr(page, "chat_file_picker"):
+        chat_file_picker = page.chat_file_picker
+    else:
+        # Fallback if main.py not updated
+        chat_file_picker = ft.FilePicker()
+        page.overlay.append(chat_file_picker)
 
+    async def load_topics_async(update_ui=True):
+        if not state["is_active"]: return
+        try:
             categories_data = await chat_service.get_categories()
             categories = [c['name'] for c in categories_data] if categories_data else ["공지", "일반", "중요", "개별 업무"]
 
@@ -42,6 +52,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             default_old = "1970-01-01T00:00:00Z"
             earliest_read = min(reading_map.values()) if reading_map else default_old
             
+            # Optimization: Fetch reduced data if needed? No, dataset is small.
             recent_msgs = await chat_service.get_recent_messages(earliest_read)
             
             unread_counts = {}
@@ -49,6 +60,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
                 if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
+            new_controls = []
             if state["edit_mode"]:
                 list_view = ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=True, padding=0)
                 for i, t in enumerate(sorted_topics):
@@ -67,8 +79,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         data=tid
                     )
                     list_view.controls.append(item)
+                new_controls = [list_view]
             else:
-                list_view = ft.ListView(expand=True, spacing=0, padding=0)
+                list_view_ctrls = []
                 grouped = {}
                 for t in sorted_topics:
                     cat = t.get('category', '일반')
@@ -76,7 +89,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     grouped[cat].append(t)
                 
                 for cat_name in [c for c in categories if c in grouped]:
-                    list_view.controls.append(
+                    list_view_ctrls.append(
                         ft.Container(
                             content=ft.Row([
                                 ft.Text(f"• {cat_name}", size=12, weight="bold", color="#757575"),
@@ -94,7 +107,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         ) if unread_count > 0 else ft.Container()
                         prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=20, color="#FF5252") if is_priority else ft.Container()
 
-                        list_view.controls.append(
+                        list_view_ctrls.append(
                             ft.Container(
                                 content=ft.Row([
                                     ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=10),
@@ -105,18 +118,16 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                 on_click=lambda e, topic=t: select_topic(topic)
                             )
                         )
+                list_view = ft.ListView(expand=True, spacing=0, padding=0, controls=list_view_ctrls)
+                new_controls = [list_view]
             
-            topic_list_container.controls = [list_view]
+            topic_list_container.controls = new_controls
             if update_ui: page.update()
         except Exception as ex:
             print(f"Load Topics Critical Error: {ex}")
-            import traceback
-            traceback.print_exc()
 
     def load_topics(update_ui=True):
         page.run_task(lambda: load_topics_async(update_ui))
-
-    message_list_view = ft.ListView(expand=True, spacing=15, auto_scroll=True, padding=10)
 
     async def on_topic_reorder(e):
         try:
@@ -154,7 +165,6 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     ]))
                 cat_list.controls = items
                 page.update()
-            
             page.run_task(_refresh)
 
         def add_cat(e):
@@ -182,8 +192,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.open(dlg)
 
     async def load_messages_async():
-        if not state["current_topic_id"]: return
-        if DEBUG_MODE: print(f"DEBUG: Starting load_messages_async for topic {state['current_topic_id']}")
+        if not state["current_topic_id"] or not state["is_active"]: return
         try:
             messages = await chat_service.get_messages(state["current_topic_id"])
             
@@ -194,7 +203,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 if isinstance(prof_data, list) and prof_data: prof_data = prof_data[0]
                 user_name = prof_data.get('full_name', '익명') if prof_data else "익명"
                 
-                created_dt = dt_class.fromisoformat(m['created_at'].replace("Z", "+00:00"))
+                try:
+                    created_dt = dt_class.fromisoformat(m['created_at'].replace("Z", "+00:00"))
+                except:
+                    created_dt = datetime.datetime.now()
+
                 ampm = "오후" if created_dt.hour >= 12 else "오전"
                 h = created_dt.hour % 12
                 if h == 0: h = 12
@@ -237,15 +250,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
             message_list_view.controls = new_controls
             page.update()
         except Exception as e:
-            print(f"ASYNC ERROR: {e}")
-            message_list_view.controls = [ft.Text(f"데이터 로드 실패: {e}", color="red", size=12)]
-            page.update()
+            print(f"Load Msg Error: {e}")
 
     def select_topic(topic):
         state["current_topic_id"] = topic['id']
         chat_header_title.value = topic['name']
         msg_input.disabled = False
-        
         state["view_mode"] = "chat"
         update_layer_view()
         
@@ -253,10 +263,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.update()
 
         async def run_select():
-            try:
-                await chat_service.update_last_read(topic['id'], current_user_id)
-                await load_messages_async()
-            except: pass
+            await chat_service.update_last_read(topic['id'], current_user_id)
+            await load_messages_async()
         page.run_task(run_select)
 
     def load_messages():
@@ -285,9 +293,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     pending_container = ft.Container(visible=False, padding=10, bgcolor="#3D4446", border_radius=10)
     
-    chat_file_picker = ft.FilePicker()
-    page.overlay.append(chat_file_picker)
-
+    # [FIX] Use Global Picker event handler connection
     def on_chat_file_result(e: ft.FilePickerResultEvent):
         if e.files and state["current_topic_id"]:
             f = e.files[0]
@@ -314,14 +320,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         ]
                     )
                 except Exception as storage_ex:
-                    print(f"Fallback/Error: {storage_ex}")
+                    # Native Fallback
                     if f.path:
                          with open(f.path, "rb") as file_data:
                              chat_service.upload_file_server_side(fname, file_data.read())
                          update_pending_ui(state["pending_image_url"])
                     else:
                         raise storage_ex
-                
                 page.update()
             except Exception as ex:
                 page.snack_bar = ft.SnackBar(ft.Text(f"오류: {str(ex)}"), bgcolor="red", open=True)
@@ -353,6 +358,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
         pending_container.visible = False
         page.update()
     
+    # Bind Helper handlers only when needed (idempotent?)
+    # Flet Event Handlers are multicast, but rewriting them is okay.
     chat_file_picker.on_result = on_chat_file_result
     chat_file_picker.on_upload = on_chat_upload_progress
 
@@ -364,7 +371,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
         dlg = ft.AlertDialog(
             title=ft.Text("스레드 삭제"),
-            content=ft.Text("이 스레드와 모든 메시지가 삭제됩니다. 정말 삭제할까요?"),
+            content=ft.Text("이 스레드와 모든 메시지가 삭제됩니다."),
             actions=[ft.TextButton("취소", on_click=lambda _: page.close(dlg)), ft.TextButton("삭제", on_click=delete_it, color="red")]
         )
         page.open(dlg)
@@ -413,9 +420,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 padding=ft.padding.symmetric(horizontal=12, vertical=0)
             )
             edit_btn_ref.current.update()
-        
         load_topics(True)
-        page.update()
 
     list_page = ft.Container(
         expand=True, bgcolor="white",
@@ -483,10 +488,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
     msg_input.color = "black"
     msg_input.border_color = "#E0E0E0"
     msg_input.border_width = 1
-    msg_input.hint_style = ft.TextStyle(color="#9E9E9E")
 
+    # [FIX] Robust Realtime Task
     async def realtime_task():
-        await asyncio.sleep(5)
+        await asyncio.sleep(2)
         try:
             rt_client = supabase.get_realtime_client()
             if not rt_client: return
@@ -510,21 +515,24 @@ def get_chat_controls(page: ft.Page, navigate_to):
             await msg_channel.subscribe()
             await topic_channel.subscribe()
             
-            while not page.is_disconnected:
+            # [FIX] Loop Check
+            while state["is_active"]:
+                # Check if view is still mounted
+                if not root_view.page:
+                    state["is_active"] = False
+                    break
                 await asyncio.sleep(2)
         except Exception as e:
             print(f"REALTIME ERROR: {e}")
         finally:
+            print("Chat Realtime Disconnected")
             try: await rt_client.disconnect()
             except: pass
 
     async def init_chat_async():
-        try:
-            update_layer_view()
-            await load_topics_async(True)
-            page.run_task(realtime_task)
-        except Exception as e:
-            print(f"Init Error: {e}")
+        update_layer_view()
+        await load_topics_async(True)
+        page.run_task(realtime_task)
 
     page.run_task(init_chat_async)
     

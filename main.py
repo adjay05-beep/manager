@@ -20,6 +20,10 @@ def main(page: ft.Page):
     page.file_picker = ft.FilePicker()
     page.overlay.append(page.file_picker)
 
+    # Global Chat FilePicker (Prevent Chat Layout Freeze)
+    page.chat_file_picker = ft.FilePicker()
+    page.overlay.append(page.chat_file_picker)
+
     # Global AudioRecorder (Singleton for WeChat-style Voice Memo)
     if not hasattr(page, "audio_recorder"):
         page.audio_recorder = ft.AudioRecorder()
