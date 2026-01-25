@@ -17,61 +17,16 @@ def get_order_controls(page: ft.Page, navigate_to):
     status_text = ft.Text("버튼을 눌러 녹음을 시작하세요", color="grey", size=14)
     recording_timer = ft.Text("00:00", size=32, weight="bold", color="black", visible=False)
     
-    # [FIX] JS Native Recorder Injection
-    # Flet's AudioRecorder is failing on iOS, so we use direct JS MediaRecorder.
-    native_js_recorder = """
-    window.startNativeRecording = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            window.mediaRecorder = new MediaRecorder(stream);
-            window.audioChunks = [];
-            window.mediaRecorder.ondataavailable = e => window.audioChunks.push(e.data);
-            window.mediaRecorder.start();
-            // alert("녹음 시작됨 (JS)"); // Optional feedback
-        } catch (err) {
-            alert("마이크 권한 오류: " + err);
-        }
-    };
-
-    window.stopNativeRecording = async (uploadUrl) => {
-        if (!window.mediaRecorder) return;
-        
-        return new Promise((resolve, reject) => {
-            window.mediaRecorder.onstop = async () => {
-                try {
-                    const blob = new Blob(window.audioChunks, { type: 'audio/webm' }); // Defaulting to webm
-                    // On iOS it might be mp4, but webm container usually works or we can trust browser
-                    // Actually, let's just use the chunks.
-                    
-                    console.log("Blob Type:", blob.type);
-                    
-                    const res = await fetch(uploadUrl, {
-                        method: 'PUT',
-                        headers: { "Content-Type": blob.type || "audio/webm" },
-                        body: blob
-                    });
-                    
-                    if (res.ok) {
-                       // alert("업로드 완료!");
-                       resolve("OK");
-                    } else {
-                       alert("업로드 실패: " + res.status);
-                       reject(res.status);
-                    }
-                } catch (e) {
-                    alert("업로드 중 에러: " + e);
-                    reject(e);
-                }
-            };
-            window.mediaRecorder.stop();
-            window.mediaRecorder.stream.getTracks().forEach(t => t.stop());
-        });
-    };
-    """
-    page.run_javascript(native_js_recorder)
-
-    # Removed Flet AudioRecorder
-    # audio_recorder = ft.AudioRecorder()
+    recording_timer = ft.Text("00:00", size=32, weight="bold", color="black", visible=False)
+    
+    # [FIX] Use Global Recorder from Main
+    if not hasattr(page, "audio_recorder"):
+        # Fallback for safe dev
+        page.audio_recorder = ft.AudioRecorder()
+        page.overlay.append(page.audio_recorder)
+    
+    audio_recorder = page.audio_recorder
+    # No need to append/remove. Shared instance.
 
     def load_memos():
         page.run_task(load_memos_async)
@@ -167,35 +122,116 @@ def get_order_controls(page: ft.Page, navigate_to):
 
     def toggle_rec(e):
         if not state["is_recording"]:
-            # [FIX] Native JS Start
-            page.run_javascript("window.startNativeRecording()")
+            # [FIX] On Web, has_permission can be flaky. 
+            # We skip the check on Web because start_recording() calls getUserMedia() which acts as the prompt.
+            # On Desktop, we keep the check.
+            is_web_check = page.web or os.getenv("RENDER") or (page.platform and page.platform.lower() in ["ios", "android"])
+            
+            if not is_web_check:
+                if not audio_recorder.has_permission(): 
+                    audio_recorder.request_permission()
+                    return
+
+            state["is_recording"] = True; state["seconds"] = 0; status_text.value = "녹음 중..."; recording_timer.visible = True
+            def upd():
+                while state["is_recording"]:
+                    time.sleep(1); state["seconds"] += 1
+                    mins, secs = divmod(state["seconds"], 60); recording_timer.value = f"{mins:02d}:{secs:02d}"; page.update()
+            threading.Thread(target=upd, daemon=True).start()
+            # [FIX] Force Web mode if running on Render or if page.web is true.
+            # page.web seems unreliable on some deployments, so we assume 'RENDER' env means Web.
+            is_web_forced = page.web or os.getenv("RENDER") or (page.platform and page.platform.lower() in ["ios", "android"])
+            
+            if is_web_forced:
+                audio_recorder.start_recording(None)
+            else:
+                path = os.path.join(tempfile.gettempdir(), f"order_voice_{int(time.time())}.wav")
+                audio_recorder.start_recording(path)
+            
             page.update()
         else:
             state["is_recording"] = False; status_text.value = "클라우드 전송 준비..."; recording_timer.visible = False; page.update()
-            # [FIX] Native JS Stop
-            fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.webm" # Using .webm for browser compat
-            signed_url = get_storage_signed_url(fname)
-            public_url = get_public_url(fname)
+            try:
+                # Expecting a Blob URL on Web/Mobile
+                local_path = audio_recorder.stop_recording()
+            except Exception as e:
+                print(f"Stop Rec Error: {e}")
+                status_text.value = "녹음 데이터 수신 실패 (Timeout/권한)"; page.update(); return
+
+            if not local_path:
+                status_text.value = "녹음 데이터 없음 (None)"; page.update(); return
+                
+                # [DEBUG] Relaxed check. Trust Flet if it returns a path/url.
+                # Only fail if it's empty.
+                # if not local_path or (not os.path.exists(local_path) and "blob" not in local_path):
+                #    status_text.value = "녹음 파일 로드 실패"; page.update(); return
+                
+            try:
+                fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
+                
+                # REMOTE SERVER FIX
+                # If on Web, local_path should be a Blob URL.
+                
+                is_web = page.web or os.getenv("RENDER") or (local_path and "blob:" in local_path)
+                
+                if is_web:
+                    status_text.value = "기기에서 업로드 중..."
+                    signed_url = get_storage_signed_url(fname)
+                    public_url = get_public_url(fname)
             
-            page.run_javascript(f"window.stopNativeRecording('{signed_url}')")
-            
-            async def poll_and_convert():
-                status_text.value = "서버 수신 대기 (Native JS)..."
+                    # JS Bridge for Web Upload
+                    js_upload = f"""
+                    (async function() {{
+                        try {{
+                            console.log("Starting Cloud Bridge Upload...");
+                            const res = await fetch("{local_path}");
+                            const blob = await res.blob();
+                            const up = await fetch("{signed_url}", {{
+                                method: "PUT",
+                                headers: {{ "Content-Type": "audio/wav" }},
+                                body: blob
+                            }});
+                            if (up.ok) {{
+                                console.log("Upload Success!");
+                            }} else {{
+                                console.error("Upload Failed Status:", up.status);
+                            }}
+                        }} catch (e) {{
+                            console.error("Cloud Bridge Error:", e);
+                        }}
+                    }})();
+                    """
+                    page.run_javascript(js_upload)
+                    
+                    async def poll_and_convert():
+                        status_text.value = "서버 수신 대기..."
+                        page.update()
+                        for _ in range(10): # Timeout 10s
+                            await asyncio.sleep(1)
+                            # Check if file exists via transcription attempt or metadata
+                            # Simplified: just try transcribe
+                            try:
+                                await start_transcription(public_url)
+                                return
+                            except: pass
+                        status_text.value = "전송 타임아웃"; page.update()
+                    
+                    page.run_task(poll_and_convert)
+                else:
+                    # Native / Local mode
+                    with open(local_path, "rb") as f:
+                        upload_file_server_side(fname, f.read())
+                    public_url = get_public_url(fname)
+                    page.run_task(lambda: start_transcription(public_url))
+
+            except Exception as ex:
+                # Expanded Debug Info
+                is_web_debug = f"{page.web}|{os.getenv('RENDER')}"
+                plat = page.platform
+                path_debug = str(local_path) if 'local_path' in locals() else "N/A"
+                print(f"REC ERROR: {ex} | Web:{is_web_debug} | Plat:{plat} | Path:{path_debug}")
+                status_text.value = f"E: {str(ex)[:10]} | W:{is_web_debug} | Pl:{plat} | P:{path_debug[:8]}"
                 page.update()
-                for i in range(15): # Extended Timeout 15s
-                    await asyncio.sleep(1)
-                    # Check if transcription works (means file meant for it exists)
-                    # Simplified: just try transcribe
-                    try:
-                        await start_transcription(public_url)
-                        return
-                    except: pass
-                    
-                    if i % 3 == 0: status_text.value = f"수신 대기 중... ({i}s)"; page.update()
-                    
-                status_text.value = "전송 타임아웃 (파일 미도착)"; page.update()
-            
-            page.run_task(poll_and_convert)
 
     async def start_transcription(url):
         try:
@@ -308,10 +344,8 @@ def get_order_controls(page: ft.Page, navigate_to):
     )
     
     load_memos()
-    # [FIX] Return non-visual controls (recorder, file picker hooks) as part of the view
-    # so they are properly mounted/unmounted.
+    # [FIX] Return View Controls
     return [
-        # audio_recorder, # Removed
         voice_done_btn,
         ft.Container(expand=True, bgcolor="white", padding=ft.padding.only(top=50), content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))
     ]

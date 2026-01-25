@@ -19,6 +19,10 @@ def main(page: ft.Page):
     # Global FilePicker for all views
     page.file_picker = ft.FilePicker()
     page.overlay.append(page.file_picker)
+
+    # Global AudioRecorder (Prevent Memory Leak/Freeze by init once)
+    page.audio_recorder = ft.AudioRecorder()
+    page.overlay.append(page.audio_recorder)
     
     def navigate_to(route):
         page.clean()
@@ -31,6 +35,7 @@ def main(page: ft.Page):
         elif route == "calendar":
             controls = get_calendar_controls(page, navigate_to)
         elif route == "order":
+            # Pass the global recorder
             controls = get_order_controls(page, navigate_to)
         elif route == "closing":
             controls = get_closing_controls(page, navigate_to)
