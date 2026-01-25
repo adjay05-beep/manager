@@ -69,160 +69,132 @@ def get_order_controls(page: ft.Page, navigate_to):
         page.snack_bar = ft.SnackBar(ft.Text("삭제되었습니다.")); page.snack_bar.open = True; page.update()
     def delete_all_memos():
         page.run_task(lambda: _del_all_async())
-    async def _del_all_async():
-        await memo_service.delete_all_memos()
-        await load_memos_async()
-        page.snack_bar = ft.SnackBar(ft.Text("모든 메모가 삭제되었습니다.")); page.snack_bar.open = True; page.update()
+    # --- Pure Javascript Recorder Implementation (WeChat Style) ---
+    # Flet's Native Recorder has limitations on Remote Server + Native Client.
+    # We use pure JS Buffer recording which works on Safari/WebView and uploads directly.
+    
+    # Load JS (Inline for simplicity, or read from assets)
+    recorder_js = """
+    // Global Recorder State
+    var mediaRecorder = null;
+    var audioChunks = [];
 
-    def pkr(txt=""):
-        # Copy to clipboard and notify user to go to calendar
-        # Reusing the simple logic from before
-        page.set_clipboard(txt)
-        page.snack_bar = ft.SnackBar(ft.Text("캘린더 탭으로 이동하여 등록해주세요. (내용 복사됨)"))
-        page.snack_bar.open=True
-        page.update()
+    window.startJsRecording = async function() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
 
-    # --- File Upload Logic (Stable) ---
-    def pick_file_click(e):
-        status_text.value = "파일 선택창 여는 중..."
-        page.update()
-        
-        # Checking Global Picker
-        if not hasattr(page, 'file_picker'):
-             # Fallback init
-             status_text.value = "Picker Init..."
-             page.update()
-             page.file_picker = ft.FilePicker()
-             page.overlay.append(page.file_picker)
-             page.update()
+            mediaRecorder.ondataavailable = event => {
+                audioChunks.push(event.data);
+            };
 
-        if hasattr(page, 'file_picker'):
-            # Relaxed filter to ensure dialog opens on iOS
-            # AUDIO type sometimes fails on Mobile WebViews
-            page.file_picker.on_result = on_file_picked
-            try:
-                page.file_picker.pick_files(
-                    allow_multiple=False, 
-                    file_type=ft.FilePickerFileType.ANY, # Changed from AUDIO to ANY
-                    dialog_title="음성/동영상 파일 선택 (또는 녹음)"
-                )
-                status_text.value = "파일 선택창 요청 보냄..." # Confirmation
-                page.update()
-            except Exception as e:
-                status_text.value = f"Pick Error: {e}"
-                page.update()
-        else:
-            status_text.value = "오류: FilePicker 로드 실패"
+            mediaRecorder.start();
+            // alert("Recording Started");
+            return "STARTED";
+        } catch (err) {
+            alert("Microphone Error: " + err);
+        }
+    };
+
+    window.stopJsRecordingAndUpload = async function(uploadUrl) {
+        return new Promise((resolve, reject) => {
+            if (!mediaRecorder) {
+                alert("No Recorder Found");
+                resolve("NO_RECORDER");
+                return;
+            }
+
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                
+                try {
+                    const response = await fetch(uploadUrl, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'audio/wav' },
+                        body: audioBlob
+                    });
+
+                    if (response.ok) {
+                        resolve("SUCCESS");
+                    } else {
+                        alert("Upload Failed: " + response.status);
+                        resolve("FAIL");
+                    }
+                } catch (e) {
+                    alert("Net Error: " + e);
+                    resolve("ERR");
+                }
+                
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                mediaRecorder = null;
+            };
+
+            mediaRecorder.stop();
+        });
+    };
+    """
+    
+    # Inject JS on load (or usually run once)
+    # We do it when toggling for safety or via a hidden init
+    def init_js_recorder():
+        page.run_javascript(recorder_js)
+
+    def toggle_js_rec(e):
+        if not state["is_recording"]:
+            # START RECORDING
+            state["is_recording"] = True
+            state["seconds"] = 0
+            status_text.value = "녹음 중... (JS)"
+            status_text.color = "red"
+            recording_timer.visible = True
             page.update()
-
-    def on_file_picked(e: ft.FilePickerResultEvent):
-        if e.files:
-            file_obj = e.files[0]
-            fname = file_obj.name
-            status_text.value = f"'{fname}' 처리 중..."
+            
+            # 1. Run JS Start
+            page.run_javascript("window.startJsRecording();")
+            
+            # 2. Start Timer
+            def upd():
+                while state["is_recording"]:
+                    time.sleep(1); state["seconds"] += 1
+                    mins, secs = divmod(state["seconds"], 60); recording_timer.value = f"{mins:02d}:{secs:02d}"; page.update()
+            threading.Thread(target=upd, daemon=True).start()
+            
+        else:
+            # STOP RECORDING
+            state["is_recording"] = False
+            status_text.value = "업로드 중..."
             status_text.color = "blue"
+            recording_timer.visible = False
             page.update()
             
-            # Start Upload Process
-            page.run_task(lambda: process_upload(file_obj))
-        else:
-            status_text.value = "파일 선택 취소됨"
-            page.update()
-
-    async def process_upload(file_obj):
-        try:
-            # Generate unique name
-            storage_name = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}_{file_obj.name}"
+            # 1. Prepare Upload URL
+            fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
+            signed_url = get_storage_signed_url(fname)
+            public_url = get_public_url(fname)
             
-            # Check Web vs Native
-            # On Web, we have `path` as blob URL (?) OR we might need to use upload_url method of FilePicker.
-            # Flet FilePicker usually requires `page.file_picker.upload` for web.
-            # But we want to use our custom Signed URL logic if possible.
+            # 2. Run JS Stop & Upload via run_task (handling callback is tricky)
+            # Flet run_javascript is fire-and-forget.
+            # We call the async JS function. It returns a Promise. 
+            # We can't await it in Python directly.
+            # BUT we can poll for completion? Or just assume it works and check public URL?
             
-            # Actually, `file_obj.path` is available on Desktop.
-            # On Web, `file_obj.path` might be None or a blob URL.
+            # Improving JS: Call a Python function via window.location.href (hack)? 
+            # Or simplified: Start transcription after a delay.
             
-            is_env_web = (os.getenv("RENDER") is not None) or page.web
+            js_stop = f"window.stopJsRecordingAndUpload('{signed_url}');"
+            page.run_javascript(js_stop)
             
-            if is_env_web:
-                # On Web, we must use the JS trick again because we can't read the file in Python.
-                # BUT, FilePicker puts the file in browser memory.
-                # We can use `upload` method to Flet Server, then read it?
-                # No, Flet Server is ephemeral on Render? No, it's the python process.
-                
-                # Better: Use the Blob URL if available.
-                # If file_obj.path is a blob url, we can fetch it.
-                # Warning: Flet 0.21+ might not expose blob url in path easily?
-                # It usually provides `file_obj.path` as `playlist...` or `blob:...`.
-                
-                status_text.value = "클라우드로 업로드 중..."
+            async def check_and_transcribe():
+                status_text.value = "AI 분석 대기..."
                 page.update()
-                
-                # Get Signed URL
-                signed_url = get_storage_signed_url(storage_name)
-                public_url = get_public_url(storage_name)
-                
-                # If we can't access path on Web, we might need Flet's upload_files.
-                # Let's try to upload to our own server handlers?
-                # Actually, simplest on Web is `upload` to Flet's internal upload endpoint, then transcribe?
-                # But we want to send to supabase.
-                
-                # Let's rely on the JS Bridge if we can get the blob.
-                # Does `file_obj` give us a handle for JS? 
-                
-                # Alternative: Flet FilePicker has `upload` method that sends files to a URL.
-                # We can set the `upload_url` to our Signed URL!
-                # file_obj has `name` and `upload_url`.
-                
-                # New Strategy: Use `page.file_picker.upload` with Signed URL.
-                # But Signed URL is PUT. Flet upload is POST (multipart/form-data).
-                # Supabase Signed URL expects PUT binary.
-                
-                # So we might need to use the JS Bridge logic again using the File Name? 
-                # On Web, Flet stores selected files in `page.files` or similar? No.
-                
-                # Let's try the `upload_file_server_side` if we are on Native.
-                # On Web, this is tricky without `AudioRecorder`.
-                
-                # Wait! FilePicker on Web UPLOADs to the python server temp dir if we call `file_picker.upload`?
-                # Yes.
-                # 1. Create upload handler in main? (Too complex refactor).
-                # 2. Use `audio_service` to transcribe DIRECTLY if we can get the bytes?
-                
-                # LET'S TRY: Native approach first. Flet Web FilePicker handling is hard.
-                # For now, assume Native App (Flet App) usage.
-                # On Flet App (which identifies as Mobile), `file_obj.path` IS a local path!
-                # So we can just read it!
-                
-                # So we treat "Flet App" as Native here.
-                # The issue is "Flet Web in Safari". There, `file_obj.path` is useless.
-                # PROPOSAL: Use `page.file_picker.upload` to a standard endpoint? 
-                
-                # Let's assume Flet App for now.
-                if file_obj.path:
-                    # Native / Flet App
-                    with open(file_obj.path, "rb") as f:
-                        content = f.read()
-                    
-                    upload_file_server_side(storage_name, content)
-                    public_url = get_public_url(storage_name)
-                    await start_transcription(public_url)
-                else:
-                    # Web Browser
-                    status_text.value = "웹에서는 업로드가 제한될 수 있습니다."
-                    page.update()
-            
-            else:
-                # Desktop Local
-                with open(file_obj.path, "rb") as f:
-                    content = f.read()
-                upload_file_server_side(storage_name, content)
-                public_url = get_public_url(storage_name)
+                await asyncio.sleep(3) # Wait for JS upload
                 await start_transcription(public_url)
-                
-        except Exception as ex:
-            status_text.value = f"Upload Err: {ex}"
-            page.update()
+            
+            page.run_task(check_and_transcribe)
+
+    # Init JS
+    init_js_recorder()
 
     async def start_transcription(url):
         try:
@@ -244,13 +216,13 @@ def get_order_controls(page: ft.Page, navigate_to):
     # Layout
     # Use FloatingActionButton for reliable click handling on Mobile
     mic_btn = ft.FloatingActionButton(
-        icon=ft.Icons.CLOUD_UPLOAD, 
-        text="녹음/파일 선택", 
+        icon=ft.Icons.MIC, 
+        text="녹음 시작/종료", 
         bgcolor="#00C73C", 
-        content=ft.Row([ft.Icon(ft.Icons.CLOUD_UPLOAD), ft.Text("녹음/파일 선택")], alignment="center", spacing=5),
+        content=ft.Row([ft.Icon(ft.Icons.MIC), ft.Text("녹음 시작/종료")], alignment="center", spacing=5),
         width=160,
         height=50,
-        on_click=pick_file_click
+        on_click=toggle_js_rec
     )
     
     header = ft.Container(
