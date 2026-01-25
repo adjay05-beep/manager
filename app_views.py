@@ -19,23 +19,32 @@ DEBUG_MODE = True
 # --- [4] 채팅 화면 (Jandi Style) ---
 def get_chat_controls(page: ft.Page, navigate_to):
     # --- [1] UI Elements (Skeleton Defaults) ---
-    topic_list_container = ft.Container(expand=True, content=ft.Column([ft.ProgressRing(color="#00C73C"), ft.Text("불러오는 중...", size=11, color="#666666")], horizontal_alignment="center", alignment="center"))
+    topic_list_container = ft.Container(expand=True, content=ft.Column([ft.ProgressRing(color="#00C73C")], alignment="center"))
     message_list_view = ft.ListView(expand=True, spacing=15, auto_scroll=True, padding=10)
-    chat_header_title = ft.Text("스레드를 선택하세요", weight="bold", size=18, color="#333333")
+    chat_header_title = ft.Text("불러오는 중...", weight="bold", size=18, color="#333333")
     
     msg_input = ft.TextField(
         hint_text="메시지 입력...", expand=True, border_radius=10, bgcolor="#F5F5F5", 
         border_color="transparent", on_submit=lambda e: send_message(), disabled=True
     )
     
-    # Hidden TextField to receive data (if needed for chat, though mostly for voice)
-    # Using overlay to avoid UI breakage
-    chat_data_bridge = ft.TextField(visible=False)
-    page.overlay.append(chat_data_bridge)
-
     # --- [2] State & Logic ---
-    state = {"current_topic_id": None, "edit_mode": False, "is_recording": False}
+    state = {"current_topic_id": None, "edit_mode": False}
     current_user_id = "00000000-0000-0000-0000-000000000001"
+
+    async def init_chat_async():
+        # [PRO] Hydrate Sidebar first, then messages
+        try:
+            await load_topics_async(True)
+            if not state["current_topic_id"] and topic_list_container.content:
+                if len(topic_list_container.content.controls) > 0:
+                    first_item = topic_list_container.content.controls[0]
+                    state["current_topic_id"] = first_item.data
+            await load_messages_async()
+            msg_input.disabled = False
+            page.run_task(realtime_task)
+            page.update()
+        except Exception as e: print(f"Hydration Error: {e}")
 
     def on_topic_reorder(e: ft.ReorderableListViewReorderEvent):
         controls = topic_list_container.content.controls
@@ -50,16 +59,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     async def load_topics_async(update_ui=True):
         try:
-            # [OPTIMIZATION] Initial skeleton state for topics
-            if not topic_list_container.content or isinstance(topic_list_container.content, ft.Column): # Check if it's the initial loading state
-                topic_list_container.content = ft.Column([ft.Container(height=30, bgcolor="#F5F5F5", border_radius=5) for _ in range(5)], spacing=10)
-                if update_ui: page.update()
-
+            # Check if we need to show skeleton or just live list
             res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").execute())
             topics = res.data or []
             
-            # Premium Sidebar List
-            list_view = ft.ListView(expand=True, spacing=2) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False)
+            list_view = ft.ListView(expand=True, spacing=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False)
 
             sorted_topics = sorted(topics, key=lambda x: (x.get('is_priority', False), x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
 
@@ -266,11 +270,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
     # Pending Attachment UI
     pending_container = ft.Container(visible=False, padding=10, bgcolor="#3D4446", border_radius=10)
     
-    # Local FilePicker to avoid global conflict
+    # Local FilePicker
     chat_file_picker = ft.FilePicker()
-    page.overlay.append(chat_file_picker)
-    # [FIX] Do not call page.update() here, it causes transition freeze.
-    # navigate_to() will call update() after adding all controls.
+    # No page.overlay.append here, we include it in return
 
     def on_chat_file_result(e: ft.FilePickerResultEvent):
         if e.files and state["current_topic_id"]:
@@ -513,39 +515,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try: await rt_client.disconnect()
             except: pass
 
-    # --- [INITIALIZATION: ZERO-LATENCY SKELETON RETURN] ---
-    async def init_chat_async():
-        # Safety delay to ensure page.add(*controls) finishes in main.py
-        await asyncio.sleep(0.5)
-        if DEBUG_MODE: print("DEBUG: Hydrating Skeleton...")
-        try:
-            # 1. Populate Topics (Sidebar)
-            await load_topics_async(True)
-            
-            # 2. Pick default topic if none selected
-            if not state["current_topic_id"] and topic_list_container.content:
-                if len(topic_list_container.content.controls) > 0:
-                    first_item = topic_list_container.content.controls[0]
-                    state["current_topic_id"] = first_item.data
-                    # chat_header_title update logic... (omitted for brevity, assume handled in load_messages)
-            
-            # 3. Populate Messages
-            await load_messages_async()
-            msg_input.disabled = False
-            
-            # 4. Start Realtime Engine in background
-            page.run_task(realtime_task)
-            
-            if DEBUG_MODE: print("DEBUG: Hydration Complete")
-            page.update()
-        except Exception as e:
-            print(f"Hydration Fail: {e}")
-
-    # Start hydration in a separate task
-    page.run_task(init_chat_async)
+    # Launch hydration in background
+    page.run_task(init_chat_async())
     
-    # RETURN UI STRUCTURE IMMEDIATELY - THIS ELIMINATES THE BLACK SCREEN
-    return [ft.Row([sidebar, main_area], expand=True, spacing=0)]
+    # RETURN UI STRUCTURE IMMEDIATELY - NO ADD CALLS HERE
+    return [ft.Row([sidebar, main_area], expand=True, spacing=0), chat_file_picker]
 
 # [1] 로그인 화면
 def get_login_controls(page, navigate_to):
@@ -1483,29 +1457,22 @@ def get_order_controls(page: ft.Page, navigate_to):
             print(f"Delete All Error: {ex}")
 
     # --- [ULTIMATE CLOUD BRIDGE: Base64 DATA TRANSFER] ---
-    data_bridge = ft.TextField(visible=False, on_change=lambda e: page.run_task(on_data_arrived))
-    page.overlay.append(data_bridge)
-
     async def on_data_arrived(e):
         if data_bridge.value and data_bridge.value.startswith("data:"):
             try:
-                status_text.value = "데이터 수신 완료 (서버)"; status_text.color = "blue"; page.update()
-                
-                # Extract Base64 from DataURL
+                status_text.value = "기기 데이터 전송 완료"; page.update()
                 import base64
                 b64_data = data_bridge.value.split(",")[1]
                 audio_bytes = base64.b64decode(b64_data)
-                
-                # Save to cloud storage (via server)
                 fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
                 supabase.storage.from_("uploads").upload(fname, audio_bytes)
-                public_url = f"{supabase.url}/storage/v1/object/public/uploads/{fname}"
-                
-                await start_transcription(public_url)
-                data_bridge.value = "" # Reset
+                url = f"{supabase.url}/storage/v1/object/public/uploads/{fname}"
+                await start_transcription(url)
+                data_bridge.value = ""; page.update()
             except Exception as ex:
-                status_text.value = f"브릿지 장애: {str(ex)[:20]}"
-                page.update()
+                status_text.value = f"전송 오류: {str(ex)[:15]}"; page.update()
+
+    data_bridge = ft.TextField(visible=False, on_change=on_data_arrived)
 
     def toggle_rec(e):
         if not state["is_recording"]:
@@ -1664,18 +1631,20 @@ def get_order_controls(page: ft.Page, navigate_to):
     
     header = ft.Container(
         content=ft.Row([
-            ft.Row([
-                ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda _: navigate_to("home")), 
-                ft.Text("음성 메모", size=20, weight="bold")
-            ]), 
-            ft.Row([
-                ft.IconButton(ft.Icons.BOOKMARK_ADDED, tooltip="단어장", on_click=open_dictionary),
-                ft.IconButton(ft.Icons.DELETE_SWEEP, tooltip="전체 삭제", icon_color="red", on_click=lambda e: delete_all_memos())
-            ])
-        ], alignment="spaceBetween"), 
-        padding=10, 
-        border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE"))
+            ft.Row([ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda _: navigate_to("home")), ft.Text("음성 메모", size=20, weight="bold")]), 
+            ft.Row([ft.IconButton(ft.Icons.BOOKMARK_ADDED, tooltip="단어장", on_click=open_dictionary), ft.IconButton(ft.Icons.DELETE_SWEEP, tooltip="전체 삭제", icon_color="red", on_click=lambda e: delete_all_memos())])
+        ], alignment="spaceBetween"), padding=10, border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE"))
     )
     
     load_memos()
-    return [ft.Container(expand=True, bgcolor="white", content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))]
+    return [
+        ft.Container(
+            expand=True, bgcolor="white",
+            content=ft.Column([
+                header, 
+                ft.Container(content=memo_list_view, expand=True, padding=20), 
+                ft.Container(content=ft.Column([status_text, recording_timer, mic_btn], horizontal_alignment="center"), padding=30)
+            ], spacing=0)
+        ),
+        data_bridge, audio_recorder
+    ]
