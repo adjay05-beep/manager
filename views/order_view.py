@@ -18,9 +18,13 @@ def get_order_controls(page: ft.Page, navigate_to):
     recording_timer = ft.Text("00:00", size=32, weight="bold", color="black", visible=False)
     
     audio_recorder = ft.AudioRecorder()
-    if audio_recorder not in page.overlay: 
-        page.overlay.append(audio_recorder)
-    page.update()
+    audio_recorder = ft.AudioRecorder()
+    # [FIX] Do NOT use page.overlay for view-specific controls. 
+    # It causes memory leaks (duplicate recorders) on every navigation.
+    # We will add it to the view's controls list instead.
+    # if audio_recorder not in page.overlay: 
+    #     page.overlay.append(audio_recorder)
+    # page.update()
 
     def load_memos():
         page.run_task(load_memos_async)
@@ -109,41 +113,10 @@ def get_order_controls(page: ft.Page, navigate_to):
             page.run_task(lambda: start_transcription(voice_up_url.value))
     
     voice_done_btn = ft.IconButton(ft.Icons.CHECK, on_click=on_voice_uploaded, visible=False)
-    page.overlay.append(voice_done_btn)
+    # page.overlay.append(voice_done_btn) # Removed from overlay to avoid leak
 
-    # [DEBUG] Raw HTML Buttons to bypass Flet Latency
-    raw_html_debug = ft.Html(
-        content="""
-        <div style="text-align: center; padding: 10px; background: #ffebee; border-radius: 10px;">
-            <p style="color: red; font-weight: bold; font-size: 12px;">▼ 강력 디버깅 모드 (Raw HTML) ▼</p>
-            <button style="padding: 10px 20px; font-size: 16px; margin: 5px;" 
-                onclick="alert('브라우저 동작 확인 (JS Alert)')">
-                1. JS 동작 테스트
-            </button>
-            <br>
-            <button style="padding: 10px 20px; font-size: 16px; margin: 5px; background: #e8f5e9;" 
-                onclick="navigator.mediaDevices.getUserMedia({audio:true}).then(s=>{alert('마이크 성공!');s.getTracks().forEach(t=>t.stop())}).catch(e=>alert('마이크 실패: '+e))">
-                2. 네이티브 마이크 요청
-            </button>
-        </div>
-        """
-    )
-
-    # [DEBUG] Validating direct JS permission request
-    def js_permission_check(e):
-        js = """
-        navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(function(stream) {
-            alert("브라우저 마이크 권한 확인 완료! (JS 성공)");
-            stream.getTracks().forEach(track => track.stop());
-        })
-        .catch(function(err) {
-            alert("브라우저 권한 에러: " + err);
-        });
-        """
-        page.run_javascript(js)
-
-    mic_check_btn = ft.TextButton("마이크 권한 직접 확인", on_click=js_permission_check)
+    # [DEBUG REMOVED] Removing debug button to prevent freeze and restoring clean UI.
+    # The Freeze was likely caused by Overlay accumulation.
 
     def toggle_rec(e):
         if not state["is_recording"]:
@@ -369,4 +342,10 @@ def get_order_controls(page: ft.Page, navigate_to):
     )
     
     load_memos()
-    return [ft.Container(expand=True, bgcolor="white", padding=ft.padding.only(top=50), content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, raw_html_debug, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))]
+    # [FIX] Return non-visual controls (recorder, file picker hooks) as part of the view
+    # so they are properly mounted/unmounted.
+    return [
+        audio_recorder, 
+        voice_done_btn,
+        ft.Container(expand=True, bgcolor="white", padding=ft.padding.only(top=50), content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))
+    ]
