@@ -191,6 +191,7 @@ def get_order_controls(page: ft.Page, navigate_to):
 
     voice_up_url = ft.Text("", visible=False)
     def on_voice_uploaded(e):
+        pass
     # Hidden check button to trigger python callback? 
     # Since Flet-JS callback is hard, we will rely on a "Check Status" polling or Manual "Ready" button?
     # NO, we can use `page.on_route_change`? No.
