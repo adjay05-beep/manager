@@ -18,38 +18,37 @@ DEBUG_MODE = True
 
 # --- [4] 채팅 화면 (Jandi Style) ---
 def get_chat_controls(page: ft.Page, navigate_to):
-    # --- [1] UI Elements (Skeleton Defaults) ---
-    topic_list_container = ft.Container(expand=True, content=ft.Column([ft.ProgressBar(color="#00C73C")], alignment=ft.MainAxisAlignment.CENTER))
+    # --- [1] UI Elements & State ---
+    state = {
+        "current_topic_id": None, 
+        "edit_mode": False, 
+        "view_mode": "list" # "list" or "chat" for mobile-layering
+    }
+    current_user_id = "00000000-0000-0000-0000-000000000001"
+
+    # [UI] Main View Containers
+    topic_list_container = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO)
     message_list_view = ft.ListView(expand=True, spacing=15, auto_scroll=True, padding=10)
-    chat_header_title = ft.Text("불러오는 중...", weight="bold", size=18, color="#333333")
+    chat_header_title = ft.Text("불러오는 중...", weight="bold", size=18, color="#212121")
     
     msg_input = ft.TextField(
-        hint_text="메시지 입력...", expand=True, border_radius=10, bgcolor="#F5F5F5", 
-        border_color="transparent", on_submit=lambda e: send_message(), disabled=True
+        hint_text="메시지 입력...", expand=True, border_radius=10, bgcolor="#FAFAFA", 
+        border_color="#E0E0E0", border_width=1, on_submit=lambda e: send_message(), disabled=True
     )
     
-    # --- [2] State & Logic ---
-    state = {"current_topic_id": None, "edit_mode": False}
-    current_user_id = "00000000-0000-0000-0000-000000000001"
+    # [UI] Root Stack for Layering
+    root_view = ft.Stack(expand=True)
 
     async def load_topics_async(update_ui=True):
         try:
-            # [OPTIMIZATION] Initial skeleton state for topics
-            if not topic_list_container.content:
-                topic_list_container.content = ft.Column([ft.Container(height=30, bgcolor="#F5F5F5", border_radius=5) for _ in range(5)], spacing=10)
-                if update_ui: page.update()
-
             res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").execute())
             topics = res.data or []
             
-            list_view = ft.ListView(expand=True, spacing=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False)
-
             sorted_topics = sorted(topics, key=lambda x: (x.get('is_priority', False), x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
-
+            
             read_res = await asyncio.to_thread(lambda: supabase.table("chat_user_reading").select("topic_id, last_read_at").eq("user_id", current_user_id).execute())
             reading_map = {r['topic_id']: r['last_read_at'] for r in read_res.data} if read_res.data else {}
             
-            # Message counts in background
             default_old = "1970-01-01T00:00:00Z"
             earliest_read = min(reading_map.values()) if reading_map else default_old
             msg_res = await asyncio.to_thread(lambda: supabase.table("chat_messages").select("topic_id, created_at").gt("created_at", earliest_read).execute())
@@ -60,39 +59,30 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
                 if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
+            new_controls = []
             for t in sorted_topics:
-                tid = t['id']; is_selected = tid == state["current_topic_id"]; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
-                
-                # Active/Inactive colors
-                bg = "#F1F8E9" if is_selected else "transparent"
-                txt_color = "#2E7D32" if is_selected else "#424242"
+                tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
+                txt_color = "#424242"
                 
                 badge = ft.Container(
                     content=ft.Text(str(unread_count), size=10, color="white", weight="bold"),
-                    bgcolor="#FF5252", padding=ft.padding.symmetric(horizontal=6, vertical=2), border_radius=10
-                ) if unread_count > 0 and not is_selected else ft.Container()
+                    bgcolor="#FF5252", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=10
+                ) if unread_count > 0 else ft.Container()
                 
-                # Use only Exclamation for priority, remove redundant # if name has emoji
-                prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=18, color="#FF5252") if is_priority else ft.Container()
+                prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=20, color="#FF5252") if is_priority else ft.Container()
                 
-                item_content = ft.Row([
-                    ft.Row([prio_icon, ft.Text(t['name'], size=14, weight="bold" if is_selected else "normal", color=txt_color)], spacing=8),
-                    badge
-                ], alignment="spaceBetween")
-
                 item = ft.Container(
-                    content=item_content,
-                    padding=ft.padding.symmetric(horizontal=12, vertical=10),
-                    bgcolor=bg, border_radius=10, ink=True,
+                    content=ft.Row([
+                        ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color=txt_color)], spacing=10),
+                        ft.Row([badge, ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")], spacing=5)
+                    ], alignment="spaceBetween"),
+                    padding=ft.padding.symmetric(horizontal=20, vertical=20),
+                    bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
                     on_click=lambda e, topic=t: select_topic(topic), data=tid
                 )
-                
-                if state["edit_mode"]:
-                    list_view.controls.append(ft.ReorderableDraggable(index=sorted_topics.index(t), content=item))
-                else:
-                    list_view.controls.append(item)
+                new_controls.append(item)
             
-            topic_list_container.content = list_view
+            topic_list_container.controls = new_controls
             if update_ui: page.update()
         except Exception as ex:
             print(f"Load Topics Error: {ex}")
@@ -190,21 +180,18 @@ def get_chat_controls(page: ft.Page, navigate_to):
         chat_header_title.value = topic['name']
         msg_input.disabled = False
         
-        # [NEW] Virtualized ListView for high performance
-        message_list_view.controls = [
-            ft.Container(
-                content=ft.Column([ft.ProgressRing(color="#00C73C"), ft.Text("불러오는 중...", size=11)], horizontal_alignment="center"),
-                alignment=ft.alignment.center, padding=20
-            )
-        ]
+        # Switch to Chat View Immediately
+        state["view_mode"] = "chat"
+        update_layer_view()
+        
+        # [NEW] Clear messages before loading to show progress
+        message_list_view.controls = [ft.Container(ft.ProgressRing(color="#2E7D32"), alignment=ft.alignment.center, padding=50)]
         page.update()
 
-        # [REFACTOR] Everything Async
         async def run_select():
             try:
                 now_utc = datetime.now(timezone.utc).isoformat()
                 supabase.table("chat_user_reading").upsert({"topic_id": topic['id'], "user_id": current_user_id, "last_read_at": now_utc}).execute()
-                await load_topics_async(True)
                 await load_messages_async()
             except: pass
         page.run_task(run_select)
@@ -375,70 +362,62 @@ def get_chat_controls(page: ft.Page, navigate_to):
         )
         page.open(dlg)
 
-    sidebar_content_ref = ft.Ref[ft.Column]()
-    edit_btn_ref = ft.Ref[ft.TextButton]()
-    sidebar = ft.Container(
-        width=240, bgcolor="white",
-        border=ft.border.only(right=ft.border.BorderSide(1, "#EEEEEE")),
-        content=ft.Column(
-            ref=sidebar_content_ref,
-            controls=[
-                ft.Container(
-                    ft.Text("THE MANAGER", size=18, weight="bold", color="#1A1A1A", style=ft.TextStyle(letter_spacing=2)), 
-                    padding=ft.padding.only(top=40, bottom=30), alignment=ft.alignment.center
-                ),
-                ft.Divider(height=1, color="#F0F0F0"),
-                ft.Container(
-                    content=ft.Row([
-                        ft.Text("스레드 목록", weight="bold", size=12, color="#9E9E9E"), 
-                        ft.Row([
-                            ft.TextButton(
-                                ref=edit_btn_ref,
-                                text="완료" if state["edit_mode"] else "편집",
-                                style=ft.ButtonStyle(color="#2E7D32"),
-                                on_click=lambda _: toggle_edit_mode()
-                            ),
-                            ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#2E7D32", icon_size=18, on_click=open_create_topic_dialog)
-                        ], spacing=0)
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), 
-                    padding=ft.padding.only(left=20, right=10, top=25, bottom=10)
-                ),
-                ft.Container(content=topic_list_container, expand=True, padding=ft.padding.only(left=8, right=8)),
-                ft.Container(
-                    content=ft.TextButton("🏠 홈으로 가기", style=ft.ButtonStyle(color="#666666"), on_click=lambda _: navigate_to("home")), 
-                    padding=15, alignment=ft.alignment.center
-                )
-            ]
-        )
-    )
-
-    main_area = ft.Container(
+    # --- [3] UI Builds (List View & Chat View) ---
+    
+    # 3.1 List View (Topic List Page)
+    list_page = ft.Container(
         expand=True, bgcolor="white",
         content=ft.Column([
             ft.Container(
                 content=ft.Row([
-                    chat_header_title,
-                    ft.IconButton(ft.Icons.REFRESH_ROUNDED, icon_color="#BDBDBD", on_click=lambda _: load_topics(True))
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), 
-                padding=ft.padding.symmetric(horizontal=20, vertical=15), 
+                    ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
+                    ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
+                    ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#212121", on_click=open_create_topic_dialog)
+                ], alignment="spaceBetween"),
+                padding=ft.padding.only(left=10, right=10, top=40, bottom=20),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
-            ft.Container(content=message_list_view, expand=True, padding=ft.padding.symmetric(horizontal=15, vertical=10), bgcolor="#F5F5F5"),
+            ft.Container(content=topic_list_container, expand=True)
+        ])
+    )
+
+    # 3.2 Chat View (Actual Conversation Layer)
+    chat_page = ft.Container(
+        expand=True, bgcolor="white",
+        content=ft.Column([
+            ft.Container(
+                content=ft.Row([
+                    ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", 
+                                  on_click=lambda _: back_to_list()),
+                    chat_header_title,
+                    ft.IconButton(ft.Icons.REFRESH_ROUNDED, icon_color="#BDBDBD", on_click=lambda _: load_messages())
+                ], alignment="spaceBetween"),
+                padding=ft.padding.only(left=10, right=10, top=40, bottom=15),
+                border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
+            ),
+            ft.Container(content=message_list_view, expand=True, bgcolor="#F5F5F5"),
             ft.Container(
                 content=ft.Column([
                     pending_container,
                     ft.Row([
                         ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED, icon_color="#757575", on_click=lambda _: chat_file_picker.pick_files()),
                         msg_input, 
-                        ft.IconButton(ft.Icons.SEND_ROUNDED, icon_color="#2E7D32", icon_size=28, on_click=lambda _: send_message())
-                    ], spacing=8)
+                        ft.IconButton(ft.Icons.SEND_ROUNDED, icon_color="#2E7D32", icon_size=32, on_click=lambda _: send_message())
+                    ], spacing=10)
                 ]), 
-                padding=12, 
-                bgcolor="white",
-                border=ft.border.only(top=ft.border.BorderSide(1, "#EEEEEE"))
+                padding=12, bgcolor="white", border=ft.border.only(top=ft.border.BorderSide(1, "#EEEEEE"))
             )
         ])
     )
+
+    def back_to_list():
+        state["view_mode"] = "list"
+        update_layer_view()
+        load_topics(True) # Update unread counts when returning
+
+    def update_layer_view():
+        root_view.controls = [list_page] if state["view_mode"] == "list" else [chat_page]
+        page.update()
     # Update state for light theme
     # Update state for light theme
     chat_header_title.color = "#212121"
@@ -496,35 +475,28 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try: await rt_client.disconnect()
             except: pass
 
-    # --- [INITIALIZATION: ZERO-LATENCY SKELETON HYDRATION] ---
+    # --- [INITIALIZATION: ZERO-LATENCY HYDRATION] ---
     async def init_chat_async():
-        if DEBUG_MODE: print("DEBUG: Global Hydration Engine starting (Phase 8.1)...")
+        if DEBUG_MODE: print("DEBUG: Mobile Navigation Engine starting (Phase 8.3)...")
         try:
-            # 1. Populate Topics (Sidebar)
+            # 1. Update initial layer
+            update_layer_view()
+            
+            # 2. Populate Topics (Sidebar/List)
             await load_topics_async(True)
             
-            # 2. Start Realtime Engine in background
+            # 3. Start Realtime Engine
             page.run_task(realtime_task)
             
-            # 3. Auto-select first thread if none active
-            if not state["current_topic_id"]:
-                res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").order("is_priority", desc=True).order("display_order", desc=True).limit(1).execute())
-                if res.data:
-                    select_topic(res.data[0])
-            else:
-                await load_messages_async()
-            
-            msg_input.disabled = False
-            if DEBUG_MODE: print("DEBUG: Hydration Complete (Stable UI)")
-            page.update()
+            if DEBUG_MODE: print("DEBUG: Hydration Complete (Layered UI)")
         except Exception as e:
             print(f"Hydration Fail: {e}")
 
     # Start hydration in a separate task
     page.run_task(init_chat_async)
     
-    # RETURN UI STRUCTURE IMMEDIATELY - ZERO NETWORK CALLS IN MAIN THREAD
-    return [ft.Row([sidebar, main_area], expand=True, spacing=0)]
+    # RETURN STACK IMMEDIATELY
+    return [root_view]
 
 # [1] 로그인 화면
 def get_login_controls(page, navigate_to):
