@@ -20,9 +20,9 @@ def main(page: ft.Page):
     page.file_picker = ft.FilePicker()
     page.overlay.append(page.file_picker)
 
-    # Global AudioRecorder (Prevent Memory Leak/Freeze by init once)
-    page.audio_recorder = ft.AudioRecorder()
-    page.overlay.append(page.audio_recorder)
+    # [CHANGE] Removed AudioRecorder to prevent freeze.
+    # We will use FilePicker for audio upload instead.
+    
     
     def navigate_to(route):
         page.clean()
