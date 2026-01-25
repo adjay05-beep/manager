@@ -348,12 +348,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
         # Update button text manually since it's already rendered
         if edit_btn_ref.current:
             edit_btn_ref.current.text = "완료" if state["edit_mode"] else "편집"
+            edit_btn_ref.current.style = ft.ButtonStyle(color="#2E7D32" if state["edit_mode"] else "#757575")
             edit_btn_ref.current.update()
         
         load_topics(True)
-        # Ensure the whole sidebar knows about the change if needed
-        if sidebar_content_ref.current:
-            sidebar_content_ref.current.update()
         if DEBUG_MODE: print(f"DEBUG: toggle_edit_mode done. New: {state['edit_mode']}")
 
     def open_create_topic_dialog(e):
@@ -390,16 +388,17 @@ def get_chat_controls(page: ft.Page, navigate_to):
             ft.Container(
                 content=ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
-                    ft.Text("팀 스레드 [Debug 4]", weight="bold", size=20, color="#212121"),
+                    ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
                     ft.Row([
-                        ft.TextButton(ref=edit_btn_ref, text="편집", style=ft.ButtonStyle(color="#757575"), on_click=lambda _: toggle_edit_mode()),
+                        ft.TextButton(ref=edit_btn_ref, text="편집", style=ft.ButtonStyle(color="#757575"), 
+                                      on_click=lambda _: toggle_edit_mode()),
                         ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#2E7D32", on_click=open_create_topic_dialog)
                     ], spacing=0)
                 ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=60, bottom=20),
+                padding=ft.padding.only(left=10, right=10, top=50, bottom=5),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
-            ft.Container(content=topic_list_container, expand=True) 
+            ft.Container(content=topic_list_container, expand=True, padding=ft.padding.only(top=0)) 
         ])
     )
 
@@ -414,7 +413,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     chat_header_title,
                     ft.IconButton(ft.Icons.REFRESH_ROUNDED, icon_color="#BDBDBD", on_click=lambda _: load_messages())
                 ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=60, bottom=15),
+                padding=ft.padding.only(left=10, right=10, top=50, bottom=5),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
             ft.Container(content=message_list_view, expand=True, bgcolor="#F5F5F5"),
