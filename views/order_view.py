@@ -75,6 +75,18 @@ def get_order_controls(page: ft.Page, navigate_to):
 
     # --- File Upload Logic (Stable) ---
     def pick_file_click(e):
+        status_text.value = "파일 선택창 여는 중..."
+        page.update()
+        
+        # Checking Global Picker
+        if not hasattr(page, 'file_picker'):
+             # Fallback init
+             status_text.value = "Picker Init..."
+             page.update()
+             page.file_picker = ft.FilePicker()
+             page.overlay.append(page.file_picker)
+             page.update()
+
         if hasattr(page, 'file_picker'):
             # allow_multiple=False, file_type=AUDIO
             page.file_picker.on_result = on_file_picked
@@ -84,7 +96,7 @@ def get_order_controls(page: ft.Page, navigate_to):
                 dialog_title="음성 파일 선택 또는 녹음"
             )
         else:
-            status_text.value = "FilePicker Not Initialized"
+            status_text.value = "오류: FilePicker 로드 실패"
             page.update()
 
     def on_file_picked(e: ft.FilePickerResultEvent):
@@ -214,8 +226,16 @@ def get_order_controls(page: ft.Page, navigate_to):
             page.update()
 
     # Layout
-    # Use UPLOAD icon instead of mic to signify change
-    mic_btn = ft.Container(content=ft.Icon(ft.Icons.CLOUD_UPLOAD, size=40, color="white"), width=80, height=80, bgcolor="#00C73C", border_radius=40, alignment=ft.alignment.center, on_click=pick_file_click, shadow=ft.BoxShadow(blur_radius=10, color="#00C73C"), ink=True)
+    # Use FloatingActionButton for reliable click handling on Mobile
+    mic_btn = ft.FloatingActionButton(
+        icon=ft.Icons.CLOUD_UPLOAD, 
+        text="녹음/파일 선택", 
+        bgcolor="#00C73C", 
+        content=ft.Row([ft.Icon(ft.Icons.CLOUD_UPLOAD), ft.Text("녹음/파일 선택")], alignment="center", spacing=5),
+        width=160,
+        height=50,
+        on_click=pick_file_click
+    )
     
     header = ft.Container(
         content=ft.Row([
