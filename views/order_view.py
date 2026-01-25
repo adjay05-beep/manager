@@ -120,14 +120,14 @@ def get_order_controls(page: ft.Page, navigate_to):
                     time.sleep(1); state["seconds"] += 1
                     mins, secs = divmod(state["seconds"], 60); recording_timer.value = f"{mins:02d}:{secs:02d}"; page.update()
             threading.Thread(target=upd, daemon=True).start()
-            path = os.path.join(tempfile.gettempdir(), "order_voice.wav"); audio_recorder.start_recording(path); page.update()
+            path = os.path.join(tempfile.gettempdir(), f"order_voice_{int(time.time())}.wav"); audio_recorder.start_recording(path); page.update()
         else:
             state["is_recording"] = False; status_text.value = "클라우드 전송 준비..."; recording_timer.visible = False; page.update()
             
             try:
                 local_path = audio_recorder.stop_recording()
-                if not local_path:
-                    status_text.value = "녹음 실패"; page.update(); return
+                if not local_path or (not os.path.exists(local_path) and "blob" not in local_path):
+                    status_text.value = "녹음 파일 로드 실패"; page.update(); return
                 
                 fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
                 
@@ -296,4 +296,4 @@ def get_order_controls(page: ft.Page, navigate_to):
     )
     
     load_memos()
-    return [ft.Container(expand=True, bgcolor="white", content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))]
+    return [ft.Container(expand=True, bgcolor="white", padding=ft.padding.only(top=50), content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))]
