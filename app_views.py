@@ -371,13 +371,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
             ft.Container(
                 content=ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
-                    ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
+                    ft.Text("팀 스레드 [Debug 1]", weight="bold", size=20, color="#212121"),
                     ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#212121", on_click=open_create_topic_dialog)
                 ], alignment="spaceBetween"),
                 padding=ft.padding.only(left=10, right=10, top=40, bottom=20),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
-            ft.Container(content=topic_list_container, expand=True)
+            ft.Container(content=topic_list_container, expand=True) # Will be empty in Debug 1
         ])
     )
 
@@ -413,11 +413,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
     def back_to_list():
         state["view_mode"] = "list"
         update_layer_view()
-        load_topics(True) # Update unread counts when returning
+        # load_topics(True) # Disabled for Debug 1
 
     def update_layer_view():
         root_view.controls = [list_page] if state["view_mode"] == "list" else [chat_page]
-        page.update()
+        # page.update() # Do not update here from sub-function during build
     # Update state for light theme
     # Update state for light theme
     chat_header_title.color = "#212121"
@@ -475,25 +475,28 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try: await rt_client.disconnect()
             except: pass
 
-    # --- [INITIALIZATION: ZERO-LATENCY HYDRATION] ---
-    async def init_chat_async():
-        if DEBUG_MODE: print("DEBUG: Mobile Navigation Engine starting (Phase 8.3)...")
-        try:
-            # 1. Update initial layer
-            update_layer_view()
-            
-            # 2. Populate Topics (Sidebar/List)
-            await load_topics_async(True)
-            
-            # 3. Start Realtime Engine
-            page.run_task(realtime_task)
-            
-            if DEBUG_MODE: print("DEBUG: Hydration Complete (Layered UI)")
-        except Exception as e:
-            print(f"Hydration Fail: {e}")
+    # --- [INITIALIZATION: DISABLED FOR DEBUG 1] ---
+    # async def init_chat_async():
+    #     if DEBUG_MODE: print("DEBUG: Mobile Navigation Engine starting (Phase 8.3)...")
+    #     try:
+    #         # 1. Update initial layer
+    #         update_layer_view()
+    #         
+    #         # 2. Populate Topics (Sidebar/List)
+    #         await load_topics_async(True)
+    #         
+    #         # 3. Start Realtime Engine
+    #         page.run_task(realtime_task)
+    #         
+    #         if DEBUG_MODE: print("DEBUG: Hydration Complete (Layered UI)")
+    #     except Exception as e:
+    #         print(f"Hydration Fail: {e}")
 
     # Start hydration in a separate task
-    page.run_task(init_chat_async)
+    # page.run_task(init_chat_async)
+    
+    # Synchronously set the initial layer before returning
+    root_view.controls = [list_page]
     
     # RETURN STACK IMMEDIATELY
     return [root_view]
