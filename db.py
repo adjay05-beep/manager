@@ -96,44 +96,40 @@ class ManualBucket:
         return f"{self.url}/{path}"
 
     def create_signed_upload_url(self, path, expires_in=120):
-        # Implementation with bucket name fallback (uploads vs upload)
+        # [OPTIMIZED] Prioritize 'uploads' bucket to avoid unnecessary requests.
         import urllib.parse
         safe_path = urllib.parse.quote(path)
         
         parts = self.url.split("/object/")
         base_storage_url = parts[0]
-        original_bucket = parts[1]
+        # Default fallback if parsing fails
+        original_bucket = parts[1] if len(parts) > 1 else "uploads"
         
         headers = self.headers.copy()
         headers["Content-Type"] = "application/json"
         
-        # Robust candidate list for bucket names
-        buckets_to_try = [original_bucket, "uploads", "upload", "storage"]
-        # Filter duplicates
-        buckets_to_try = list(dict.fromkeys(buckets_to_try))
-        
-        print(f"DEBUG: Attempting Signed URL for path: {path} (safe: {safe_path})")
-        print(f"DEBUG: Trying buckets: {buckets_to_try}")
+        # [CHANGE] Strict priority: Check 'uploads' first, then others only if needed.
+        # This drastically reduces latency for the happy path.
+        buckets_to_try = ["uploads", original_bucket]
+        buckets_to_try = list(dict.fromkeys(buckets_to_try)) # Dedup
         
         last_error = ""
         for bucket in buckets_to_try:
-            # 1. Primary Syntax
+            # 1. Primary Syntax (Standard Supabase)
             endpoint = f"{base_storage_url}/object/upload/sign/{bucket}/{safe_path}"
             try:
                 resp = httpx.post(endpoint, headers=headers, json={"expiresIn": expires_in})
                 if resp.status_code == 200:
-                    print(f"DEBUG: Found bucket '{bucket}' using primary syntax.")
                     data = resp.json()
                     s_url = data.get("url") or data.get("signedUrl")
                     if s_url and s_url.startswith("/"):
                         s_url = f"{base_storage_url}{s_url}"
                     return s_url
                 
-                # 2. Fallback Syntax
+                # 2. Fallback Syntax (Older Supabase)
                 fb_endpoint = f"{base_storage_url}/object/{bucket}/{safe_path}/sign"
                 resp = httpx.post(fb_endpoint, headers=headers, json={"expiresIn": expires_in})
                 if resp.status_code == 200:
-                    print(f"DEBUG: Found bucket '{bucket}' using fallback syntax.")
                     data = resp.json()
                     s_url = data.get("url") or data.get("signedUrl")
                     if s_url and s_url.startswith("/"):
@@ -145,7 +141,7 @@ class ManualBucket:
                 last_error = str(e)
                 continue
         
-        msg = f"SIGNED URL ERROR: Failed after trying {buckets_to_try}. Last response: {last_error}"
+        msg = f"SIGNED URL ERROR: Failed for path '{path}'. Tried {buckets_to_try}. Last Error: {last_error}"
         print(msg)
         raise Exception(msg)
 

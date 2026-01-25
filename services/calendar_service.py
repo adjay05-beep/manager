@@ -6,12 +6,9 @@ CURRENT_USER_ID = "00000000-0000-0000-0000-000000000001"
 
 async def get_all_events() -> List[Dict[str, Any]]:
     """Fetch all calendar events."""
-    try:
-        res = await asyncio.to_thread(lambda: supabase.table("calendar_events").select("*, profiles(full_name)").execute())
-        return res.data or []
-    except Exception as e:
-        print(f"Service Error (get_all_events): {e}")
-        return []
+    # [REFACTOR] Let errors bubble up for UI handling
+    res = await asyncio.to_thread(lambda: supabase.table("calendar_events").select("*, profiles(full_name)").execute())
+    return res.data or []
 
 async def delete_event(event_id: str):
     """Delete an event by ID."""
@@ -19,12 +16,8 @@ async def delete_event(event_id: str):
 
 async def load_profiles() -> List[Dict[str, Any]]:
     """Fetch all user profiles."""
-    try:
-        res = await asyncio.to_thread(lambda: supabase.table("profiles").select("id, full_name").execute())
-        return res.data or []
-    except Exception as e:
-        print(f"Service Error (load_profiles): {e}")
-        return []
+    res = await asyncio.to_thread(lambda: supabase.table("profiles").select("id, full_name").execute())
+    return res.data or []
 
 async def create_event(event_data: Dict[str, Any]):
     """Create a new calendar event."""

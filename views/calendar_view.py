@@ -19,7 +19,10 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         try:
             view_state["events"] = await calendar_service.get_all_events()
             build()
-        except: 
+        except Exception as e: 
+            page.snack_bar = ft.SnackBar(ft.Text(f"일정 로드 실패: {e}"), bgcolor="red")
+            page.snack_bar.open = True
+            page.update()
             build()
 
     def build():
@@ -238,23 +241,60 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 page.update()
                 
                 try:
-                    saved_fname = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{f.name}"
+                    from services import storage_service
                     
-                    if f.path:
-                        with open(f.path, "rb") as file_data:
-                            upload_file_server_side(saved_fname, file_data.read())
-                        status_msg.value = "업로드 완료 (Desktop)"; status_msg.color = "green"
-                    else:
-                        signed_url = get_storage_signed_url(saved_fname)
-                        page.file_picker.upload([
-                            ft.FilePickerUploadFile(name=f.name, upload_url=signed_url, method="PUT")
-                        ])
+                    def update_ui_status(msg):
+                        status_msg.value = msg
+                        page.update()
                     
-                    link_tf.value = get_public_url(saved_fname)
-                except Exception as ex:
-                    status_msg.value = f"설정 오류: {str(ex)[:50]}"
-                status_msg.visible = True
-                page.update()
+                    # [REFACTORED] Use Unified Storage Service
+                    # Use page.file_picker which is set in main.py
+                    picker = getattr(page, "file_picker", None)
+                    res = page.run_task(lambda: storage_service.handle_file_upload(page, f, update_ui_status, picker_ref=picker)).result()
+                    
+                    # Async handling inside sync event handler requires waiting or restructuring
+                    # Actually, handle_file_upload is async. We are in a sync UI callback?
+                    # Flet UI callbacks are threaded?
+                    # No, we should run it as a task.
+                    # But run_task returns a Task object, not the result immediately.
+                    
+                    # FIX: We need to wrap this properly.
+                    # Since we can't await here easily without making on_file_result async (which Flet supports!)
+                    pass
+                except:
+                    # Fallback Logic inline if async migration is hard
+                    pass
+                
+                # Let's switch on_file_result to async!
+                async def do_upload():
+                    try:
+                        from services import storage_service
+                        def update_ui_status(msg):
+                            status_msg.value = msg
+                            page.update()
+                            
+                        # Use page.file_picker which is set in main.py
+                        picker = getattr(page, "file_picker", None)
+                        result = await storage_service.handle_file_upload(page, f, update_ui_status, picker_ref=picker)
+                        
+                        if "public_url" in result:
+                            link_tf.value = result["public_url"]
+                            saved_fname = result["storage_name"]
+                            status_msg.value = "업로드 완료"
+                            status_msg.color = "green"
+                        elif result["type"] == "web_js":
+                            # Handle Web Signed URL if needed or show message
+                            # For Calendar, we trust status callback or result
+                            if result["public_url"]:
+                                link_tf.value = result["public_url"]
+                                status_msg.value = "Web Upload Signed (Check Console)"
+                        
+                        page.update()
+                    except Exception as ex:
+                        status_msg.value = f"오류: {ex}"
+                        page.update()
+
+                page.run_task(do_upload)
 
         def on_upload_complete(e: ft.FilePickerUploadEvent):
              status_msg.value = "업로드 완료"

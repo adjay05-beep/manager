@@ -294,42 +294,39 @@ def get_chat_controls(page: ft.Page, navigate_to):
     pending_container = ft.Container(visible=False, padding=10, bgcolor="#3D4446", border_radius=10)
     
     # [FIX] Use Global Picker event handler connection
-    def on_chat_file_result(e: ft.FilePickerResultEvent):
+    async def on_chat_file_result(e: ft.FilePickerResultEvent):
+        # [REFACTOR] Use Unified Storage Service
         if e.files and state["current_topic_id"]:
             f = e.files[0]
             try:
-                import urllib.parse
-                safe_name = urllib.parse.quote(f.name.replace(" ", "_"))
-                fname = f"chat_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
-                state["pending_file_name"] = fname 
+                from services import storage_service
                 
-                snack = ft.SnackBar(ft.Text("이미지 전송 준비 중..."), open=True)
-                page.snack_bar = snack; page.update()
+                # Update UI helper
+                def update_snack(msg):
+                    page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
+                    page.update()
+
+                update_snack(f"'{f.name}' 준비 중...")
+
+                # Execute Upload
+                result = await storage_service.handle_file_upload(page, f, update_snack, picker_ref=chat_file_picker)
+
+                # Set pending state from result
+                if "public_url" in result:
+                    state["pending_image_url"] = result["public_url"]
+                    # Generate a clean filename for display or logic if needed, 
+                    # but storage_service handles naming. 
+                    # We utilize the returned public_url.
+                    update_pending_ui(state["pending_image_url"])
+                    update_snack("파일 준비 완료!")
                 
-                try:
-                    signed_url = chat_service.get_storage_signed_url(fname)
-                    state["pending_image_url"] = chat_service.get_public_url(fname)
-                    
-                    chat_file_picker.upload(
-                        files=[
-                            ft.FilePickerUploadFile(
-                                name=f.name,
-                                upload_url=signed_url,
-                                method="PUT"
-                            )
-                        ]
-                    )
-                except Exception as storage_ex:
-                    # Native Fallback
-                    if f.path:
-                         with open(f.path, "rb") as file_data:
-                             chat_service.upload_file_server_side(fname, file_data.read())
-                         update_pending_ui(state["pending_image_url"])
-                    else:
-                        raise storage_ex
-                page.update()
+                # Note: 'web_js' handling is implicit via storage_service for now, 
+                # assuming it executes logic or returns URL. 
+                # If we need strict JS execution from View, storage_service needs refactoring 
+                # to return the JS string, but for now we follow the 'native-first' stability path.
+
             except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"오류: {str(ex)}"), bgcolor="red", open=True)
+                page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red", open=True)
                 page.update()
 
     def on_chat_upload_progress(e: ft.FilePickerUploadEvent):
