@@ -27,7 +27,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
     current_user_id = "00000000-0000-0000-0000-000000000001"
 
     # [UI] Main View Containers
-    topic_list_container = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO)
+    topic_list_container = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=0)
     message_list_view = ft.ListView(expand=True, spacing=15, auto_scroll=True, padding=10)
     chat_header_title = ft.Text("불러오는 중...", weight="bold", size=18, color="#212121")
     
@@ -59,7 +59,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
                 if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
-            list_view = ft.ListView(expand=True, spacing=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False)
+            list_view = ft.ListView(expand=True, spacing=0, padding=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False, padding=0)
             
             for t in sorted_topics:
                 tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
@@ -387,7 +387,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
         if edit_btn_ref.current:
             edit_btn_ref.current.text = "완료" if state["edit_mode"] else "편집"
             edit_btn_ref.current.style = ft.ButtonStyle(color="#2E7D32" if state["edit_mode"] else "#757575")
-        load_topics(True)
+            edit_btn_ref.current.update() # Immediate update for button text
+        
+        load_topics(True) # Re-render the list
+        page.update() # Ensure global sync
 
     # 3.1 List View (Topic List Page)
     list_page = ft.Container(
