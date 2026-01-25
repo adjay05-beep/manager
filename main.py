@@ -20,8 +20,10 @@ def main(page: ft.Page):
     page.file_picker = ft.FilePicker()
     page.overlay.append(page.file_picker)
 
-    # [CHANGE] Removed AudioRecorder to prevent freeze.
-    # We will use FilePicker for audio upload instead.
+    # Global AudioRecorder (Singleton for WeChat-style Voice Memo)
+    if not hasattr(page, "audio_recorder"):
+        page.audio_recorder = ft.AudioRecorder()
+        page.overlay.append(page.audio_recorder)
     
     
     def navigate_to(route):
