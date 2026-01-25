@@ -120,9 +120,11 @@ def get_order_controls(page: ft.Page, navigate_to):
                     time.sleep(1); state["seconds"] += 1
                     mins, secs = divmod(state["seconds"], 60); recording_timer.value = f"{mins:02d}:{secs:02d}"; page.update()
             threading.Thread(target=upd, daemon=True).start()
-            # [FIX] On Web, do NOT provide output_path, so Flet returns the Blob URL.
-            # On Desktop, provide a path to save the file.
-            if page.web:
+            # [FIX] Force Web mode if running on Render or if page.web is true.
+            # page.web seems unreliable on some deployments, so we assume 'RENDER' env means Web.
+            is_web_forced = page.web or os.getenv("RENDER") or (page.platform and page.platform.lower() in ["ios", "android"])
+            
+            if is_web_forced:
                 audio_recorder.start_recording(None)
             else:
                 path = os.path.join(tempfile.gettempdir(), f"order_voice_{int(time.time())}.wav")
@@ -146,9 +148,8 @@ def get_order_controls(page: ft.Page, navigate_to):
                 
                 # REMOTE SERVER FIX
                 # If on Web, local_path should be a Blob URL.
-                # If on Desktop, it's a file path.
                 
-                is_web = page.web or (local_path and "blob:" in local_path)
+                is_web = page.web or os.getenv("RENDER") or (local_path and "blob:" in local_path)
                 
                 if is_web:
                     status_text.value = "기기에서 업로드 중..."
@@ -202,10 +203,11 @@ def get_order_controls(page: ft.Page, navigate_to):
 
             except Exception as ex:
                 # Expanded Debug Info
-                is_web_debug = page.web
+                is_web_debug = f"{page.web}|{os.getenv('RENDER')}"
+                plat = page.platform
                 path_debug = str(local_path) if 'local_path' in locals() else "N/A"
-                print(f"REC ERROR: {ex} | Web:{is_web_debug} | Path:{path_debug}")
-                status_text.value = f"E: {str(ex)[:15]} | W:{is_web_debug} | P:{path_debug[:10]}"
+                print(f"REC ERROR: {ex} | Web:{is_web_debug} | Plat:{plat} | Path:{path_debug}")
+                status_text.value = f"E: {str(ex)[:10]} | W:{is_web_debug} | Pl:{plat} | P:{path_debug[:8]}"
                 page.update()
 
     async def start_transcription(url):
