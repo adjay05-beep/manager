@@ -22,11 +22,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
     state = {
         "current_topic_id": None, 
         "edit_mode": False, 
-        "view_mode": "list" # "list" or "chat"
+        "view_mode": "list" # "list" or "chat" for mobile-layering
     }
     current_user_id = "00000000-0000-0000-0000-000000000001"
 
-    # [UI] Containers & Roots
+    # [UI] Main View Containers
     topic_list_container = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO)
     message_list_view = ft.ListView(expand=True, spacing=15, auto_scroll=True, padding=10)
     chat_header_title = ft.Text("불러오는 중...", weight="bold", size=18, color="#212121")
@@ -36,19 +36,16 @@ def get_chat_controls(page: ft.Page, navigate_to):
         border_color="#E0E0E0", border_width=1, on_submit=lambda e: send_message(), disabled=True
     )
     
-    # [UI] Root Stack for Navigation Layering
+    # [UI] Root Stack for Layering
     root_view = ft.Stack(expand=True)
 
     async def load_topics_async(update_ui=True):
         try:
-            # 1. Fetch Topics (Isolated Thread)
             res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").execute())
             topics = res.data or []
             
-            # 2. Sort Logic
             sorted_topics = sorted(topics, key=lambda x: (x.get('is_priority', False), x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
             
-            # 3. Reading/Unread Logic (Isolated Thread)
             read_res = await asyncio.to_thread(lambda: supabase.table("chat_user_reading").select("topic_id, last_read_at").eq("user_id", current_user_id).execute())
             reading_map = {r['topic_id']: r['last_read_at'] for r in read_res.data} if read_res.data else {}
             
@@ -62,10 +59,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
                 if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
-            # 4. Build List Controls
-            list_view = ft.ListView(expand=True, spacing=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False)
-            
-            for i, t in enumerate(sorted_topics):
+            new_controls = []
+            for t in sorted_topics:
                 tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
                 txt_color = "#424242"
                 
@@ -76,28 +71,18 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 
                 prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=20, color="#FF5252") if is_priority else ft.Container()
                 
-                # Drag handle for edit mode
-                handle = ft.ReorderableDragStartWrapper(ft.Icon(ft.Icons.DRAG_HANDLE, color="#BDBDBD")) if state["edit_mode"] else ft.Container()
-                
-                item_content = ft.Row([
-                    ft.Row([handle, prio_icon, ft.Text(t['name'], size=16, weight="bold", color=txt_color)], spacing=10),
-                    ft.Row([badge, ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")], spacing=5)
-                ], alignment="spaceBetween")
-
                 item = ft.Container(
-                    content=item_content,
-                    padding=ft.padding.symmetric(horizontal=20, vertical=22),
+                    content=ft.Row([
+                        ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color=txt_color)], spacing=10),
+                        ft.Row([badge, ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")], spacing=5)
+                    ], alignment="spaceBetween"),
+                    padding=ft.padding.symmetric(horizontal=20, vertical=20),
                     bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
-                    on_click=lambda e, topic=t: select_topic(topic) if not state["edit_mode"] else None, 
-                    data=tid
+                    on_click=lambda e, topic=t: select_topic(topic), data=tid
                 )
-                
-                if state["edit_mode"]:
-                    list_view.controls.append(item)
-                else:
-                    list_view.controls.append(item)
+                new_controls.append(item)
             
-            topic_list_container.controls = [list_view]
+            topic_list_container.controls = new_controls
             if update_ui: page.update()
         except Exception as ex:
             print(f"Load Topics Error: {ex}")
@@ -121,38 +106,19 @@ def get_chat_controls(page: ft.Page, navigate_to):
     
     # chat_header_title = ft.Text("스레드를 선택하세요", weight="bold", size=18, color="#333333") # This was a duplicate, removed.
 
-    def on_topic_reorder(e: ft.ReorderableListViewReorderEvent):
-        async def run_reorder():
-            try:
-                # 1. Local UI Update (Instant Feedback)
-                controls = topic_list_container.controls[0].controls # Get controls from the ListView
-                c = controls.pop(e.old_index)
-                controls.insert(e.new_index, c)
-                for i, ctrl in enumerate(controls): ctrl.data_index = i
-                page.update()
-                
-                # 2. DB Update (Isolated Thread)
-                # For simplicity, we assume lower index is higher priority/order
-                for i, ctrl in enumerate(controls):
-                    tid = ctrl.data # tid stored in data
-                    await asyncio.to_thread(lambda: supabase.table("chat_topics").update({"display_order": 1000 - i}).eq("id", tid).execute())
-            except Exception as ex: print(f"Reorder Error: {ex}")
-        page.run_task(run_reorder)
-
     def toggle_priority(tid, current_val):
-        async def run_prio():
-            try:
-                await asyncio.to_thread(lambda: supabase.table("chat_topics").update({"is_priority": not current_val}).eq("id", tid).execute())
-                await load_topics_async(True)
-            except: pass
-        page.run_task(run_prio)
+        try:
+            supabase.table("chat_topics").update({"is_priority": not current_val}).eq("id", tid).execute()
+            load_topics(True)
+        except Exception as e:
+            print(f"Priority Error: {e}")
 
     async def load_messages_async():
         if not state["current_topic_id"]: return
         if DEBUG_MODE: print(f"DEBUG: Starting load_messages_async for topic {state['current_topic_id']}")
         try:
-            # 1. Fetch Messages (Isolated Thread)
-            res = await asyncio.to_thread(lambda: supabase.table("chat_messages").select("id, topic_id, user_id, content, image_url, created_at, profiles(username, full_name)").eq("topic_id", state["current_topic_id"]).order("created_at", desc=True).limit(50).execute())
+            # Fetch data (Async fetch)
+            res = supabase.table("chat_messages").select("id, topic_id, user_id, content, image_url, created_at, profiles(username, full_name)").eq("topic_id", state["current_topic_id"]).order("created_at", desc=True).limit(50).execute()
             messages = res.data or []
             messages.reverse()
             
@@ -177,15 +143,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 if m.get('content') and m['content'] != "[이미지 파일]":
                     content_elements.append(ft.Text(m['content'], size=14, color="black"))
                 
-                # [FIX] Bubble styling based on content length
-                bubble_bg = "#FFFFFF" if is_me else "#E3F2FD"
+                bubble_bg = "#FFFFFF" if is_me else "#E3F2FD" # Light blue for others
                 content_box = ft.Container(
                     content=ft.Column(content_elements, spacing=5, tight=True),
-                    bgcolor=bubble_bg, padding=12, border_radius=15, 
-                    border=ft.border.all(1, "#E0E0E0"),
-                    # Removing fixed width to allow shrink-wrap behavior
-                    # Use constraints to set a MAX width instead
-                    constraints=ft.BoxConstraints(max_width=280)
+                    bgcolor=bubble_bg, padding=12, border_radius=15, width=280,
+                    border=ft.border.all(1, "#E0E0E0")
                 )
                 
                 time_text = ft.Text(time_str, size=10, color="#999999")
@@ -239,31 +201,40 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.run_task(load_messages_async)
 
     def send_message(content=None, image_url=None):
+        # Use pending URL if not provided explicitly
         final_image_url = image_url or state.get("pending_image_url")
         final_content = content or msg_input.value
+        
+        # [Debug] Print state before insert
+        print(f"DEBUG: Attempting to send message. Content='{final_content}', Image='{final_image_url}'")
+        
         if not final_content and not final_image_url: return
         if not state["current_topic_id"]: return
-        if final_image_url and not final_content: final_content = "[이미지 파일]"
+        
+        # If we have an image but no content, use default label
+        if final_image_url and not final_content:
+            final_content = "[이미지 파일]"
 
-        async def run_send():
-            try:
-                # Isolated Send (Thread)
-                await asyncio.to_thread(lambda: supabase.table("chat_messages").insert({
-                    "topic_id": state["current_topic_id"],
-                    "content": final_content,
-                    "image_url": final_image_url,
-                    "user_id": current_user_id
-                }).execute())
-                
-                # Clear UI (Main Thread)
-                msg_input.value = ""
-                state["pending_image_url"] = None
-                pending_container.visible = False
-                pending_container.content = ft.Container()
-                await load_messages_async()
-            except Exception as e:
-                print(f"Send Error: {e}")
-        page.run_task(run_send)
+        try:
+            res = supabase.table("chat_messages").insert({
+                "topic_id": state["current_topic_id"],
+                "content": final_content,
+                "image_url": final_image_url,
+                "user_id": "00000000-0000-0000-0000-000000000001"
+            }).execute()
+            
+            print(f"DEBUG: Insert Success -> {res.data}")
+            
+            # Reset
+            msg_input.value = ""
+            state["pending_image_url"] = None
+            pending_container.visible = False
+            pending_container.content = ft.Container() # Clear
+            load_messages()
+        except Exception as e:
+            import traceback
+            print(f"Send Error: {e}\n{traceback.format_exc()}")
+            page.snack_bar = ft.SnackBar(ft.Text(f"전송 실패: {e}"), bgcolor="red", open=True); page.update()
 
     # Pending Attachment UI
     pending_container = ft.Container(visible=False, padding=10, bgcolor="#3D4446", border_radius=10)
@@ -393,15 +364,6 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     # --- [3] UI Builds (List View & Chat View) ---
     
-    edit_btn_ref = ft.Ref[ft.TextButton]()
-    
-    def toggle_edit_mode():
-        state["edit_mode"] = not state["edit_mode"]
-        if edit_btn_ref.current:
-            edit_btn_ref.current.text = "완료" if state["edit_mode"] else "편집"
-            edit_btn_ref.current.style = ft.ButtonStyle(color="#2E7D32" if state["edit_mode"] else "#757575")
-        load_topics(True)
-
     # 3.1 List View (Topic List Page)
     list_page = ft.Container(
         expand=True, bgcolor="white",
@@ -410,17 +372,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 content=ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
                     ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
-                    ft.Row([
-                        ft.TextButton(
-                            ref=edit_btn_ref,
-                            text="편집", 
-                            style=ft.ButtonStyle(color="#757575"), 
-                            on_click=lambda _: toggle_edit_mode()
-                        ),
-                        ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#2E7D32", on_click=open_create_topic_dialog)
-                    ], spacing=0)
+                    ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#212121", on_click=open_create_topic_dialog)
                 ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=45, bottom=20),
+                padding=ft.padding.only(left=10, right=10, top=40, bottom=20),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
             ft.Container(content=topic_list_container, expand=True)
@@ -433,11 +387,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
         content=ft.Column([
             ft.Container(
                 content=ft.Row([
-                    ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: back_to_list()),
+                    ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", 
+                                  on_click=lambda _: back_to_list()),
                     chat_header_title,
                     ft.IconButton(ft.Icons.REFRESH_ROUNDED, icon_color="#BDBDBD", on_click=lambda _: load_messages())
                 ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=45, bottom=15),
+                padding=ft.padding.only(left=10, right=10, top=40, bottom=15),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
             ft.Container(content=message_list_view, expand=True, bgcolor="#F5F5F5"),
@@ -463,7 +418,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
     def update_layer_view():
         root_view.controls = [list_page] if state["view_mode"] == "list" else [chat_page]
         page.update()
-
+    # Update state for light theme
     # Update state for light theme
     chat_header_title.color = "#212121"
     msg_input.bgcolor = "#FAFAFA"
