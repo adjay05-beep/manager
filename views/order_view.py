@@ -113,7 +113,16 @@ def get_order_controls(page: ft.Page, navigate_to):
 
     def toggle_rec(e):
         if not state["is_recording"]:
-            if not audio_recorder.has_permission(): audio_recorder.request_permission(); return
+            # [FIX] On Web, has_permission can be flaky. 
+            # We skip the check on Web because start_recording() calls getUserMedia() which acts as the prompt.
+            # On Desktop, we keep the check.
+            is_web_check = page.web or os.getenv("RENDER") or (page.platform and page.platform.lower() in ["ios", "android"])
+            
+            if not is_web_check:
+                if not audio_recorder.has_permission(): 
+                    audio_recorder.request_permission()
+                    return
+
             state["is_recording"] = True; state["seconds"] = 0; status_text.value = "녹음 중..."; recording_timer.visible = True
             def upd():
                 while state["is_recording"]:
