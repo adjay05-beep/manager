@@ -22,12 +22,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
     state = {
         "current_topic_id": None, 
         "edit_mode": False, 
-        "view_mode": "list" # "list" or "chat" for mobile-layering
+        "view_mode": "list"
     }
     current_user_id = "00000000-0000-0000-0000-000000000001"
 
-    # [UI] Main View Containers
-    topic_list_container = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO)
+    edit_btn_ref = ft.Ref[ft.TextButton]()
+    topic_list_container = ft.Container(expand=True)
     message_list_view = ft.ListView(expand=True, spacing=15, auto_scroll=True, padding=10)
     chat_header_title = ft.Text("불러오는 중...", weight="bold", size=18, color="#212121")
     
@@ -39,30 +39,38 @@ def get_chat_controls(page: ft.Page, navigate_to):
     # [UI] Root Stack for Layering
     root_view = ft.Stack(expand=True)
 
+    def on_topic_reorder(e: ft.ReorderableListViewReorderEvent):
+        controls = topic_list_container.content.controls
+        moved_control = controls.pop(e.old_index)
+        controls.insert(e.new_index, moved_control)
+        try:
+            for idx, ctrl in enumerate(controls):
+                tid = ctrl.data
+                supabase.table("chat_topics").update({"display_order": 1000 - idx}).eq("id", tid).execute()
+        except: pass
+        page.update()
+
     async def load_topics_async(update_ui=True):
         try:
             res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").execute())
             topics = res.data or []
-            
             sorted_topics = sorted(topics, key=lambda x: (x.get('is_priority', False), x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
             
             read_res = await asyncio.to_thread(lambda: supabase.table("chat_user_reading").select("topic_id, last_read_at").eq("user_id", current_user_id).execute())
             reading_map = {r['topic_id']: r['last_read_at'] for r in read_res.data} if read_res.data else {}
             
+            unread_counts = {}
             default_old = "1970-01-01T00:00:00Z"
             earliest_read = min(reading_map.values()) if reading_map else default_old
             msg_res = await asyncio.to_thread(lambda: supabase.table("chat_messages").select("topic_id, created_at").gt("created_at", earliest_read).execute())
-            recent_msgs = msg_res.data or []
-            
-            unread_counts = {}
-            for m in recent_msgs:
+            for m in (msg_res.data or []):
                 tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
                 if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
-            new_controls = []
+            list_view = ft.ListView(expand=True, spacing=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False)
+            
             for t in sorted_topics:
                 tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
-                txt_color = "#424242"
                 
                 badge = ft.Container(
                     content=ft.Text(str(unread_count), size=10, color="white", weight="bold"),
@@ -73,16 +81,20 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 
                 item = ft.Container(
                     content=ft.Row([
-                        ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color=txt_color)], spacing=10),
-                        ft.Row([badge, ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")], spacing=5)
+                        ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=10),
+                        ft.Row([badge, ft.Icon(ft.Icons.DRAG_HANDLE if state["edit_mode"] else ft.Icons.ARROW_FORWARD_IOS, size=18 if state["edit_mode"] else 14, color="#BDBDBD")], spacing=5)
                     ], alignment="spaceBetween"),
                     padding=ft.padding.symmetric(horizontal=20, vertical=20),
                     bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
-                    on_click=lambda e, topic=t: select_topic(topic), data=tid
+                    on_click=lambda e, topic=t: select_topic(topic) if not state["edit_mode"] else None, data=tid
                 )
-                new_controls.append(item)
+                
+                if state["edit_mode"]:
+                    list_view.controls.append(ft.ReorderableDraggable(index=sorted_topics.index(t), content=item))
+                else:
+                    list_view.controls.append(item)
             
-            topic_list_container.controls = new_controls
+            topic_list_container.content = list_view
             if update_ui: page.update()
         except Exception as ex:
             print(f"Load Topics Error: {ex}")
@@ -143,10 +155,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 if m.get('content') and m['content'] != "[이미지 파일]":
                     content_elements.append(ft.Text(m['content'], size=14, color="black"))
                 
-                bubble_bg = "#FFFFFF" if is_me else "#E3F2FD" # Light blue for others
+                bubble_bg = "#FFFFFF" if is_me else "#E3F2FD"
                 content_box = ft.Container(
                     content=ft.Column(content_elements, spacing=5, tight=True),
-                    bgcolor=bubble_bg, padding=12, border_radius=15, width=280,
+                    bgcolor=bubble_bg, padding=12, border_radius=15, max_width=280,
                     border=ft.border.all(1, "#E0E0E0")
                 )
                 
@@ -332,18 +344,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
     chat_file_picker.on_upload = on_chat_upload_progress
 
     def toggle_edit_mode():
-        if DEBUG_MODE: print(f"DEBUG: toggle_edit_mode triggered. Current: {state['edit_mode']}")
         state["edit_mode"] = not state["edit_mode"]
-        # Update button text manually since it's already rendered
         if edit_btn_ref.current:
             edit_btn_ref.current.text = "완료" if state["edit_mode"] else "편집"
             edit_btn_ref.current.update()
-        
         load_topics(True)
-        # Ensure the whole sidebar knows about the change if needed
-        if sidebar_content_ref.current:
-            sidebar_content_ref.current.update()
-        if DEBUG_MODE: print(f"DEBUG: toggle_edit_mode done. New: {state['edit_mode']}")
 
     def open_create_topic_dialog(e):
         new_name = ft.TextField(label="새 스레드 이름", autofocus=True)
@@ -372,7 +377,15 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 content=ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
                     ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
-                    ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#212121", on_click=open_create_topic_dialog)
+                    ft.Row([
+                        ft.TextButton(
+                            ref=edit_btn_ref,
+                            text="편집", 
+                            style=ft.ButtonStyle(color="#2E7D32"),
+                            on_click=lambda _: toggle_edit_mode()
+                        ),
+                        ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#212121", on_click=open_create_topic_dialog)
+                    ], spacing=0)
                 ], alignment="spaceBetween"),
                 padding=ft.padding.only(left=10, right=10, top=40, bottom=20),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
