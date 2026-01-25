@@ -59,7 +59,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
                 if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
-            new_controls = []
+            list_view = ft.ListView(expand=True, spacing=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False)
+            
             for t in sorted_topics:
                 tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
                 txt_color = "#424242"
@@ -71,18 +72,25 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 
                 prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=20, color="#FF5252") if is_priority else ft.Container()
                 
+                # In Edit Mode, show reorder handle instead of arrow
+                trailing = ft.ReorderableDragHandle(ft.Icon(ft.Icons.REORDER, color="#BDBDBD")) if state["edit_mode"] else ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")
+
                 item = ft.Container(
                     content=ft.Row([
                         ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color=txt_color)], spacing=10),
-                        ft.Row([badge, ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")], spacing=5)
+                        ft.Row([badge, trailing], spacing=5)
                     ], alignment="spaceBetween"),
                     padding=ft.padding.symmetric(horizontal=20, vertical=20),
                     bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
-                    on_click=lambda e, topic=t: select_topic(topic), data=tid
+                    on_click=lambda e, topic=t: select_topic(topic) if not state["edit_mode"] else None, data=tid
                 )
-                new_controls.append(item)
+                
+                if state["edit_mode"]:
+                    list_view.controls.append(ft.ReorderableDraggable(index=sorted_topics.index(t), content=item))
+                else:
+                    list_view.controls.append(item)
             
-            topic_list_container.controls = new_controls
+            topic_list_container.controls = [list_view]
             if update_ui: page.update()
         except Exception as ex:
             print(f"Load Topics Error: {ex}")
@@ -143,11 +151,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 if m.get('content') and m['content'] != "[이미지 파일]":
                     content_elements.append(ft.Text(m['content'], size=14, color="black"))
                 
-                bubble_bg = "#FFFFFF" if is_me else "#E3F2FD" # Light blue for others
+                bubble_bg = "#FFFFFF" if is_me else "#E3F2FD"
                 content_box = ft.Container(
                     content=ft.Column(content_elements, spacing=5, tight=True),
-                    bgcolor=bubble_bg, padding=12, border_radius=15, width=280,
-                    border=ft.border.all(1, "#E0E0E0")
+                    bgcolor=bubble_bg, padding=12, border_radius=15, 
+                    border=ft.border.all(1, "#E0E0E0"),
+                    constraints=ft.BoxConstraints(max_width=page.width * 0.7 if page.width else 280)
                 )
                 
                 time_text = ft.Text(time_str, size=10, color="#999999")
@@ -364,6 +373,14 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     # --- [3] UI Builds (List View & Chat View) ---
     
+    edit_btn_ref = ft.Ref[ft.TextButton]()
+    def toggle_edit_mode():
+        state["edit_mode"] = not state["edit_mode"]
+        if edit_btn_ref.current:
+            edit_btn_ref.current.text = "완료" if state["edit_mode"] else "편집"
+            edit_btn_ref.current.style = ft.ButtonStyle(color="#2E7D32" if state["edit_mode"] else "#757575")
+        load_topics(True)
+
     # 3.1 List View (Topic List Page)
     list_page = ft.Container(
         expand=True, bgcolor="white",
@@ -371,13 +388,16 @@ def get_chat_controls(page: ft.Page, navigate_to):
             ft.Container(
                 content=ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
-                    ft.Text("팀 스레드 [Debug 3]", weight="bold", size=20, color="#212121"),
-                    ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#212121", on_click=open_create_topic_dialog)
+                    ft.Text("팀 스레드 [Debug 4]", weight="bold", size=20, color="#212121"),
+                    ft.Row([
+                        ft.TextButton(ref=edit_btn_ref, text="편집", style=ft.ButtonStyle(color="#757575"), on_click=lambda _: toggle_edit_mode()),
+                        ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#2E7D32", on_click=open_create_topic_dialog)
+                    ], spacing=0)
                 ], alignment="spaceBetween"),
                 padding=ft.padding.only(left=10, right=10, top=40, bottom=20),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
-            ft.Container(content=topic_list_container, expand=True) # Will be empty in Debug 1
+            ft.Container(content=topic_list_container, expand=True) 
         ])
     )
 
@@ -474,9 +494,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try: await rt_client.disconnect()
             except: pass
 
-    # --- [INITIALIZATION: DEBUG 3 - REALTIME & AUTO-LOAD] ---
+    # --- [INITIALIZATION: DEBUG 4 - OPS RESTORE] ---
     async def init_chat_async():
-        if DEBUG_MODE: print("DEBUG: Step 3 Loading (Realtime + Select)...")
+        if DEBUG_MODE: print("DEBUG: Step 4 Loading (Operations Restore)...")
         try:
             # 1. Update initial layer
             update_layer_view()
@@ -484,14 +504,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
             # 2. Populate Topics
             await load_topics_async(True)
             
-            # 3. Start Realtime Engine (with 5s delay)
+            # 3. Start Realtime Engine (5s delay)
             page.run_task(realtime_task)
             
-            # 4. Auto-select (Optional, testing if this triggers freeze)
-            # res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").order("is_priority", desc=True).limit(1).execute())
-            # if res.data: select_topic(res.data[0])
-            
-            if DEBUG_MODE: print("DEBUG: Step 3 Complete")
+            if DEBUG_MODE: print("DEBUG: Step 4 Complete")
         except Exception as e:
             print(f"Hydration Fail: {e}")
 
