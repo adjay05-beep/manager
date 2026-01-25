@@ -44,7 +44,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
             res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").execute())
             topics = res.data or []
             
-            sorted_topics = sorted(topics, key=lambda x: (x.get('is_priority', False), x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
+            # Sort topics by display_order (descending, higher = top)
+            sorted_topics = sorted(topics, key=lambda x: (x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
             
             read_res = await asyncio.to_thread(lambda: supabase.table("chat_user_reading").select("topic_id, last_read_at").eq("user_id", current_user_id).execute())
             reading_map = {r['topic_id']: r['last_read_at'] for r in read_res.data} if read_res.data else {}
@@ -59,36 +60,63 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
                 if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
-            list_view = ft.ListView(expand=True, spacing=0, padding=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=True, padding=0)
-            
+            # --- GROUPING LOGIC ---
+            grouped = {}
             for t in sorted_topics:
-                tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
-                txt_color = "#424242"
-                
-                badge = ft.Container(
-                    content=ft.Text(str(unread_count), size=10, color="white", weight="bold"),
-                    bgcolor="#FF5252", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=10
-                ) if unread_count > 0 else ft.Container()
-                
-                prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=20, color="#FF5252") if is_priority else ft.Container()
-                
-                # In Edit Mode, show reorder handle instead of arrow
-                trailing = ft.ReorderableDragHandle(ft.Icon(ft.Icons.REORDER, color="#BDBDBD")) if state["edit_mode"] else ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")
+                cat = t.get('category', '일반')
+                if cat not in grouped: grouped[cat] = []
+                grouped[cat].append(t)
+            
+            # Define Category Order
+            cat_order = ["공지", "일반", "중요", "개별 업무"]
+            sorted_cats = sorted(grouped.keys(), key=lambda x: cat_order.index(x) if x in cat_order else 99)
 
-                item = ft.Container(
-                    content=ft.Row([
-                        ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color=txt_color)], spacing=10),
-                        ft.Row([badge, trailing], spacing=5)
-                    ], alignment="spaceBetween"),
-                    padding=ft.padding.symmetric(horizontal=20, vertical=15),
-                    bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
-                    on_click=lambda e, topic=t: select_topic(topic) if not state["edit_mode"] else None, data=tid
-                )
-                
-                if state["edit_mode"]:
-                    list_view.controls.append(ft.ReorderableDraggable(index=sorted_topics.index(t), content=item))
-                else:
-                    list_view.controls.append(item)
+            list_view = ft.ListView(expand=True, spacing=0, padding=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False, padding=0)
+            
+            for cat_name in sorted_cats:
+                # Add Category Header
+                list_view.controls.append(
+                    ft.Container(
+                        content=ft.Text(f"• {cat_name}", size=12, weight="bold", color="#757575"),
+                        padding=ft.padding.only(left=20, top=15, bottom=8),
+                        bgcolor="#FAFAFA"
+                    )
+                ) if not state["edit_mode"] else None
+
+                for t in grouped[cat_name]:
+                    tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
+                    
+                    badge = ft.Container(
+                        content=ft.Text(str(unread_count), size=10, color="white", weight="bold"),
+                        bgcolor="#FF5252", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=10
+                    ) if unread_count > 0 else ft.Container()
+                    
+                    prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=20, color="#FF5252") if is_priority else ft.Container()
+                    
+                    # [EDIT MODE COMPONENTS]
+                    delete_btn = ft.IconButton(
+                        ft.Icons.REMOVE_CIRCLE, icon_color="red", icon_size=20,
+                        on_click=lambda e, tid=tid: confirm_delete_topic(tid)
+                    ) if state["edit_mode"] else ft.Container()
+                    
+                    drag_handle = ft.ReorderableDragHandle(
+                        ft.Container(ft.Icon(ft.Icons.REORDER, color="#BDBDBD", size=20), padding=10)
+                    ) if state["edit_mode"] else ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")
+
+                    item = ft.Container(
+                        content=ft.Row([
+                            ft.Row([delete_btn, prio_icon, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=10),
+                            ft.Row([badge, drag_handle], spacing=5)
+                        ], alignment="spaceBetween"),
+                        padding=ft.padding.symmetric(horizontal=20, vertical=12),
+                        bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
+                        on_click=lambda e, topic=t: select_topic(topic) if not state["edit_mode"] else None, data=tid
+                    )
+                    
+                    if state["edit_mode"]:
+                        list_view.controls.append(ft.ReorderableDraggable(index=sorted_topics.index(t), content=item))
+                    else:
+                        list_view.controls.append(item)
             
             topic_list_container.controls = [list_view]
             if update_ui: page.update()
@@ -114,23 +142,23 @@ def get_chat_controls(page: ft.Page, navigate_to):
     
     # chat_header_title = ft.Text("스레드를 선택하세요", weight="bold", size=18, color="#333333") # This was a duplicate, removed.
 
-    def on_topic_reorder(e):
-        async def run_reorder():
-            try:
-                # [REORDER LOGIC] Simple swap/shift in DB
-                controls = topic_list_container.controls[0].controls # Get ReorderableListView's children
-                moved_item = controls.pop(e.old_index)
-                controls.insert(e.new_index, moved_item)
-                
-                # Update display_order in DB (Higher index = Higher display_order)
-                for i, ctrl in enumerate(controls):
-                    tid = ctrl.content.data # ReorderableDraggable -> Container -> data
-                    supabase.table("chat_topics").update({"display_order": len(controls) - i}).eq("id", tid).execute()
-                
-                load_topics(True)
-            except Exception as ex:
-                print(f"Reorder Error: {ex}")
-        page.run_task(run_reorder)
+    async def on_topic_reorder(e):
+        try:
+            # [REORDER LOGIC] Extract actual topics from the list_view
+            # We must be careful because of categories. In Edit mode, categories are hidden.
+            controls = [c for c in topic_list_container.controls[0].controls if isinstance(c, ft.ReorderableDraggable)]
+            moved_item = controls.pop(e.old_index)
+            controls.insert(e.new_index, moved_item)
+            
+            # Update display_order in DB (Higher index = Lower display_order to stay at bottom)
+            # Or Higher index = Higher display_order to stay at top. Let's use Len-i.
+            for i, ctrl in enumerate(controls):
+                tid = ctrl.content.data
+                await asyncio.to_thread(lambda: supabase.table("chat_topics").update({"display_order": len(controls) - i}).eq("id", tid).execute())
+            
+            await load_topics_async(True)
+        except Exception as ex:
+            print(f"Reorder Error: {ex}")
 
     def toggle_priority(tid, current_val):
         try:
@@ -360,21 +388,45 @@ def get_chat_controls(page: ft.Page, navigate_to):
     chat_file_picker.on_result = on_chat_file_result
     chat_file_picker.on_upload = on_chat_upload_progress
 
-    # Removed redundant logic to prevent confusion
+    def confirm_delete_topic(tid):
+        def delete_it(e):
+            try:
+                supabase.table("chat_topics").delete().eq("id", tid).execute()
+                page.close(dlg)
+                load_topics(True)
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"삭제 실패: {ex}"), bgcolor="red", open=True); page.update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("스레드 삭제"),
+            content=ft.Text("이 스레드와 모든 메시지가 삭제됩니다. 정말 삭제할까요?"),
+            actions=[ft.TextButton("취소", on_click=lambda _: page.close(dlg)), ft.TextButton("삭제", on_click=delete_it, color="red")]
+        )
+        page.open(dlg)
 
     def open_create_topic_dialog(e):
         new_name = ft.TextField(label="새 스레드 이름", autofocus=True)
+        new_cat = ft.Dropdown(
+            label="카테고리",
+            value="일반",
+            options=[
+                ft.dropdown.Option("공지"),
+                ft.dropdown.Option("일반"),
+                ft.dropdown.Option("중요"),
+                ft.dropdown.Option("개별 업무")
+            ]
+        )
         def create_it(e):
             if new_name.value:
                 try:
-                    supabase.table("chat_topics").insert({"name": new_name.value, "display_order": 0}).execute()
+                    supabase.table("chat_topics").insert({"name": new_name.value, "category": new_cat.value, "display_order": 0}).execute()
                     page.close(dlg)
                     load_topics(True)
                 except Exception as ex:
                     page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red", open=True); page.update()
         dlg = ft.AlertDialog(
             title=ft.Text("새 스레드 만들기"),
-            content=new_name,
+            content=ft.Column([new_name, new_cat], tight=True, spacing=15),
             actions=[ft.TextButton("취소", on_click=lambda _: page.close(dlg)), ft.TextButton("만들기", on_click=create_it)]
         )
         page.open(dlg)
