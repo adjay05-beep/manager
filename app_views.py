@@ -63,23 +63,27 @@ def get_chat_controls(page: ft.Page, navigate_to):
             for t in sorted_topics:
                 tid = t['id']; is_selected = tid == state["current_topic_id"]; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
                 
-                bg = "#E8F5E9" if is_selected else "transparent"
-                txt_color = "#00C73C" if is_selected else "#333333"
+                # Active/Inactive colors
+                bg = "#F1F8E9" if is_selected else "transparent"
+                txt_color = "#2E7D32" if is_selected else "#424242"
                 
                 badge = ft.Container(
                     content=ft.Text(str(unread_count), size=10, color="white", weight="bold"),
                     bgcolor="#FF5252", padding=ft.padding.symmetric(horizontal=6, vertical=2), border_radius=10
                 ) if unread_count > 0 and not is_selected else ft.Container()
                 
-                prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=16, color="#FF5252") if is_priority else ft.Container()
+                # Use only Exclamation for priority, remove redundant # if name has emoji
+                prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=18, color="#FF5252") if is_priority else ft.Container()
+                
+                item_content = ft.Row([
+                    ft.Row([prio_icon, ft.Text(t['name'], size=14, weight="bold" if is_selected else "normal", color=txt_color)], spacing=8),
+                    badge
+                ], alignment="spaceBetween")
 
                 item = ft.Container(
-                    content=ft.Row([
-                        ft.Row([prio_icon, ft.Text(f"# {t['name']}", size=14, weight="bold" if is_selected else "normal", color=txt_color)], spacing=5),
-                        badge
-                    ], alignment="spaceBetween"),
-                    padding=ft.padding.symmetric(horizontal=15, vertical=12),
-                    bgcolor=bg, border_radius=8, ink=True,
+                    content=item_content,
+                    padding=ft.padding.symmetric(horizontal=12, vertical=10),
+                    bgcolor=bg, border_radius=10, ink=True,
                     on_click=lambda e, topic=t: select_topic(topic), data=tid
                 )
                 
@@ -149,11 +153,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 if m.get('content') and m['content'] != "[이미지 파일]":
                     content_elements.append(ft.Text(m['content'], size=14, color="black"))
                 
-                bubble_bg = "#FFFFFF" if is_me else "#F1F1F1"
+                bubble_bg = "#FFFFFF" if is_me else "#E3F2FD" # Light blue for others
                 content_box = ft.Container(
                     content=ft.Column(content_elements, spacing=5, tight=True),
-                    bgcolor=bubble_bg, padding=12, border_radius=15, width=260,
-                    border=ft.border.all(1, "#E8E8E8") if is_me else None
+                    bgcolor=bubble_bg, padding=12, border_radius=15, width=280,
+                    border=ft.border.all(1, "#E0E0E0")
                 )
                 
                 time_text = ft.Text(time_str, size=10, color="#999999")
@@ -380,24 +384,24 @@ def get_chat_controls(page: ft.Page, navigate_to):
             ref=sidebar_content_ref,
             controls=[
                 ft.Container(
-                    ft.Text("THE MANAGER", size=18, weight="bold", color="#1A1A1A", style=ft.TextStyle(letter_spacing=1)), 
-                    padding=25, alignment=ft.alignment.center
+                    ft.Text("THE MANAGER", size=18, weight="bold", color="#1A1A1A", style=ft.TextStyle(letter_spacing=2)), 
+                    padding=ft.padding.only(top=40, bottom=30), alignment=ft.alignment.center
                 ),
                 ft.Divider(height=1, color="#F0F0F0"),
                 ft.Container(
                     content=ft.Row([
-                        ft.Text("스레드 목록", weight="bold", size=13, color="#666666"), 
+                        ft.Text("스레드 목록", weight="bold", size=12, color="#9E9E9E"), 
                         ft.Row([
                             ft.TextButton(
                                 ref=edit_btn_ref,
                                 text="완료" if state["edit_mode"] else "편집",
-                                style=ft.ButtonStyle(color="#00C73C"),
+                                style=ft.ButtonStyle(color="#2E7D32"),
                                 on_click=lambda _: toggle_edit_mode()
                             ),
-                            ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#00C73C", icon_size=20, on_click=open_create_topic_dialog)
+                            ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#2E7D32", icon_size=18, on_click=open_create_topic_dialog)
                         ], spacing=0)
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), 
-                    padding=ft.padding.only(left=20, right=10, top=15, bottom=5)
+                    padding=ft.padding.only(left=20, right=10, top=25, bottom=10)
                 ),
                 ft.Container(content=topic_list_container, expand=True, padding=ft.padding.only(left=8, right=8)),
                 ft.Container(
@@ -413,39 +417,36 @@ def get_chat_controls(page: ft.Page, navigate_to):
         content=ft.Column([
             ft.Container(
                 content=ft.Row([
-                    ft.Row([
-                        ft.Icon(ft.Icons.CHAT_BUBBLE_ROUNDED, color="#00C73C", size=20),
-                        chat_header_title
-                    ], spacing=10),
-                    ft.IconButton(ft.Icons.REFRESH_ROUNDED, icon_color="#666666", on_click=lambda _: load_topics(True))
+                    chat_header_title,
+                    ft.IconButton(ft.Icons.REFRESH_ROUNDED, icon_color="#BDBDBD", on_click=lambda _: load_topics(True))
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN), 
                 padding=ft.padding.symmetric(horizontal=20, vertical=15), 
-                border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE"))
+                border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
-            ft.Divider(height=1, color="#EEEEEE"), # [FIX] Clear line separation
-            ft.Container(content=message_list_view, expand=True, padding=ft.padding.symmetric(horizontal=20, vertical=10), bgcolor="#F9F9F9"),
-            ft.Divider(height=1, color="#EEEEEE"), # [FIX] Clear line separation
+            ft.Container(content=message_list_view, expand=True, padding=ft.padding.symmetric(horizontal=15, vertical=10), bgcolor="#F5F5F5"),
             ft.Container(
                 content=ft.Column([
                     pending_container,
                     ft.Row([
-                        ft.IconButton(ft.Icons.ADD_LINK_ROUNDED, icon_color="#666666", on_click=lambda _: chat_file_picker.pick_files()),
+                        ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED, icon_color="#757575", on_click=lambda _: chat_file_picker.pick_files()),
                         msg_input, 
-                        ft.IconButton(ft.Icons.SEND_ROUNDED, icon_color="#00C73C", icon_size=28, on_click=lambda _: send_message())
-                    ], spacing=10)
+                        ft.IconButton(ft.Icons.SEND_ROUNDED, icon_color="#2E7D32", icon_size=28, on_click=lambda _: send_message())
+                    ], spacing=8)
                 ]), 
-                padding=15, 
-                bgcolor="white"
+                padding=12, 
+                bgcolor="white",
+                border=ft.border.only(top=ft.border.BorderSide(1, "#EEEEEE"))
             )
         ])
     )
     # Update state for light theme
     # Update state for light theme
-    chat_header_title.color = "#1A1A1A"
-    msg_input.bgcolor = "#F5F5F5"
+    chat_header_title.color = "#212121"
+    msg_input.bgcolor = "#FAFAFA"
     msg_input.color = "black"
-    msg_input.border_color = "transparent"
-    msg_input.hint_style = ft.TextStyle(color="#999999")
+    msg_input.border_color = "#E0E0E0"
+    msg_input.border_width = 1
+    msg_input.hint_style = ft.TextStyle(color="#9E9E9E")
 
     # --- [NEW] REALTIME INTEGRATION (Zero Latency) ---
     async def realtime_task():
