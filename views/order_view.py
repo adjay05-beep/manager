@@ -119,10 +119,9 @@ def get_order_controls(page: ft.Page, navigate_to):
     
     # [FIX] Static HTML to bypass Flet's async gesture restriction on Safari
     def open_permission_helper(e):
-        # Open the static HTML in the same window (or new tab)
-        # Assuming assets are served at root or /assets/ logic. 
-        # Flet usually serves assets at root if assets_dir is set.
-        page.launch_url("/permission_fix.html")
+        # page.launch_url is also being blocked by Safari popup blocker.
+        # We must use JS to force navigation in the SAME TAB.
+        page.run_javascript("window.location.href = '/permission_fix.html';")
 
     mic_check_btn = ft.ElevatedButton("마이크 권한 설정 도우미 (터치)", on_click=open_permission_helper, bgcolor="#007AFF", color="white")
 
