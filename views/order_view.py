@@ -99,17 +99,11 @@ def get_order_controls(page: ft.Page, navigate_to):
             recording_timer.visible = True
             
             # Web Detection
-            # Flet App (iOS) usually has page.web=False, but connects to Render (Web Server).
-            # We MUST check if we are running in the App (Native) or Browser.
-            # But here Python is on Server. So effectively it IS Web mode relative to the Client.
-            # We use the Render Env Var check correctly.
-            is_env_web = os.getenv("RENDER") is not None
-            is_page_web = page.web
+            # The previous 'force_web' caused a crash on Native App because it tried start(None).
+            # We must respect page.web for the API call signature.
+            is_browser = page.web
             
-            # Force Web Logic if on Render
-            force_web = is_env_web or is_page_web
-            
-            status_text.value = f"Rec Start (Web:{force_web})"
+            status_text.value = f"Rec Start (Browser:{is_browser})"
             page.update()
 
             def upd():
@@ -119,14 +113,16 @@ def get_order_controls(page: ft.Page, navigate_to):
             threading.Thread(target=upd, daemon=True).start()
 
             try:
-                if force_web:
-                    # Web/Mobile Web: No path arg = Blob URL
+                if is_browser:
+                    # Web Standard
                     audio_recorder.start_recording(None)
                 else:
-                    # Desktop Dev
+                    # Native (App or Desktop)
+                    # Must provide path
                     path = os.path.join(tempfile.gettempdir(), f"order_voice_{int(time.time())}.wav")
                     audio_recorder.start_recording(path)
             except Exception as ex:
+                # This catches the 'output_path provided' error if logic flips
                 state["is_recording"] = False
                 status_text.value = f"Start Err: {ex}"
                 page.update()
@@ -146,22 +142,21 @@ def get_order_controls(page: ft.Page, navigate_to):
                 # print(f"Stop Result: {local_path}")
                 
                 if not local_path:
-                    status_text.value = "녹음 데이터 없음 (Mic 권한 확인)"
+                    state["is_recording"] = False 
+                    status_text.value = "녹음 데이터 없음 (Mic 권한 또는 Safari 이슈)"
                     page.update()
                     return
 
                 # Choose upload method
-                force_web = (os.getenv("RENDER") is not None) or page.web or ("blob:" in str(local_path))
+                # On Browser, local_path is a Blob URL.
+                # On Native, local_path is a File Path.
 
-                fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
-
-                if force_web:
+                if page.web:
                     status_text.value = "서버로 전송 중..."
                     signed_url = get_storage_signed_url(fname)
                     public_url = get_public_url(fname)
             
                     # JS Bridge for Web Upload
-                    # Note: local_path is blob:http://...
                     js_upload = f"""
                     (async function() {{
                         try {{
@@ -179,18 +174,22 @@ def get_order_controls(page: ft.Page, navigate_to):
                     }})();
                     """
                     page.run_javascript(js_upload)
-                    
-                    # Poll for transcription trigger (Simplified)
-                    # We assume upload works if no alert error.
-                    # Wait 2s then transcribe
                     page.run_task(lambda: delayed_transcribe(public_url))
                     
                 else:
-                    # Native
-                    with open(local_path, "rb") as f:
-                        upload_file_server_side(fname, f.read())
-                    public_url = get_public_url(fname)
-                    page.run_task(lambda: start_transcription(public_url))
+                    # Native Mode (App or Desktop)
+                    # Critical Check: Can we open this file?
+                    # If Server is Remote and Client IS Native, we CANNOT open it.
+                    if os.path.exists(local_path):
+                         with open(local_path, "rb") as f:
+                            upload_file_server_side(fname, f.read())
+                         public_url = get_public_url(fname)
+                         page.run_task(lambda: start_transcription(public_url))
+                    else:
+                        # Remote Native Client Scenario
+                        status_text.value = "⚠️ 앱에서는 녹음 불가 (Safari 브라우저 사용 요망)"
+                        state["is_recording"] = False
+                        page.update()
 
             except Exception as ex:
                 status_text.value = f"Stop Err: {ex}"
