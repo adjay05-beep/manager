@@ -4,10 +4,10 @@ from db import supabase
 
 CURRENT_USER_ID = "00000000-0000-0000-0000-000000000001"
 
-async def get_memos() -> List[Dict[str, Any]]:
-    """Fetch all order memos."""
+async def get_memos(user_id: str) -> List[Dict[str, Any]]:
+    """Fetch all order memos for the user."""
     try:
-        res = await asyncio.to_thread(lambda: supabase.table("order_memos").select("*").order("created_at", desc=True).execute())
+        res = await asyncio.to_thread(lambda: supabase.table("order_memos").select("*").eq("user_id", user_id).order("created_at", desc=True).execute())
         return res.data or []
     except Exception as e:
         print(f"Service Error (get_memos): {e}")
@@ -21,11 +21,11 @@ async def delete_memo(memo_id: str):
     """Delete a memo."""
     await asyncio.to_thread(lambda: supabase.table("order_memos").delete().eq("id", memo_id).execute())
 
-async def delete_all_memos(user_id: str = CURRENT_USER_ID):
+async def delete_all_memos(user_id: str):
     """Delete all memos for a user."""
     await asyncio.to_thread(lambda: supabase.table("order_memos").delete().eq("user_id", user_id).execute())
 
-async def save_transcription(text: str, user_id: str = CURRENT_USER_ID):
+async def save_transcription(text: str, user_id: str):
     """Save transcribed text as a new memo."""
     await asyncio.to_thread(lambda: supabase.table("order_memos").insert({"content": text, "user_id": user_id}).execute())
 

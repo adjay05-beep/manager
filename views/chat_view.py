@@ -18,34 +18,27 @@ def get_chat_controls(page: ft.Page, navigate_to):
         "pending_file_name": None,
         "is_active": True # Flag to control infinite loops
     }
-    current_user_id = "00000000-0000-0000-0000-000000000001"
-
-    topic_list_container = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=0)
-    message_list_view = ft.ListView(expand=True, spacing=15, auto_scroll=True, padding=10)
-    chat_header_title = ft.Text("불러오는 중...", weight="bold", size=18, color="#212121")
-    
-    msg_input = ft.TextField(
-        hint_text="메시지 입력...", expand=True, border_radius=10, bgcolor="#FAFAFA", 
-        border_color="#E0E0E0", border_width=1, on_submit=lambda e: send_message(), disabled=True
-    )
-    
-    root_view = ft.Stack(expand=True)
-
-    # [FIX] Use Global Picker from Main
-    if hasattr(page, "chat_file_picker"):
-        chat_file_picker = page.chat_file_picker
-    else:
-        # Fallback if main.py not updated
-        chat_file_picker = ft.FilePicker()
-        page.overlay.append(chat_file_picker)
+    # [RBAC] Get User from Session
+    current_user_id = page.session.get("user_id")
+    if not current_user_id:
+        # Fallback for dev or error
+        print("CRITICAL: No User Session in Chat View!")
+        # Ideally redirect: navigate_to("login")
+        # But for now, we let it fail or use a dummy if strict mode off? No, request was Strict.
+        # We must assume login happened.
+        pass
 
     async def load_topics_async(update_ui=True):
         if not state["is_active"]: return
+        if not current_user_id:
+            navigate_to("login")
+            return
+            
         try:
             categories_data = await chat_service.get_categories()
             categories = [c['name'] for c in categories_data] if categories_data else ["공지", "일반", "중요", "개별 업무"]
 
-            topics = await chat_service.get_topics()
+            topics = await chat_service.get_topics(current_user_id)
             sorted_topics = sorted(topics, key=lambda x: (x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
             
             reading_map = await chat_service.get_user_read_status(current_user_id)
@@ -390,7 +383,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             if new_name.value:
                 async def _do_create():
                     try:
-                        await chat_service.create_topic(new_name.value, cat_dropdown.value)
+                        await chat_service.create_topic(new_name.value, cat_dropdown.value, current_user_id)
                         page.close(dlg)
                         await load_topics_async(True)
                     except Exception as ex:

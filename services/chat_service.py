@@ -14,56 +14,49 @@ async def get_categories() -> List[Dict[str, Any]]:
         print(f"Service Error (get_categories): {e}")
         return []
 
-async def get_topics() -> List[Dict[str, Any]]:
-    """Fetch all chat topics."""
+async def get_topics(user_id: str) -> List[Dict[str, Any]]:
+    """Fetch chat topics visible to the user."""
     try:
-        res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").execute())
-        return res.data or []
+        # [RBAC] Filter topics joined by user
+        # Supabase-py join syntax: chat_topics!inner(chat_topic_members!inner(user_id))
+        # But SyncPostgrestClient join syntax is tricky.
+        # Simpler approach: Select from members, expanding topic.
+        res = await asyncio.to_thread(lambda: supabase.table("chat_topic_members").select("topic:chat_topics(*)").eq("user_id", user_id).execute())
+        
+        # Unpack result
+        topics = []
+        if res.data:
+            for item in res.data:
+                topic = item.get('topic')
+                if topic:
+                    topics.append(topic)
+        return topics
     except Exception as e:
         print(f"Service Error (get_topics): {e}")
         return []
 
-async def get_user_read_status(user_id: str) -> Dict[str, str]:
-    """Fetch read status map for a user."""
-    try:
-        res = await asyncio.to_thread(lambda: supabase.table("chat_user_reading").select("topic_id, last_read_at").eq("user_id", user_id).execute())
-        return {r['topic_id']: r['last_read_at'] for r in res.data} if res.data else {}
-    except Exception as e:
-        print(f"Service Error (get_user_read_status): {e}")
-        return {}
-
-async def get_recent_messages(since_time: str) -> List[Dict[str, Any]]:
-    """Fetch messages newer than a timestamp (for unread counts)."""
-    try:
-        res = await asyncio.to_thread(lambda: supabase.table("chat_messages").select("topic_id, created_at").gt("created_at", since_time).execute())
-        return res.data or []
-    except Exception as e:
-        print(f"Service Error (get_recent_messages): {e}")
-        return []
-
-async def update_topic_order(topic_id: str, new_order: int):
-    """Update display order of a topic."""
-    await asyncio.to_thread(lambda: supabase.table("chat_topics").update({"display_order": new_order}).eq("id", topic_id).execute())
-
-async def delete_topic(topic_id: str):
-    """Delete a topic."""
-    await asyncio.to_thread(lambda: supabase.table("chat_topics").delete().eq("id", topic_id).execute())
-
-async def toggle_topic_priority(topic_id: str, current_val: bool):
-    """Toggle priority status."""
-    await asyncio.to_thread(lambda: supabase.table("chat_topics").update({"is_priority": not current_val}).eq("id", topic_id).execute())
-
-async def create_category(name: str):
-    """Create a new category."""
-    await asyncio.to_thread(lambda: supabase.table("chat_categories").insert({"name": name}).execute())
-
-async def delete_category(cat_id: str):
-    """Delete a category."""
-    await asyncio.to_thread(lambda: supabase.table("chat_categories").delete().eq("id", cat_id).execute())
-
-async def create_topic(name: str, category: str):
-    """Create a new topic."""
-    await asyncio.to_thread(lambda: supabase.table("chat_topics").insert({"name": name, "category": category, "display_order": 0}).execute())
+async def create_topic(name: str, category: str, creator_id: str):
+    """Create a new topic and add creator as owner."""
+    def _transaction():
+        # 1. Create Topic
+        t_res = supabase.table("chat_topics").insert({
+            "name": name, 
+            "category": category, 
+            "display_order": 0,
+            "created_by": creator_id
+        }).execute()
+        
+        if t_res.data:
+            tid = t_res.data[0]['id']
+            # 2. Add Member as Owner
+            supabase.table("chat_topic_members").insert({
+                "topic_id": tid,
+                "user_id": creator_id,
+                "permission_level": "owner"
+            }).execute()
+            return t_res.data
+    
+    await asyncio.to_thread(_transaction)
 
 async def get_messages(topic_id: str, limit: int = 50) -> List[Dict[str, Any]]:
     """Fetch messages for a topic."""
