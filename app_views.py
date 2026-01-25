@@ -41,6 +41,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     async def load_topics_async(update_ui=True):
         try:
+            # All DB calls must be explicitly isolated in threads to prevent Flet main loop freeze
             res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").execute())
             topics = res.data or []
             
@@ -71,23 +72,36 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 
                 prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=20, color="#FF5252") if is_priority else ft.Container()
                 
+                # Re-applying Reorderable logic inside layered nav if edit_mode is on
+                item_content = ft.Row([
+                    ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color=txt_color)], spacing=10),
+                    ft.Row([badge, ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")], spacing=5)
+                ], alignment="spaceBetween")
+
                 item = ft.Container(
-                    content=ft.Row([
-                        ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color=txt_color)], spacing=10),
-                        ft.Row([badge, ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")], spacing=5)
-                    ], alignment="spaceBetween"),
+                    content=item_content,
                     padding=ft.padding.symmetric(horizontal=20, vertical=20),
                     bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
-                    on_click=lambda e, topic=t: select_topic(topic), data=tid
+                    on_click=lambda e, topic=t: select_topic(topic), 
+                    on_long_press=lambda e, topic=t: open_edit_topic_dialog(topic),
+                    data=tid
                 )
-                new_controls.append(item)
+                
+                if state["edit_mode"]:
+                    # In Edit mode, we wrap with ReorderableDraggable
+                    new_controls.append(ft.ReorderableDraggable(index=sorted_topics.index(t), content=item))
+                else:
+                    new_controls.append(item)
             
-            topic_list_container.controls = new_controls
+            # Use ReorderableListView if in edit mode
+            if state["edit_mode"]:
+                topic_list_container.controls = [ft.ReorderableListView(controls=new_controls, on_reorder=on_topic_reorder, expand=True)]
+            else:
+                topic_list_container.controls = new_controls
+            
             if update_ui: page.update()
         except Exception as ex:
             print(f"Load Topics Error: {ex}")
-            import traceback
-            traceback.print_exc()
 
     def load_topics(update_ui=True):
         page.run_task(lambda: load_topics_async(update_ui))
@@ -106,19 +120,56 @@ def get_chat_controls(page: ft.Page, navigate_to):
     
     # chat_header_title = ft.Text("스레드를 선택하세요", weight="bold", size=18, color="#333333") # This was a duplicate, removed.
 
-    def toggle_priority(tid, current_val):
+    async def on_topic_reorder(e: ft.ReorderableListViewReorderEvent):
+        # Prevent freezing during drag-drop by isolating DB calls
         try:
-            supabase.table("chat_topics").update({"is_priority": not current_val}).eq("id", tid).execute()
-            load_topics(True)
-        except Exception as e:
-            print(f"Priority Error: {e}")
+            # Simple local swap logic or just re-upload orders
+            controls = topic_list_container.controls[0].controls if state["edit_mode"] else []
+            if not controls: return
+            
+            c = controls.pop(e.old_index)
+            controls.insert(e.new_index, c)
+            
+            async def update_orders():
+                for i, ctrl in enumerate(controls):
+                    tid = ctrl.content.data
+                    await asyncio.to_thread(lambda: supabase.table("chat_topics").update({"display_order": i}).eq("id", tid).execute())
+                await load_topics_async(False)
+            page.run_task(update_orders)
+        except: pass
+
+    def toggle_priority(tid, current_val):
+        async def run_priority():
+            try:
+                await asyncio.to_thread(lambda: supabase.table("chat_topics").update({"is_priority": not current_val}).eq("id", tid).execute())
+                await load_topics_async(True)
+            except Exception as e:
+                print(f"Priority Error: {e}")
+        page.run_task(run_priority)
+    
+    def open_edit_topic_dialog(topic):
+        edit_name = ft.TextField(label="스레드 이름 수정", value=topic['name'], autofocus=True)
+        async def save_it(e):
+            if edit_name.value:
+                try:
+                    await asyncio.to_thread(lambda: supabase.table("chat_topics").update({"name": edit_name.value}).eq("id", topic['id']).execute())
+                    page.close(dlg)
+                    await load_topics_async(True)
+                except Exception as ex:
+                    page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red", open=True); page.update()
+        dlg = ft.AlertDialog(
+            title=ft.Text("스레드 수정"),
+            content=edit_name,
+            actions=[ft.TextButton("취소", on_click=lambda _: page.close(dlg)), ft.TextButton("저장", on_click=lambda e: page.run_task(save_it, e))]
+        )
+        page.open(dlg)
 
     async def load_messages_async():
         if not state["current_topic_id"]: return
         if DEBUG_MODE: print(f"DEBUG: Starting load_messages_async for topic {state['current_topic_id']}")
         try:
-            # Fetch data (Async fetch)
-            res = supabase.table("chat_messages").select("id, topic_id, user_id, content, image_url, created_at, profiles(username, full_name)").eq("topic_id", state["current_topic_id"]).order("created_at", desc=True).limit(50).execute()
+            # All DB calls isolated in threads
+            res = await asyncio.to_thread(lambda: supabase.table("chat_messages").select("id, topic_id, user_id, content, image_url, created_at, profiles(username, full_name)").eq("topic_id", state["current_topic_id"]).order("created_at", desc=True).limit(50).execute())
             messages = res.data or []
             messages.reverse()
             
@@ -143,11 +194,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 if m.get('content') and m['content'] != "[이미지 파일]":
                     content_elements.append(ft.Text(m['content'], size=14, color="black"))
                 
-                bubble_bg = "#FFFFFF" if is_me else "#E3F2FD" # Light blue for others
+                bubble_bg = "#FFFFFF" if is_me else "#E3F2FD"
                 content_box = ft.Container(
                     content=ft.Column(content_elements, spacing=5, tight=True),
-                    bgcolor=bubble_bg, padding=12, border_radius=15, width=280,
-                    border=ft.border.all(1, "#E0E0E0")
+                    bgcolor=bubble_bg, padding=12, border_radius=15, 
+                    border=ft.border.all(1, "#E0E0E0"),
+                    # [STABILITY FIX] Adaptive bubble width using constraints instead of fixed width
+                    constraints=ft.BoxConstraints(max_width=280)
                 )
                 
                 time_text = ft.Text(time_str, size=10, color="#999999")
@@ -180,18 +233,19 @@ def get_chat_controls(page: ft.Page, navigate_to):
         chat_header_title.value = topic['name']
         msg_input.disabled = False
         
-        # Switch to Chat View Immediately
+        # Switch View
         state["view_mode"] = "chat"
         update_layer_view()
         
-        # [NEW] Clear messages before loading to show progress
+        # Skeleton Clear
         message_list_view.controls = [ft.Container(ft.ProgressRing(color="#2E7D32"), alignment=ft.alignment.center, padding=50)]
         page.update()
 
         async def run_select():
             try:
+                # MARK READ (Threaded)
                 now_utc = datetime.now(timezone.utc).isoformat()
-                supabase.table("chat_user_reading").upsert({"topic_id": topic['id'], "user_id": current_user_id, "last_read_at": now_utc}).execute()
+                await asyncio.to_thread(lambda: supabase.table("chat_user_reading").upsert({"topic_id": topic['id'], "user_id": current_user_id, "last_read_at": now_utc}).execute())
                 await load_messages_async()
             except: pass
         page.run_task(run_select)
@@ -201,40 +255,32 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.run_task(load_messages_async)
 
     def send_message(content=None, image_url=None):
-        # Use pending URL if not provided explicitly
         final_image_url = image_url or state.get("pending_image_url")
         final_content = content or msg_input.value
         
-        # [Debug] Print state before insert
-        print(f"DEBUG: Attempting to send message. Content='{final_content}', Image='{final_image_url}'")
-        
         if not final_content and not final_image_url: return
         if not state["current_topic_id"]: return
-        
-        # If we have an image but no content, use default label
-        if final_image_url and not final_content:
-            final_content = "[이미지 파일]"
+        if final_image_url and not final_content: final_content = "[이미지 파일]"
 
-        try:
-            res = supabase.table("chat_messages").insert({
-                "topic_id": state["current_topic_id"],
-                "content": final_content,
-                "image_url": final_image_url,
-                "user_id": "00000000-0000-0000-0000-000000000001"
-            }).execute()
-            
-            print(f"DEBUG: Insert Success -> {res.data}")
-            
-            # Reset
-            msg_input.value = ""
-            state["pending_image_url"] = None
-            pending_container.visible = False
-            pending_container.content = ft.Container() # Clear
-            load_messages()
-        except Exception as e:
-            import traceback
-            print(f"Send Error: {e}\n{traceback.format_exc()}")
-            page.snack_bar = ft.SnackBar(ft.Text(f"전송 실패: {e}"), bgcolor="red", open=True); page.update()
+        async def run_send():
+            try:
+                # Isolated Send (Thread)
+                await asyncio.to_thread(lambda: supabase.table("chat_messages").insert({
+                    "topic_id": state["current_topic_id"],
+                    "content": final_content,
+                    "image_url": final_image_url,
+                    "user_id": current_user_id
+                }).execute())
+                
+                # Clear UI (Main Thread via run_task calling back)
+                msg_input.value = ""
+                state["pending_image_url"] = None
+                pending_container.visible = False
+                pending_container.content = ft.Container()
+                await load_messages_async()
+            except Exception as e:
+                print(f"Send Error: {e}")
+        page.run_task(run_send)
 
     # Pending Attachment UI
     pending_container = ft.Container(visible=False, padding=10, bgcolor="#3D4446", border_radius=10)
@@ -331,34 +377,29 @@ def get_chat_controls(page: ft.Page, navigate_to):
     chat_file_picker.on_result = on_chat_file_result
     chat_file_picker.on_upload = on_chat_upload_progress
 
+    edit_btn_ref = ft.Ref[ft.TextButton]()
     def toggle_edit_mode():
-        if DEBUG_MODE: print(f"DEBUG: toggle_edit_mode triggered. Current: {state['edit_mode']}")
         state["edit_mode"] = not state["edit_mode"]
-        # Update button text manually since it's already rendered
         if edit_btn_ref.current:
             edit_btn_ref.current.text = "완료" if state["edit_mode"] else "편집"
-            edit_btn_ref.current.update()
-        
+            edit_btn_ref.current.style = ft.ButtonStyle(color="#2E7D32" if state["edit_mode"] else "#757575")
         load_topics(True)
-        # Ensure the whole sidebar knows about the change if needed
-        if sidebar_content_ref.current:
-            sidebar_content_ref.current.update()
-        if DEBUG_MODE: print(f"DEBUG: toggle_edit_mode done. New: {state['edit_mode']}")
 
     def open_create_topic_dialog(e):
         new_name = ft.TextField(label="새 스레드 이름", autofocus=True)
-        def create_it(e):
+        async def create_it(e):
             if new_name.value:
                 try:
-                    supabase.table("chat_topics").insert({"name": new_name.value, "display_order": 0}).execute()
+                    await asyncio.to_thread(lambda: supabase.table("chat_topics").insert({"name": new_name.value, "display_order": 0}).execute())
                     page.close(dlg)
-                    load_topics(True)
+                    await load_topics_async(True)
                 except Exception as ex:
                     page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red", open=True); page.update()
+        
         dlg = ft.AlertDialog(
             title=ft.Text("새 스레드 만들기"),
             content=new_name,
-            actions=[ft.TextButton("취소", on_click=lambda _: page.close(dlg)), ft.TextButton("만들기", on_click=create_it)]
+            actions=[ft.TextButton("취소", on_click=lambda _: page.close(dlg)), ft.TextButton("만들기", on_click=lambda e: page.run_task(create_it, e))]
         )
         page.open(dlg)
 
@@ -372,9 +413,17 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 content=ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
                     ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
-                    ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#212121", on_click=open_create_topic_dialog)
+                    ft.Row([
+                        ft.TextButton(
+                            ref=edit_btn_ref,
+                            text="편집", 
+                            style=ft.ButtonStyle(color="#757575"), 
+                            on_click=lambda _: toggle_edit_mode()
+                        ),
+                        ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#2E7D32", on_click=open_create_topic_dialog)
+                    ], spacing=0)
                 ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=40, bottom=20),
+                padding=ft.padding.only(left=10, right=10, top=45, bottom=20),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
             ft.Container(content=topic_list_container, expand=True)
@@ -392,7 +441,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     chat_header_title,
                     ft.IconButton(ft.Icons.REFRESH_ROUNDED, icon_color="#BDBDBD", on_click=lambda _: load_messages())
                 ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=40, bottom=15),
+                padding=ft.padding.only(left=10, right=10, top=45, bottom=15),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
             ft.Container(content=message_list_view, expand=True, bgcolor="#F5F5F5"),
@@ -475,22 +524,25 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try: await rt_client.disconnect()
             except: pass
 
-    # --- [INITIALIZATION: ZERO-LATENCY HYDRATION] ---
+    # --- [INITIALIZATION: ULTRA-STABLE HYDRATION] ---
     async def init_chat_async():
-        if DEBUG_MODE: print("DEBUG: Mobile Navigation Engine starting (Phase 8.3)...")
+        if DEBUG_MODE: print("DEBUG: Phase 8.5 Safe Navigation Engine starting...")
         try:
-            # 1. Update initial layer
+            # 1. First frame stability wait (Absolute vital for mobile nav transitions)
+            await asyncio.sleep(0.5)
+            
+            # 2. Update layer (Main Thread via async caller)
             update_layer_view()
             
-            # 2. Populate Topics (Sidebar/List)
+            # 3. Populate Topics in isolated thread
             await load_topics_async(True)
             
-            # 3. Start Realtime Engine
+            # 4. Start Realtime services
             page.run_task(realtime_task)
             
-            if DEBUG_MODE: print("DEBUG: Hydration Complete (Layered UI)")
+            if DEBUG_MODE: print("DEBUG: Hydration Completed Safely.")
         except Exception as e:
-            print(f"Hydration Fail: {e}")
+            print(f"Hydration Protect Error: {e}")
 
     # Start hydration in a separate task
     page.run_task(init_chat_async)
