@@ -148,7 +148,9 @@ def get_order_controls(page: ft.Page, navigate_to):
                 # If on Web, local_path should be a Blob URL.
                 # If on Desktop, it's a file path.
                 
-                if page.web:
+                is_web = page.web or (local_path and "blob:" in local_path)
+                
+                if is_web:
                     status_text.value = "기기에서 업로드 중..."
                     signed_url = get_storage_signed_url(fname)
                     public_url = get_public_url(fname)
@@ -199,7 +201,11 @@ def get_order_controls(page: ft.Page, navigate_to):
                     page.run_task(lambda: start_transcription(public_url))
 
             except Exception as ex:
-                status_text.value = f"전송 에러: {str(ex)[:20]}"
+                # Expanded Debug Info
+                is_web_debug = page.web
+                path_debug = str(local_path) if 'local_path' in locals() else "N/A"
+                print(f"REC ERROR: {ex} | Web:{is_web_debug} | Path:{path_debug}")
+                status_text.value = f"E: {str(ex)[:15]} | W:{is_web_debug} | P:{path_debug[:10]}"
                 page.update()
 
     async def start_transcription(url):
