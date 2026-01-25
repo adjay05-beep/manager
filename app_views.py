@@ -41,8 +41,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     async def load_topics_async(update_ui=True):
         try:
-            # [STABILITY] Pause logic check - although load_topics is mostly manual, async calls can overlap
-            if DEBUG_MODE: print(f"DEBUG: load_topics_async starting (Edit: {state['edit_mode']})")
+            if DEBUG_MODE: print(f"DEBUG: load_topics_async (Edit: {state['edit_mode']})")
 
             # Fetch Categories & Topics
             cat_res = await asyncio.to_thread(lambda: supabase.table("chat_categories").select("*").order("display_order", desc=True).execute())
@@ -51,6 +50,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").execute())
             topics = res.data or []
             
+            # Sort topics by display_order
             sorted_topics = sorted(topics, key=lambda x: (x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
             
             read_res = await asyncio.to_thread(lambda: supabase.table("chat_user_reading").select("topic_id, last_read_at").eq("user_id", current_user_id).execute())
@@ -66,78 +66,65 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
                 if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
-            # --- SINGLE LIST RENDER STRATEGY (PHASE 10) ---
-            # We always use ReorderableListView but hide/show its drag handles and buttons.
-            # This prevents UI tree reconstruction which causes freezes and hidden components.
-            list_view = ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False, padding=0, spacing=0)
-
+            # --- CONSERVATIVE BIFURCATION (PHASE 10.1) ---
             if state["edit_mode"]:
-                # FLAT LIST for Reordering (Hiding headers simplifies index management)
+                # [EDIT MODE] Flat ReorderableListView for absolute reliability
+                list_view = ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=True, padding=0)
                 for i, t in enumerate(sorted_topics):
                     tid = t['id']
-                    
                     delete_btn = ft.IconButton(
                         ft.Icons.REMOVE_CIRCLE, icon_color="red", icon_size=24,
-                        on_click=lambda e, tid=tid: confirm_delete_topic(tid),
-                        visible=True
+                        on_click=lambda e, tid=tid: confirm_delete_topic(tid)
                     )
-                    
-                    drag_handle = ft.ReorderableDragHandle(
-                        ft.Container(ft.Icon(ft.Icons.REORDER, color="#BDBDBD", size=24), padding=10)
-                    )
-
                     item = ft.Container(
                         content=ft.Row([
                             ft.Row([delete_btn, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=5),
-                            ft.Row([ft.Text(f"[{t.get('category','일반')}]", size=10, color="#9E9E9E"), drag_handle], spacing=5)
+                            ft.Text(f"[{t.get('category','일반')}]", size=10, color="#9E9E9E")
                         ], alignment="spaceBetween"),
                         padding=ft.padding.symmetric(horizontal=15, vertical=12),
                         bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
-                        data=tid # NECESSARY for reorder tool
+                        data=tid
                     )
-                    list_view.controls.append(ft.ReorderableDraggable(index=i, content=item))
+                    list_view.controls.append(item) # ReorderableListView children don't need Draggable wrap if handles=True
             else:
-                # VIEW MODE with Headers
+                # [VIEW MODE] Super Stable ListView
+                list_view = ft.ListView(expand=True, spacing=0, padding=0)
                 grouped = {}
                 for t in sorted_topics:
                     cat = t.get('category', '일반')
                     if cat not in grouped: grouped[cat] = []
                     grouped[cat].append(t)
                 
-                idx = 0
                 for cat_name in [c for c in categories if c in grouped]:
-                    # Add Header (Non-draggable container inside ReorderableListView requires wrapping)
-                    header = ft.Container(
-                        content=ft.Row([
-                            ft.Text(f"• {cat_name}", size=12, weight="bold", color="#757575"),
-                            ft.Text(str(len(grouped[cat_name])), size=10, color="#BDBDBD")
-                        ], alignment="spaceBetween"),
-                        padding=ft.padding.only(left=20, right=20, top=10, bottom=5),
-                        bgcolor="#FAFAFA"
+                    list_view.controls.append(
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Text(f"• {cat_name}", size=12, weight="bold", color="#757575"),
+                                ft.Text(str(len(grouped[cat_name])), size=10, color="#BDBDBD")
+                            ], alignment="spaceBetween"),
+                            padding=ft.padding.only(left=20, right=20, top=10, bottom=5),
+                            bgcolor="#FAFAFA"
+                        )
                     )
-                    list_view.controls.append(ft.Container(content=header, data=f"head_{cat_name}")) # data for safety
-                    
                     for t in grouped[cat_name]:
                         tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
                         badge = ft.Container(
                             content=ft.Text(str(unread_count), size=10, color="white", weight="bold"),
                             bgcolor="#FF5252", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=10
                         ) if unread_count > 0 else ft.Container()
-                        
                         prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=20, color="#FF5252") if is_priority else ft.Container()
 
-                        item = ft.Container(
-                            content=ft.Row([
-                                ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=10),
-                                ft.Row([badge, ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")], spacing=5)
-                            ], alignment="spaceBetween"),
-                            padding=ft.padding.symmetric(horizontal=20, vertical=12),
-                            bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
-                            on_click=lambda e, topic=t: select_topic(topic)
+                        list_view.controls.append(
+                            ft.Container(
+                                content=ft.Row([
+                                    ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=10),
+                                    ft.Row([badge, ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")], spacing=5)
+                                ], alignment="spaceBetween"),
+                                padding=ft.padding.symmetric(horizontal=20, vertical=12),
+                                bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
+                                on_click=lambda e, topic=t: select_topic(topic)
+                            )
                         )
-                        # We use ReorderableDraggable even in View mode with drag=False or just bare items
-                        list_view.controls.append(item)
-                        idx += 1
             
             topic_list_container.controls = [list_view]
             if update_ui: page.update()
