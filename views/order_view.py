@@ -111,6 +111,24 @@ def get_order_controls(page: ft.Page, navigate_to):
     voice_done_btn = ft.IconButton(ft.Icons.CHECK, on_click=on_voice_uploaded, visible=False)
     page.overlay.append(voice_done_btn)
 
+    # [DEBUG] Raw HTML Buttons to bypass Flet Latency
+    raw_html_debug = ft.Html(
+        content="""
+        <div style="text-align: center; padding: 10px; background: #ffebee; border-radius: 10px;">
+            <p style="color: red; font-weight: bold; font-size: 12px;">▼ 강력 디버깅 모드 (Raw HTML) ▼</p>
+            <button style="padding: 10px 20px; font-size: 16px; margin: 5px;" 
+                onclick="alert('브라우저 동작 확인 (JS Alert)')">
+                1. JS 동작 테스트
+            </button>
+            <br>
+            <button style="padding: 10px 20px; font-size: 16px; margin: 5px; background: #e8f5e9;" 
+                onclick="navigator.mediaDevices.getUserMedia({audio:true}).then(s=>{alert('마이크 성공!');s.getTracks().forEach(t=>t.stop())}).catch(e=>alert('마이크 실패: '+e))">
+                2. 네이티브 마이크 요청
+            </button>
+        </div>
+        """
+    )
+
     # [DEBUG] Validating direct JS permission request
     def js_permission_check(e):
         js = """
@@ -351,4 +369,4 @@ def get_order_controls(page: ft.Page, navigate_to):
     )
     
     load_memos()
-    return [ft.Container(expand=True, bgcolor="white", padding=ft.padding.only(top=50), content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, mic_check_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))]
+    return [ft.Container(expand=True, bgcolor="white", padding=ft.padding.only(top=50), content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, raw_html_debug, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))]
