@@ -1,5 +1,10 @@
 import flet as ft
-from app_views import get_login_controls, get_home_controls, get_closing_controls, get_chat_controls, get_calendar_controls, get_order_controls
+from views.login_view import get_login_controls
+from views.home_view import get_home_controls
+from views.chat_view import get_chat_controls
+from views.calendar_view import get_calendar_controls
+from views.order_view import get_order_controls
+from views.closing_view import get_closing_controls
 
 def main(page: ft.Page):
     page.title = "The Manager"
@@ -44,5 +49,3 @@ if __name__ == "__main__":
     host = "0.0.0.0"
     # 브라우저 실행 모드로 명시적 설정
     ft.app(target=main, port=port, host=host, assets_dir="assets", view=ft.AppView.WEB_BROWSER)
-
-

@@ -1,0 +1,531 @@
+import flet as ft
+import datetime
+from datetime import datetime as dt_class, timezone
+import asyncio
+from services import chat_service
+from db import supabase
+
+DEBUG_MODE = True
+
+def get_chat_controls(page: ft.Page, navigate_to):
+    state = {
+        "current_topic_id": None, 
+        "edit_mode": False, 
+        "view_mode": "list", 
+        "pending_image_url": None,
+        "pending_file_name": None
+    }
+    current_user_id = "00000000-0000-0000-0000-000000000001"
+
+    topic_list_container = ft.Column(expand=True, scroll=ft.ScrollMode.AUTO, spacing=0)
+    message_list_view = ft.ListView(expand=True, spacing=15, auto_scroll=True, padding=10)
+    chat_header_title = ft.Text("불러오는 중...", weight="bold", size=18, color="#212121")
+    
+    msg_input = ft.TextField(
+        hint_text="메시지 입력...", expand=True, border_radius=10, bgcolor="#FAFAFA", 
+        border_color="#E0E0E0", border_width=1, on_submit=lambda e: send_message(), disabled=True
+    )
+    
+    root_view = ft.Stack(expand=True)
+
+    async def load_topics_async(update_ui=True):
+        try:
+            if DEBUG_MODE: print(f"DEBUG: load_topics_async (Edit: {state['edit_mode']})")
+
+            categories_data = await chat_service.get_categories()
+            categories = [c['name'] for c in categories_data] if categories_data else ["공지", "일반", "중요", "개별 업무"]
+
+            topics = await chat_service.get_topics()
+            sorted_topics = sorted(topics, key=lambda x: (x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
+            
+            reading_map = await chat_service.get_user_read_status(current_user_id)
+            default_old = "1970-01-01T00:00:00Z"
+            earliest_read = min(reading_map.values()) if reading_map else default_old
+            
+            recent_msgs = await chat_service.get_recent_messages(earliest_read)
+            
+            unread_counts = {}
+            for m in recent_msgs:
+                tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
+                if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
+
+            if state["edit_mode"]:
+                list_view = ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=True, padding=0)
+                for i, t in enumerate(sorted_topics):
+                    tid = t['id']
+                    delete_btn = ft.IconButton(
+                        ft.Icons.REMOVE_CIRCLE, icon_color="red", icon_size=24,
+                        on_click=lambda e, tid=tid: confirm_delete_topic(tid)
+                    )
+                    item = ft.Container(
+                        content=ft.Row([
+                            ft.Row([delete_btn, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=5),
+                            ft.Text(f"[{t.get('category','일반')}]", size=10, color="#9E9E9E")
+                        ], alignment="spaceBetween"),
+                        padding=ft.padding.symmetric(horizontal=15, vertical=12),
+                        bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
+                        data=tid
+                    )
+                    list_view.controls.append(item)
+            else:
+                list_view = ft.ListView(expand=True, spacing=0, padding=0)
+                grouped = {}
+                for t in sorted_topics:
+                    cat = t.get('category', '일반')
+                    if cat not in grouped: grouped[cat] = []
+                    grouped[cat].append(t)
+                
+                for cat_name in [c for c in categories if c in grouped]:
+                    list_view.controls.append(
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Text(f"• {cat_name}", size=12, weight="bold", color="#757575"),
+                                ft.Text(str(len(grouped[cat_name])), size=10, color="#BDBDBD")
+                            ], alignment="spaceBetween"),
+                            padding=ft.padding.only(left=20, right=20, top=10, bottom=5),
+                            bgcolor="#FAFAFA"
+                        )
+                    )
+                    for t in grouped[cat_name]:
+                        tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
+                        badge = ft.Container(
+                            content=ft.Text(str(unread_count), size=10, color="white", weight="bold"),
+                            bgcolor="#FF5252", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=10
+                        ) if unread_count > 0 else ft.Container()
+                        prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=20, color="#FF5252") if is_priority else ft.Container()
+
+                        list_view.controls.append(
+                            ft.Container(
+                                content=ft.Row([
+                                    ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=10),
+                                    ft.Row([badge, ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")], spacing=5)
+                                ], alignment="spaceBetween"),
+                                padding=ft.padding.symmetric(horizontal=20, vertical=12),
+                                bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
+                                on_click=lambda e, topic=t: select_topic(topic)
+                            )
+                        )
+            
+            topic_list_container.controls = [list_view]
+            if update_ui: page.update()
+        except Exception as ex:
+            print(f"Load Topics Critical Error: {ex}")
+            import traceback
+            traceback.print_exc()
+
+    def load_topics(update_ui=True):
+        page.run_task(lambda: load_topics_async(update_ui))
+
+    message_list_view = ft.ListView(expand=True, spacing=15, auto_scroll=True, padding=10)
+
+    async def on_topic_reorder(e):
+        try:
+            controls = topic_list_container.controls[0].controls
+            moved_item = controls.pop(e.old_index)
+            controls.insert(e.new_index, moved_item)
+            
+            for i, ctrl in enumerate(controls):
+                tid = ctrl.content.data
+                await chat_service.update_topic_order(tid, len(controls) - i)
+            
+            await load_topics_async(True)
+        except Exception as ex:
+            print(f"Reorder Error: {ex}")
+
+    def toggle_priority(tid, current_val):
+        try:
+            page.run_task(lambda: chat_service.toggle_topic_priority(tid, current_val))
+            load_topics(True)
+        except Exception as e:
+            print(f"Priority Error: {e}")
+
+    def open_manage_categories_dialog(e):
+        cat_list = ft.Column(spacing=5)
+        new_cat_input = ft.TextField(hint_text="새 주제 이름", expand=True)
+        
+        def refresh_cats():
+            async def _refresh():
+                cats = await chat_service.get_categories()
+                items = []
+                for c in cats:
+                    items.append(ft.Row([
+                        ft.Text(c['name'], weight="bold", expand=True),
+                        ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color="red", on_click=lambda e, cid=c['id']: delete_cat(cid))
+                    ]))
+                cat_list.controls = items
+                page.update()
+            
+            page.run_task(_refresh)
+
+        def add_cat(e):
+            if new_cat_input.value:
+                page.run_task(lambda: chat_service.create_category(new_cat_input.value))
+                new_cat_input.value = ""
+                refresh_cats()
+                load_topics(True)
+
+        def delete_cat(cid):
+            page.run_task(lambda: chat_service.delete_category(cid))
+            refresh_cats()
+            load_topics(True)
+
+        refresh_cats()
+        dlg = ft.AlertDialog(
+            title=ft.Text("주제(그룹) 관리"),
+            content=ft.Column([
+                ft.Row([new_cat_input, ft.IconButton(ft.Icons.ADD, on_click=add_cat)]),
+                ft.Divider(),
+                cat_list
+            ], tight=True, scroll=ft.ScrollMode.AUTO, width=300),
+            actions=[ft.TextButton("닫기", on_click=lambda _: page.close(dlg))]
+        )
+        page.open(dlg)
+
+    async def load_messages_async():
+        if not state["current_topic_id"]: return
+        if DEBUG_MODE: print(f"DEBUG: Starting load_messages_async for topic {state['current_topic_id']}")
+        try:
+            messages = await chat_service.get_messages(state["current_topic_id"])
+            
+            new_controls = []
+            for m in messages:
+                is_me = str(m['user_id']) == current_user_id
+                prof_data = m.get('profiles')
+                if isinstance(prof_data, list) and prof_data: prof_data = prof_data[0]
+                user_name = prof_data.get('full_name', '익명') if prof_data else "익명"
+                
+                created_dt = dt_class.fromisoformat(m['created_at'].replace("Z", "+00:00"))
+                ampm = "오후" if created_dt.hour >= 12 else "오전"
+                h = created_dt.hour % 12
+                if h == 0: h = 12
+                time_str = f"{ampm} {h}:{created_dt.minute:02d}"
+                
+                content_elements = []
+                img_url = m.get('image_url')
+                if img_url:
+                    content_elements.append(ft.Image(src=img_url, width=240, border_radius=8))
+                
+                if m.get('content') and m['content'] != "[이미지 파일]":
+                    content_elements.append(ft.Text(m['content'], size=14, color="black"))
+                
+                bubble_bg = "#FFFFFF" if is_me else "#E3F2FD"
+                content_box = ft.Container(
+                    content=ft.Column(content_elements, spacing=5, tight=True),
+                    bgcolor=bubble_bg, padding=12, border_radius=15, 
+                    border=ft.border.all(1, "#E0E0E0"),
+                    width=260 
+                )
+                
+                time_text = ft.Text(time_str, size=10, color="#999999")
+                
+                if is_me:
+                    bubble_row = ft.Row([time_text, content_box], alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.END, spacing=5)
+                else:
+                    bubble_row = ft.Row([
+                        ft.CircleAvatar(content=ft.Text(user_name[0], size=12), radius=15, bgcolor="#EEEEEE", color="black"),
+                        content_box, time_text
+                    ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.END, spacing=5)
+                
+                new_controls.append(ft.Container(
+                    content=ft.Column([
+                        ft.Text(user_name, size=11, weight="bold", color="#666666") if not is_me else ft.Container(),
+                        bubble_row
+                    ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.START if not is_me else ft.CrossAxisAlignment.END),
+                    padding=ft.padding.symmetric(vertical=4)
+                ))
+            
+            message_list_view.controls = new_controls
+            page.update()
+        except Exception as e:
+            print(f"ASYNC ERROR: {e}")
+            message_list_view.controls = [ft.Text(f"데이터 로드 실패: {e}", color="red", size=12)]
+            page.update()
+
+    def select_topic(topic):
+        state["current_topic_id"] = topic['id']
+        chat_header_title.value = topic['name']
+        msg_input.disabled = False
+        
+        state["view_mode"] = "chat"
+        update_layer_view()
+        
+        message_list_view.controls = [ft.Container(ft.ProgressRing(color="#2E7D32"), alignment=ft.alignment.center, padding=50)]
+        page.update()
+
+        async def run_select():
+            try:
+                await chat_service.update_last_read(topic['id'], current_user_id)
+                await load_messages_async()
+            except: pass
+        page.run_task(run_select)
+
+    def load_messages():
+        page.run_task(load_messages_async)
+
+    def send_message(content=None, image_url=None):
+        final_image_url = image_url or state.get("pending_image_url")
+        final_content = content or msg_input.value
+        
+        if not final_content and not final_image_url: return
+        if not state["current_topic_id"]: return
+        
+        page.run_task(lambda: _do_send(final_content, final_image_url))
+
+    async def _do_send(c, i):
+        try:
+            await chat_service.send_message(state["current_topic_id"], c, i)
+            msg_input.value = ""
+            state["pending_image_url"] = None
+            pending_container.visible = False
+            pending_container.content = ft.Container()
+            page.update()
+            await load_messages_async()
+        except Exception as ex:
+             page.snack_bar = ft.SnackBar(ft.Text(f"전송 실패: {ex}"), bgcolor="red", open=True); page.update()
+
+    pending_container = ft.Container(visible=False, padding=10, bgcolor="#3D4446", border_radius=10)
+    
+    chat_file_picker = ft.FilePicker()
+    page.overlay.append(chat_file_picker)
+
+    def on_chat_file_result(e: ft.FilePickerResultEvent):
+        if e.files and state["current_topic_id"]:
+            f = e.files[0]
+            try:
+                import urllib.parse
+                safe_name = urllib.parse.quote(f.name.replace(" ", "_"))
+                fname = f"chat_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}_{safe_name}"
+                state["pending_file_name"] = fname 
+                
+                snack = ft.SnackBar(ft.Text("이미지 전송 준비 중..."), open=True)
+                page.snack_bar = snack; page.update()
+                
+                try:
+                    signed_url = chat_service.get_storage_signed_url(fname)
+                    state["pending_image_url"] = chat_service.get_public_url(fname)
+                    
+                    chat_file_picker.upload(
+                        files=[
+                            ft.FilePickerUploadFile(
+                                name=f.name,
+                                upload_url=signed_url,
+                                method="PUT"
+                            )
+                        ]
+                    )
+                except Exception as storage_ex:
+                    print(f"Fallback/Error: {storage_ex}")
+                    if f.path:
+                         with open(f.path, "rb") as file_data:
+                             chat_service.upload_file_server_side(fname, file_data.read())
+                         update_pending_ui(state["pending_image_url"])
+                    else:
+                        raise storage_ex
+                
+                page.update()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"오류: {str(ex)}"), bgcolor="red", open=True)
+                page.update()
+
+    def on_chat_upload_progress(e: ft.FilePickerUploadEvent):
+        if e.error:
+            page.snack_bar = ft.SnackBar(ft.Text(f"업로드 실패: {e.file_name}"), bgcolor="red", open=True); page.update()
+        elif e.progress == 1.0:
+            update_pending_ui(state.get("pending_image_url"))
+            page.snack_bar = ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green", open=True)
+            page.update()
+
+    def update_pending_ui(public_url):
+        if not public_url: return
+        pending_container.content = ft.Row([
+            ft.Image(src=public_url, width=50, height=50, border_radius=5, fit=ft.ImageFit.COVER),
+            ft.Column([
+                ft.Text("이미지 준비 완료", size=12, weight="bold", color="white"),
+                ft.Text("전송 버튼을 눌러 발송하세요.", size=10, color="white70"),
+            ], spacing=2, tight=True),
+            ft.IconButton(ft.Icons.CANCEL, icon_color="red", on_click=lambda _: clear_pending())
+        ], spacing=10)
+        pending_container.visible = True
+        page.update()
+
+    def clear_pending():
+        state["pending_image_url"] = None
+        pending_container.visible = False
+        page.update()
+    
+    chat_file_picker.on_result = on_chat_file_result
+    chat_file_picker.on_upload = on_chat_upload_progress
+
+    def confirm_delete_topic(tid):
+        def delete_it(e):
+            page.run_task(lambda: chat_service.delete_topic(tid))
+            page.close(dlg)
+            load_topics(True)
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("스레드 삭제"),
+            content=ft.Text("이 스레드와 모든 메시지가 삭제됩니다. 정말 삭제할까요?"),
+            actions=[ft.TextButton("취소", on_click=lambda _: page.close(dlg)), ft.TextButton("삭제", on_click=delete_it, color="red")]
+        )
+        page.open(dlg)
+
+    def open_create_topic_dialog(e):
+        new_name = ft.TextField(label="새 스레드 이름", autofocus=True)
+        cat_dropdown = ft.Dropdown(label="주제 분류", value="일반", options=[])
+        
+        async def _load_cats_for_dlg():
+            cats = await chat_service.get_categories()
+            cat_dropdown.options = [ft.dropdown.Option(c['name']) for c in cats or [{"name": "일반"}]]
+            if not cat_dropdown.options: cat_dropdown.options = [ft.dropdown.Option("일반")]
+            cat_dropdown.value = cat_dropdown.options[0].key
+            page.update()
+        
+        page.run_task(_load_cats_for_dlg)
+
+        def create_it(e):
+            if new_name.value:
+                async def _do_create():
+                    try:
+                        await chat_service.create_topic(new_name.value, cat_dropdown.value)
+                        page.close(dlg)
+                        await load_topics_async(True)
+                    except Exception as ex:
+                        page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}")); page.update()
+                page.run_task(_do_create)
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("새 스레드 만들기"),
+            content=ft.Column([new_name, cat_dropdown], tight=True, spacing=15),
+            actions=[ft.TextButton("취소", on_click=lambda _: page.close(dlg)), ft.TextButton("만들기", on_click=create_it)]
+        )
+        page.open(dlg)
+
+    edit_btn_ref = ft.Ref[ft.OutlinedButton]()
+    def toggle_edit_mode():
+        state["edit_mode"] = not state["edit_mode"]
+        if edit_btn_ref.current:
+            edit_btn_ref.current.text = "완료" if state["edit_mode"] else "편집"
+            edit_btn_ref.current.style = ft.ButtonStyle(
+                color="white" if state["edit_mode"] else "#424242",
+                bgcolor="#2E7D32" if state["edit_mode"] else "transparent",
+                shape=ft.RoundedRectangleBorder(radius=8),
+                side=ft.BorderSide(1, "#2E7D32" if state["edit_mode"] else "#E0E0E0"),
+                padding=ft.padding.symmetric(horizontal=12, vertical=0)
+            )
+            edit_btn_ref.current.update()
+        
+        load_topics(True)
+        page.update()
+
+    list_page = ft.Container(
+        expand=True, bgcolor="white",
+        content=ft.Column([
+            ft.Container(
+                content=ft.Row([
+                    ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
+                    ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
+                    ft.Row([
+                        ft.IconButton(ft.Icons.SETTINGS_OUTLINED, icon_color="#757575", on_click=open_manage_categories_dialog, tooltip="분류 관리"),
+                        ft.OutlinedButton(
+                            ref=edit_btn_ref, 
+                            text="편집", 
+                            style=ft.ButtonStyle(color="#424242", shape=ft.RoundedRectangleBorder(radius=8), side=ft.BorderSide(1, "#E0E0E0"), padding=ft.padding.symmetric(horizontal=12, vertical=0)), 
+                            on_click=lambda _: toggle_edit_mode()
+                        ),
+                        ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#2E7D32", on_click=open_create_topic_dialog)
+                    ], spacing=0)
+                ], alignment="spaceBetween"),
+                padding=ft.padding.only(left=10, right=10, top=40, bottom=0),
+                border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
+            ),
+            ft.Container(content=topic_list_container, expand=True, padding=0) 
+        ], spacing=0) 
+    )
+
+    chat_page = ft.Container(
+        expand=True, bgcolor="white",
+        content=ft.Column([
+            ft.Container(
+                content=ft.Row([
+                    ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", 
+                                  on_click=lambda _: back_to_list()),
+                    chat_header_title,
+                    ft.IconButton(ft.Icons.REFRESH_ROUNDED, icon_color="#BDBDBD", on_click=lambda _: load_messages())
+                ], alignment="spaceBetween"),
+                padding=ft.padding.only(left=10, right=10, top=50, bottom=5),
+                border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
+            ),
+            ft.Container(content=message_list_view, expand=True, bgcolor="#F5F5F5"),
+            ft.Container(
+                content=ft.Column([
+                    pending_container,
+                    ft.Row([
+                        ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED, icon_color="#757575", on_click=lambda _: chat_file_picker.pick_files()),
+                        msg_input, 
+                        ft.IconButton(ft.Icons.SEND_ROUNDED, icon_color="#2E7D32", icon_size=32, on_click=lambda _: send_message())
+                    ], spacing=10)
+                ]), 
+                padding=12, bgcolor="white", border=ft.border.only(top=ft.border.BorderSide(1, "#EEEEEE"))
+            )
+        ])
+    )
+
+    def back_to_list():
+        state["view_mode"] = "list"
+        update_layer_view()
+
+    def update_layer_view():
+        root_view.controls = [list_page] if state["view_mode"] == "list" else [chat_page]
+        page.update()
+
+    chat_header_title.color = "#212121"
+    msg_input.bgcolor = "#FAFAFA"
+    msg_input.color = "black"
+    msg_input.border_color = "#E0E0E0"
+    msg_input.border_width = 1
+    msg_input.hint_style = ft.TextStyle(color="#9E9E9E")
+
+    async def realtime_task():
+        await asyncio.sleep(5)
+        try:
+            rt_client = supabase.get_realtime_client()
+            if not rt_client: return
+            
+            msg_channel = rt_client.channel("realtime-msgs")
+            def handle_new_msg(payload):
+                if state["edit_mode"]: return
+                load_topics(True)
+                new_tid = payload.get('record', {}).get('topic_id')
+                if str(new_tid) == str(state["current_topic_id"]):
+                    load_messages()
+            msg_channel.on("postgres_changes", {"event": "INSERT", "schema": "public", "table": "chat_messages"}, handle_new_msg)
+            
+            topic_channel = rt_client.channel("realtime-topics")
+            def handle_topic_change(payload):
+                if state["edit_mode"]: return
+                load_topics(True)
+            topic_channel.on("postgres_changes", {"event": "*", "schema": "public", "table": "chat_topics"}, handle_topic_change)
+
+            await rt_client.connect()
+            await msg_channel.subscribe()
+            await topic_channel.subscribe()
+            
+            while not page.is_disconnected:
+                await asyncio.sleep(2)
+        except Exception as e:
+            print(f"REALTIME ERROR: {e}")
+        finally:
+            try: await rt_client.disconnect()
+            except: pass
+
+    async def init_chat_async():
+        try:
+            update_layer_view()
+            await load_topics_async(True)
+            page.run_task(realtime_task)
+        except Exception as e:
+            print(f"Init Error: {e}")
+
+    page.run_task(init_chat_async)
+    
+    return [root_view]
