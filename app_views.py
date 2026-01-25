@@ -371,7 +371,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             ft.Container(
                 content=ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
-                    ft.Text("팀 스레드 [Debug 2]", weight="bold", size=20, color="#212121"),
+                    ft.Text("팀 스레드 [Debug 3]", weight="bold", size=20, color="#212121"),
                     ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#212121", on_click=open_create_topic_dialog)
                 ], alignment="spaceBetween"),
                 padding=ft.padding.only(left=10, right=10, top=40, bottom=20),
@@ -427,11 +427,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
     msg_input.border_width = 1
     msg_input.hint_style = ft.TextStyle(color="#9E9E9E")
 
-    # --- [NEW] REALTIME INTEGRATION (Zero Latency) ---
     async def realtime_task():
-        # [OPTIMIZATION] Lazy start: Wait for UI to stabilize
-        await asyncio.sleep(2)
-        if DEBUG_MODE: print("REALTIME: Engine starting...")
+        # [DEBUG 3 SAFETY] Wait much longer for UI to be completely idle
+        await asyncio.sleep(5)
+        if DEBUG_MODE: print("REALTIME: Engine starting (Step 3)...")
         
         try:
             rt_client = supabase.get_realtime_client()
@@ -475,23 +474,28 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try: await rt_client.disconnect()
             except: pass
 
-    # --- [INITIALIZATION: DEBUG 2 - TOPICS ONLY] ---
+    # --- [INITIALIZATION: DEBUG 3 - REALTIME & AUTO-LOAD] ---
     async def init_chat_async():
-        if DEBUG_MODE: print("DEBUG: Step 2 Loading (Topics Only)...")
+        if DEBUG_MODE: print("DEBUG: Step 3 Loading (Realtime + Select)...")
         try:
             # 1. Update initial layer
             update_layer_view()
             
-            # 2. Populate Topics (Async call)
+            # 2. Populate Topics
             await load_topics_async(True)
             
-            # [LOCKED] Step 3 & 4 (Realtime & Auto-select) disabled for Debug 2
+            # 3. Start Realtime Engine (with 5s delay)
+            page.run_task(realtime_task)
             
-            if DEBUG_MODE: print("DEBUG: Step 2 Complete")
+            # 4. Auto-select (Optional, testing if this triggers freeze)
+            # res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").order("is_priority", desc=True).limit(1).execute())
+            # if res.data: select_topic(res.data[0])
+            
+            if DEBUG_MODE: print("DEBUG: Step 3 Complete")
         except Exception as e:
             print(f"Hydration Fail: {e}")
 
-    # Start Step 2 hydration
+    # Start Step 3 hydration
     page.run_task(init_chat_async)
     
     # RETURN STACK IMMEDIATELY
