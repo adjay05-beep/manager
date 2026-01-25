@@ -19,30 +19,46 @@ DEBUG_MODE = True
 # --- [4] 채팅 화면 (Jandi Style) ---
 def get_chat_controls(page: ft.Page, navigate_to):
     # --- [1] UI Elements (Skeleton Defaults) ---
-    topic_list_container = ft.Container(expand=True, content=ft.Column([ft.ProgressBar(color="#00C73C")], alignment=ft.MainAxisAlignment.CENTER))
+    topic_list_container = ft.Container(expand=True, content=ft.Column([ft.ProgressRing(color="#00C73C"), ft.Text("불러오는 중...", size=11, color="#666666")], horizontal_alignment="center", alignment="center"))
     message_list_view = ft.ListView(expand=True, spacing=15, auto_scroll=True, padding=10)
-    chat_header_title = ft.Text("불러오는 중...", weight="bold", size=18, color="#333333")
+    chat_header_title = ft.Text("스레드를 선택하세요", weight="bold", size=18, color="#333333")
     
     msg_input = ft.TextField(
         hint_text="메시지 입력...", expand=True, border_radius=10, bgcolor="#F5F5F5", 
         border_color="transparent", on_submit=lambda e: send_message(), disabled=True
     )
     
+    # Hidden TextField to receive voice data from JS
+    voice_data_bridge = ft.TextField(visible=False)
+    page.add(voice_data_bridge) # Add to page overlay to ensure it's always available
+
     # --- [2] State & Logic ---
-    state = {"current_topic_id": None, "edit_mode": False}
+    state = {"current_topic_id": None, "edit_mode": False, "is_recording": False}
     current_user_id = "00000000-0000-0000-0000-000000000001"
+
+    def on_topic_reorder(e: ft.ReorderableListViewReorderEvent):
+        controls = topic_list_container.content.controls
+        moved_control = controls.pop(e.old_index)
+        controls.insert(e.new_index, moved_control)
+        try:
+            for idx, ctrl in enumerate(controls):
+                tid = ctrl.data
+                supabase.table("chat_topics").update({"display_order": 1000 - idx}).eq("id", tid).execute()
+        except Exception as ex: print(f"Reorder Error: {ex}")
+        page.update()
 
     async def load_topics_async(update_ui=True):
         try:
             # [OPTIMIZATION] Initial skeleton state for topics
-            if not topic_list_container.content:
+            if not topic_list_container.content or isinstance(topic_list_container.content, ft.Column): # Check if it's the initial loading state
                 topic_list_container.content = ft.Column([ft.Container(height=30, bgcolor="#F5F5F5", border_radius=5) for _ in range(5)], spacing=10)
                 if update_ui: page.update()
 
             res = await asyncio.to_thread(lambda: supabase.table("chat_topics").select("*").execute())
             topics = res.data or []
             
-            list_view = ft.ListView(expand=True, spacing=0) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False)
+            # Premium Sidebar List
+            list_view = ft.ListView(expand=True, spacing=2) if not state["edit_mode"] else ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=False)
 
             sorted_topics = sorted(topics, key=lambda x: (x.get('is_priority', False), x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
 
@@ -50,15 +66,16 @@ def get_chat_controls(page: ft.Page, navigate_to):
             reading_map = {r['topic_id']: r['last_read_at'] for r in read_res.data} if read_res.data else {}
             
             # Message counts in background
-            default_old = "1970-01-01T00:00:00Z"
-            earliest_read = min(reading_map.values()) if reading_map else default_old
-            msg_res = await asyncio.to_thread(lambda: supabase.table("chat_messages").select("topic_id, created_at").gt("created_at", earliest_read).execute())
-            recent_msgs = msg_res.data or []
-            
             unread_counts = {}
-            for m in recent_msgs:
-                tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
-                if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
+            try:
+                # Fetch recent messages to calculate unread counts
+                # Limit to 200 messages to avoid fetching too much data, assuming users mostly care about recent unreads
+                msg_res = await asyncio.to_thread(lambda: supabase.table("chat_messages").select("topic_id, created_at").order("created_at", desc=True).limit(200).execute())
+                for m in msg_res.data or []:
+                    lr = reading_map.get(m['topic_id'], "1970-01-01T00:00:00Z") # Default to very old date if not read
+                    if m['created_at'] > lr: unread_counts[m['topic_id']] = unread_counts.get(m['topic_id'], 0) + 1
+            except Exception as e:
+                print(f"Error fetching unread counts: {e}")
 
             for t in sorted_topics:
                 tid = t['id']; is_selected = tid == state["current_topic_id"]; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
@@ -1463,17 +1480,30 @@ def get_order_controls(page: ft.Page, navigate_to):
         except Exception as ex:
             print(f"Delete All Error: {ex}")
 
-    # [NEW] Cloud Bridge: Helper for JS-side upload notification
-    voice_up_url = ft.Text("", visible=False)
-    def on_voice_uploaded(e):
-        if voice_up_url.value:
-            status_text.value = "AI 변환 중..."
-            status_text.color = "blue"
-            page.update()
-            page.run_task(lambda: start_transcription(voice_up_url.value))
-    
-    voice_done_btn = ft.IconButton(ft.Icons.CHECK, on_click=on_voice_uploaded, visible=False)
-    page.overlay.append(voice_done_btn)
+    # --- [ULTIMATE CLOUD BRIDGE: Base64 DATA TRANSFER] ---
+    data_bridge = ft.TextField(visible=False, on_change=lambda e: page.run_task(on_data_arrived))
+    page.overlay.append(data_bridge)
+
+    async def on_data_arrived(e):
+        if data_bridge.value and data_bridge.value.startswith("data:"):
+            try:
+                status_text.value = "데이터 수신 완료 (서버)"; status_text.color = "blue"; page.update()
+                
+                # Extract Base64 from DataURL
+                import base64
+                b64_data = data_bridge.value.split(",")[1]
+                audio_bytes = base64.b64decode(b64_data)
+                
+                # Save to cloud storage (via server)
+                fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
+                supabase.storage.from_("uploads").upload(fname, audio_bytes)
+                public_url = f"{supabase.url}/storage/v1/object/public/uploads/{fname}"
+                
+                await start_transcription(public_url)
+                data_bridge.value = "" # Reset
+            except Exception as ex:
+                status_text.value = f"브릿지 장애: {str(ex)[:20]}"
+                page.update()
 
     def toggle_rec(e):
         if not state["is_recording"]:
@@ -1487,65 +1517,39 @@ def get_order_controls(page: ft.Page, navigate_to):
             threading.Thread(target=upd, daemon=True).start()
             path = os.path.join(tempfile.gettempdir(), "order_voice.wav"); audio_recorder.start_recording(path); page.update()
         else:
-            state["is_recording"] = False; status_text.value = "클라우드 전송 준비..."; recording_timer.visible = False; page.update()
+            state["is_recording"] = False; status_text.value = "전달 준비 중..."; recording_timer.visible = False; page.update()
             
             try:
                 local_path = audio_recorder.stop_recording()
                 if not local_path:
-                    status_text.value = "녹음 실패"; page.update(); return
+                    status_text.value = "데이터 없음"; page.update(); return
                 
-                fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
-                public_url = f"{supabase.url}/storage/v1/object/public/uploads/{fname}"
+                # REMOTE BRIDGE: Instruct client to extract file and send via Base64
+                status_text.value = "서버로 데이터 추출 중..."
+                page.update()
                 
-                # REMOTE SERVER FIX: Client-Side Browser Upload via JavaScript
-                if "blob" in local_path or not os.path.isabs(local_path):
-                    status_text.value = "기기에서 업로드 중..."
-                    signed_res = supabase.storage.from_("uploads").create_signed_upload_url(fname)
-                    signed_url = signed_res['signed_url']
-                    
-                    # This script instructs the PHONE'S browser to fetch the local blob and PUT it to Supabase
-                    js_upload = f"""
-                    (async function() {{
-                        try {{
-                            console.log("Starting Cloud Bridge Upload...");
-                            const res = await fetch("{local_path}");
-                            const blob = await res.blob();
-                            const up = await fetch("{signed_url}", {{
-                                method: "PUT",
-                                headers: {{ "Content-Type": "audio/wav" }},
-                                body: blob
-                            }});
-                            if (up.ok) {{
-                                console.log("Upload Success!");
-                            }} else {{
-                                console.error("Upload Failed Status:", up.status);
+                js_bridge = f"""
+                (async function() {{
+                    try {{
+                        const res = await fetch("{local_path}");
+                        const blob = await res.blob();
+                        const reader = new FileReader();
+                        reader.onloadend = () => {{
+                            // Send data back to Python via hidden TextField
+                            const bridge = document.querySelector('input[data-flet-id="{data_bridge.uid}"]');
+                            if (bridge) {{
+                                bridge.value = reader.result;
+                                bridge.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                bridge.dispatchEvent(new Event('change', {{ bubbles: true }}));
                             }}
-                        }} catch (e) {{
-                            console.error("Cloud Bridge Error:", e);
-                        }}
-                    }})();
-                    """
-                    page.run_javascript(js_upload)
-                    
-                    # Python waits for the cloud file to exist (Polling Bridge)
-                    async def poll_and_convert():
-                        status_text.value = "서버 수신 대기..."
-                        page.update()
-                        for _ in range(10): # Timeout 10s
-                            await asyncio.sleep(1)
-                            # Check if file exists in Supabase Storage meta-data or just try transcribing
-                            try:
-                                await start_transcription(public_url)
-                                return
-                            except: pass
-                        status_text.value = "전송 타임아웃"; page.update()
-                    
-                    page.run_task(poll_and_convert)
-                else:
-                    # Native / Local mode
-                    with open(local_path, "rb") as f:
-                        supabase.storage.from_("uploads").upload(fname, f.read())
-                    page.run_task(lambda: start_transcription(public_url))
+                        }};
+                        reader.readAsDataURL(blob);
+                    }} catch (e) {{
+                        console.error("Bridge Error:", e);
+                    }}
+                }})();
+                """
+                page.run_javascript(js_bridge)
 
             except Exception as ex:
                 status_text.value = f"전송 에러: {str(ex)[:20]}"
@@ -1558,14 +1562,13 @@ def get_order_controls(page: ft.Page, navigate_to):
             t = transcribe_audio(url)
             if t:
                 supabase.table("order_memos").insert({"content": t, "user_id": "00000000-0000-0000-0000-000000000001"}).execute()
-                status_text.value = "등록 성공!"; status_text.color = "green"
-                status_text.value = f"결과: {t[:15]}..."
+                status_text.value = f"등록 완료: {t[:10]}..."
+                status_text.color = "green"
                 load_memos()
             else:
-                status_text.value = "인식 실패 (무음)"; status_text.color = "orange"
+                status_text.value = "인식 실패 (무음)"
         except Exception as ex:
-            print(f"Transcription Error: {ex}")
-            status_text.value = "AI 오류: 다시 시도"
+            status_text.value = "AI 오류: {str(ex)[:15]}"
         finally:
             page.update()
 
