@@ -2,9 +2,6 @@ import flet as ft
 from services import memo_service, audio_service
 import asyncio
 from datetime import datetime
-from db import supabase # Need supabase for JS bridge workaround? 
-# The Cloud Bridge JS used `supabase.storage` in Javascript. But current code used signed URLs and JS `fetch`.
-# Yes, the Flet `run_javascript` code block needs `signed_url` which we get from service.
 from services.chat_service import get_storage_signed_url, get_public_url, upload_file_server_side
 import os
 import threading
@@ -12,105 +9,22 @@ import tempfile
 import time
 
 def get_order_controls(page: ft.Page, navigate_to):
+    # [FIX] Singleton Audio Recorder from Main
+    # This prevents the freeze caused by creating multiple recorders.
+    if hasattr(page, "audio_recorder"):
+        audio_recorder = page.audio_recorder
+    else:
+        # Fallback if main.py didn't set it (local dev)
+        audio_recorder = ft.AudioRecorder()
+        page.overlay.append(audio_recorder)
+
     state = {"is_recording": False, "memos": [], "seconds": 0, "edit_id": None}
+    
+    # UI Components
     memo_list_view = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=10)
     status_text = ft.Text("버튼을 눌러 녹음을 시작하세요", color="grey", size=14)
     recording_timer = ft.Text("00:00", size=32, weight="bold", color="black", visible=False)
     
-    recording_timer = ft.Text("00:00", size=32, weight="bold", color="black", visible=False)
-    
-    # [FIX] Custom JS Recorder Components
-    # Hidden fields to exchange data with JS
-    upload_url_field = ft.Text("None", visible=False)
-    filename_field = ft.Text("None", visible=False)
-    
-    # JS Code to be injected
-    # We use a unique ID for the window function to avoid conflicts if possible, but window scope is global.
-    # We'll use specific names.
-    recorder_js = """
-    var mediaRecorder;
-    var audioChunks = [];
-
-    window.startRec = async function() {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorder = new MediaRecorder(stream);
-            audioChunks = [];
-            
-            mediaRecorder.addEventListener("dataavailable", event => {
-                audioChunks.push(event.data);
-            });
-            
-            mediaRecorder.start();
-            return "STARTED";
-        } catch(err) {
-            alert("Mic Error: " + err);
-            return "ERROR";
-        }
-    }
-
-    window.stopRecAndUpload = async function(url, btn_id) {
-        if (!mediaRecorder) return;
-        
-        return new Promise((resolve) => {
-            mediaRecorder.addEventListener("stop", async () => {
-                const audioBlob = new Blob(audioChunks, { type: 'audio/mp4' }); // Safari prefers mp4/aac
-                
-                try {
-                    const resp = await fetch(url, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'audio/mp4' },
-                        body: audioBlob
-                    });
-                    
-                    if (resp.ok) {
-                        // Click the hidden python button to notify success
-                        // We need to find the element by ID? Flet IDs are tricky.
-                        // We will use the 'fire_event' hook if possible, or just click if we can find it.
-                        // Flet doesn't expose DOM IDs easily. 
-                        // WORKAROUND: We iterate buttons or use a specific class?
-                        // Actually, Flet 0.22+ has better ID support, but here we can try to find by text or use the standard `page.emit`?
-                        // Wait, `page.run_task` is Python.
-                        // WE WILL USE `fire_event` hack or simple Alert?
-                        // Better: We can just use the 'page.on_event_broadcast' ? No.
-                        // WE WILL RETURN COMPLETED string to a variable? No.
-                        
-                        // Let's use `window.top.document.getElementById(btn_id).click()`?
-                        // Flet controls have `uid`. We can assign `key`?
-                        // Flet Web maps keys to IDs? Not reliably.
-                        
-                        // ALTERNATIVE: Use `page.client_storage`? No.
-                        // ALTERNATIVE: Just use `alert` for now? No automation.
-                        
-                        // BEST WAY FOR FLET-JS INTEROP:
-                        // The user script can't easily call Python.
-                        // BUT, we can use `window.call_python_binding` if available?
-                        // Let's use the hidden button click via `document.getElementById`.
-                        // We need to set the ID of the button in Flet.
-                        // `my_btn.uid` is internal. 
-                        
-                        // Let's try to query selector for the hidden button? 
-                        // It is visible=False, so it might not be in DOM. 
-                        // Hidden controls are often not rendered.
-                        // We should make it visible but size 0 or opacity 0.
-                        
-                        alert("업로드 완료! 변환을 시작합니다.");
-                    } else {
-                        alert("업로드 실패: " + resp.status);
-                    }
-                } catch (e) {
-                    alert("업로드 에러: " + e);
-                }
-            });
-            mediaRecorder.stop();
-        });
-    }
-    """;
-    
-    # We inject JS on load? Or run it once.
-    # page.run_javascript(recorder_js) # We'll do this in the toggler to ensure it's loaded.
-
-
     def load_memos():
         page.run_task(load_memos_async)
 
@@ -137,7 +51,6 @@ def get_order_controls(page: ft.Page, navigate_to):
                         ft.Text(m['content'], size=15, weight="w500", color="black")
                     ], spacing=5, expand=True), 
                     ft.Row([
-                        ft.IconButton(ft.Icons.CALENDAR_TODAY, icon_size=18, icon_color="#FF9800", tooltip="일정 등록", on_click=lambda e, t=m['content']: pkr(t)), 
                         ft.IconButton(ft.Icons.COPY, icon_size=18, tooltip="복사", on_click=lambda e, t=m['content']: copy(t)), 
                         ft.IconButton(ft.Icons.EDIT, icon_size=18, tooltip="수정", on_click=lambda e, mid=m['id']: enter_ed(mid)),
                         ft.IconButton(ft.Icons.DELETE, icon_size=18, icon_color="red", tooltip="삭제", on_click=lambda e, mid=m['id']: delete_memo(mid))
@@ -146,247 +59,164 @@ def get_order_controls(page: ft.Page, navigate_to):
             memo_list_view.controls.append(ft.Container(content=memo_content, padding=15, bgcolor="#F8F9FA", border_radius=10, border=ft.border.all(1, "#EEEEEE")))
         page.update()
 
-    def pkr(txt=""):
-        # Placeholder for pkr (Calendar Picker from Order). 
-        # This was complex in app_views.py. 
-        # For refactoring, I should ideally reuse `calendar_view` logic or dialog.
-        # But `calendar_view` logic is inside `get_calendar_controls`.
-        # I will simplify: Show a dialog saying "Please switch to Calendar to add event".
-        # OR copy the logic. 
-        # Copying logic is safer to preserve functionality "strictly".
-        # But it's duplicate code. 
-        # I'll preserve functionality by copying the essential dialog logic here, 
-        # OR better: make `open_event_editor_dialog` reusable in `calendar_view.py`?
-        # It's inside a function.
-        # I will inline the necessary logic for now to ensure reliability.
-        page.snack_bar = ft.SnackBar(ft.Text("캘린더 탭으로 이동하여 등록해주세요. (내용 복사됨)"))
-        page.set_clipboard(txt)
-        page.snack_bar.open=True
-        page.update()
-
     def enter_ed(mid): state["edit_id"] = mid; render_memos()
     def cancel_ed(): state["edit_id"] = None; render_memos()
     def save_inline(mid, f):
         page.run_task(lambda: memo_service.update_memo_content(mid, f.value))
         state["edit_id"] = None; load_memos()
-
     def copy(t):
         page.set_clipboard(t); page.snack_bar = ft.SnackBar(ft.Text("복사되었습니다!")); page.snack_bar.open = True; page.update()
-
     def delete_memo(mid):
         page.run_task(lambda: _del_async(mid))
-    
     async def _del_async(mid):
         await memo_service.delete_memo(mid)
         await load_memos_async()
         page.snack_bar = ft.SnackBar(ft.Text("삭제되었습니다.")); page.snack_bar.open = True; page.update()
-
     def delete_all_memos():
         page.run_task(lambda: _del_all_async())
-
     async def _del_all_async():
         await memo_service.delete_all_memos()
         await load_memos_async()
         page.snack_bar = ft.SnackBar(ft.Text("모든 메모가 삭제되었습니다.")); page.snack_bar.open = True; page.update()
 
+    # Upload & Transcribe Logic
     voice_up_url = ft.Text("", visible=False)
     def on_voice_uploaded(e):
-        pass
-    # Hidden check button to trigger python callback? 
-    # Since Flet-JS callback is hard, we will rely on a "Check Status" polling or Manual "Ready" button?
-    # NO, we can use `page.on_route_change`? No.
-    # We will use a "Simple Polling" from Python to check if file exists?
-    # Or just use the Timer to wait?
+        if voice_up_url.value:
+            status_text.value = "AI 변환 중..."
+            status_text.color = "blue"
+            page.update()
+            page.run_task(lambda: start_transcription(voice_up_url.value))
     
-    # Let's use the simple approach: 
-    # 1. JS Uploads. 
-    # 2. User sees Alert "Uploaded". 
-    # 3. User clicks "Complete" checkmark manually? 
-    # That is safer than broken callbacks.
-    # But we want automation.
-    
-    # BETTER: We use the `audio_recorder` removal.
-    
-    def on_js_upload_success(e):
-        # This function would be called if we could click the button from JS.
-        # But since we can't easily, let's just Poll for the file existence.
-        pass
+    voice_done_btn = ft.IconButton(ft.Icons.CHECK, on_click=on_voice_uploaded, visible=False)
 
     def toggle_rec(e):
         if not state["is_recording"]:
-            # [START RECORDING]
-            # 1. Define filename & Get URL
-            fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.mp4" # MP4 for Safari
-            state["current_file"] = fname
-            
-            # Get signed URL
-            try:
-                signed_url = get_storage_signed_url(fname)
-                public_url = get_public_url(fname)
-                state["current_upload_url"] = signed_url
-                state["current_public_url"] = public_url
-            except Exception as ex:
-                status_text.value = f"준비 에러: {ex}"
-                page.update()
-                return
-
-            # 2. Inject JS and Start
-            js_start = """
-            if (typeof window.startRec !== 'function') {
-                """ + recorder_js + """
-            }
-            window.startRec();
-            """
-            page.run_javascript(js_start)
-            
-            # UI Update
+            # START RECORDING
             state["is_recording"] = True
             state["seconds"] = 0
-            status_text.value = "녹음 중... (JS)"
+            status_text.value = "녹음 준비..." # Debug
             recording_timer.visible = True
             
+            # Web Detection
+            # Flet App (iOS) usually has page.web=False, but connects to Render (Web Server).
+            # We MUST check if we are running in the App (Native) or Browser.
+            # But here Python is on Server. So effectively it IS Web mode relative to the Client.
+            # We use the Render Env Var check correctly.
+            is_env_web = os.getenv("RENDER") is not None
+            is_page_web = page.web
+            
+            # Force Web Logic if on Render
+            force_web = is_env_web or is_page_web
+            
+            status_text.value = f"Rec Start (Web:{force_web})"
+            page.update()
+
             def upd():
                 while state["is_recording"]:
                     time.sleep(1); state["seconds"] += 1
                     mins, secs = divmod(state["seconds"], 60); recording_timer.value = f"{mins:02d}:{secs:02d}"; page.update()
             threading.Thread(target=upd, daemon=True).start()
-            page.update()
+
+            try:
+                if force_web:
+                    # Web/Mobile Web: No path arg = Blob URL
+                    audio_recorder.start_recording(None)
+                else:
+                    # Desktop Dev
+                    path = os.path.join(tempfile.gettempdir(), f"order_voice_{int(time.time())}.wav")
+                    audio_recorder.start_recording(path)
+            except Exception as ex:
+                state["is_recording"] = False
+                status_text.value = f"Start Err: {ex}"
+                page.update()
 
         else:
-            # [STOP RECORDING]
+            # STOP RECORDING
             state["is_recording"] = False
-            status_text.value = "업로드 중..."
+            status_text.value = "녹음 종료 중..."
             recording_timer.visible = False
             page.update()
             
-            url = state.get("current_upload_url", "")
-            
-            # Call JS to stop and upload
-            js_stop = f"window.stopRecAndUpload('{url}', 'dummy_id');"
-            page.run_javascript(js_stop)
-            
-            # Start Polling for file (Since we don't have direct callback)
-            page.run_task(poll_for_completion)
-
-    async def poll_for_completion():
-        # Wait for upload to likely finish (e.g. 5 seconds for short audio)
-        # We can poll HEAD request to public_url?
-        target_url = state.get("current_public_url")
-        
-        status_text.value = "서버 전송 확인 중..."
-        page.update()
-        
-        for i in range(15): # 15 seconds polling
-            await asyncio.sleep(1)
             try:
-                # We blindly try to transcribe. If file is not yet uploaded/accessible, 
-                # audio_service might fail or return None.
-                # But to avoid API spam, we should wait for the JS completion signal.
-                # However, since we lack the callback, we rely on the user or the loop.
-                # Let's try to fetch HEAD? No, simpler to just wait a bit more or break early.
-                pass
-            except: 
-                pass
+                # Stop returns path or url
+                local_path = audio_recorder.stop_recording()
+                
+                # Debug logging
+                # print(f"Stop Result: {local_path}")
+                
+                if not local_path:
+                    status_text.value = "녹음 데이터 없음 (Mic 권한 확인)"
+                    page.update()
+                    return
+
+                # Choose upload method
+                force_web = (os.getenv("RENDER") is not None) or page.web or ("blob:" in str(local_path))
+
+                fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
+
+                if force_web:
+                    status_text.value = "서버로 전송 중..."
+                    signed_url = get_storage_signed_url(fname)
+                    public_url = get_public_url(fname)
             
-        stage_text = "AI 변환 요청 중..."
-        status_text.value = stage_text
-        page.update()
-        
-        await start_transcription(target_url)
+                    # JS Bridge for Web Upload
+                    # Note: local_path is blob:http://...
+                    js_upload = f"""
+                    (async function() {{
+                        try {{
+                            const res = await fetch("{local_path}");
+                            const blob = await res.blob();
+                            const up = await fetch("{signed_url}", {{
+                                method: "PUT",
+                                headers: {{ "Content-Type": "audio/wav" }},
+                                body: blob
+                            }});
+                            if (up.ok) alert("업로드 성공! 변환을 시작합니다.");
+                        }} catch (e) {{
+                            alert("업로드 실패: " + e);
+                        }}
+                    }})();
+                    """
+                    page.run_javascript(js_upload)
+                    
+                    # Poll for transcription trigger (Simplified)
+                    # We assume upload works if no alert error.
+                    # Wait 2s then transcribe
+                    page.run_task(lambda: delayed_transcribe(public_url))
+                    
+                else:
+                    # Native
+                    with open(local_path, "rb") as f:
+                        upload_file_server_side(fname, f.read())
+                    public_url = get_public_url(fname)
+                    page.run_task(lambda: start_transcription(public_url))
+
+            except Exception as ex:
+                status_text.value = f"Stop Err: {ex}"
+                page.update()
+
+    async def delayed_transcribe(url):
+        await asyncio.sleep(2)
+        await start_transcription(url)
 
     async def start_transcription(url):
         try:
             status_text.value = "AI 분석 중..."
             page.update()
-            
-            # Using audio_service
-            # Wait, audio_service.transcribe_audio is sync. Wrap it.
             t = await asyncio.to_thread(lambda: audio_service.transcribe_audio(url))
-            
             if t:
                 await memo_service.save_transcription(t)
-                status_text.value = "등록 성공!"; status_text.color = "green"
-                status_text.value = f"결과: {t[:15]}..."
+                status_text.value = "완료!"
                 await load_memos_async()
             else:
-                status_text.value = "인식 실패 (무음)"; status_text.color = "orange"
+                status_text.value = "인식 실패 (무음)"
         except Exception as ex:
-            print(f"Transcription Error: {ex}")
-            status_text.value = "AI 오류: 다시 시도"
+            status_text.value = f"AI Err: {ex}"
         finally:
             page.update()
 
-    def open_dictionary(e):
-        prompt_list = ft.Column(spacing=5, scroll=ft.ScrollMode.AUTO, height=300)
-        
-        def load_prompts():
-            page.run_task(lambda: _load_p_async())
-
-        async def _load_p_async():
-            prompts = await memo_service.get_voice_prompts()
-            prompt_list.controls = [
-                ft.Row([
-                    ft.Text(p['keyword'], size=14, expand=True),
-                    ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_size=18, icon_color="red", 
-                                  on_click=lambda e, pid=p['id']: delete_prompt(pid))
-                ]) for p in prompts
-            ]
-            if dlg_dict.open: dlg_dict.update()
-            page.update()
-
-        def delete_prompt(pid):
-            page.run_task(lambda: _del_p(pid))
-        async def _del_p(pid):
-            await memo_service.delete_voice_prompt(pid)
-            await _load_p_async()
-
-        def add_prompt_event(e):
-            val = new_word.value.strip()
-            if not val: return
-            
-            page.snack_bar = ft.SnackBar(ft.Text(f"'{val}' 저장 중..."), duration=1000)
-            page.snack_bar.open = True
-            page.update()
-
-            page.run_task(lambda: _add_p(val))
-
-        async def _add_p(val):
-            try:
-                await memo_service.add_voice_prompt(val)
-                new_word.value = ""
-                new_word.focus()
-                
-                page.snack_bar = ft.SnackBar(ft.Text(f"'{val}' 추가 성공!"), bgcolor="#00C73C")
-                page.snack_bar.open = True
-                await _load_p_async()
-            except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"저장 실패: {ex}"), bgcolor="red")
-                page.snack_bar.open = True
-                page.update()
-
-        new_word = ft.TextField(
-            label="추가할 단어/메뉴", 
-            expand=True,
-            on_submit=add_prompt_event
-        )
-
-        dlg_dict = ft.AlertDialog(
-            title=ft.Text("메뉴/키워드 사전"),
-            content=ft.Column([
-                ft.Text("AI가 잘 못알아듣는 단어를 등록하세요.", size=12, color="grey"),
-                ft.Row([
-                    new_word, 
-                    ft.IconButton(ft.Icons.ADD_CIRCLE, icon_color="#00C73C", on_click=add_prompt_event)
-                ], spacing=10),
-                ft.Divider(),
-                prompt_list
-            ], tight=True, width=320),
-            actions=[ft.TextButton("닫기", on_click=lambda _: page.close(dlg_dict))]
-        )
-
-        page.open(dlg_dict)
-        load_prompts()
-
+    # Layout
     mic_btn = ft.Container(content=ft.Icon(ft.Icons.MIC, size=40, color="white"), width=80, height=80, bgcolor="#00C73C", border_radius=40, alignment=ft.alignment.center, on_click=toggle_rec, shadow=ft.BoxShadow(blur_radius=10, color="#00C73C"), ink=True)
     
     header = ft.Container(
@@ -396,7 +226,6 @@ def get_order_controls(page: ft.Page, navigate_to):
                 ft.Text("음성 메모", size=20, weight="bold")
             ]), 
             ft.Row([
-                ft.IconButton(ft.Icons.BOOKMARK_ADDED, tooltip="단어장", on_click=open_dictionary),
                 ft.IconButton(ft.Icons.DELETE_SWEEP, tooltip="전체 삭제", icon_color="red", on_click=lambda e: delete_all_memos())
             ])
         ], alignment="spaceBetween"), 
@@ -405,11 +234,7 @@ def get_order_controls(page: ft.Page, navigate_to):
     )
     
     load_memos()
-    # [FIX] Return View Controls
-    # We remove mic_check_btn as it's replaced by better internal logic
     return [
         voice_done_btn,
-        upload_url_field,
-        filename_field,
         ft.Container(expand=True, bgcolor="white", padding=ft.padding.only(top=50), content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))
     ]
