@@ -115,10 +115,22 @@ def get_order_controls(page: ft.Page, navigate_to):
             page.run_task(lambda: start_transcription(voice_up_url.value))
     
     voice_done_btn = ft.IconButton(ft.Icons.CHECK, on_click=on_voice_uploaded, visible=False)
-    # page.overlay.append(voice_done_btn) # Removed from overlay to avoid leak
+    
+    # [DEBUG] Validating direct JS permission request (Safely)
+    def js_permission_check(e):
+        js = """
+        navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(function(stream) {
+            alert("SUCCESS: 브라우저 마이크 권한이 있습니다! (Flet 문제 가능성)");
+            stream.getTracks().forEach(track => track.stop());
+        })
+        .catch(function(err) {
+            alert("ERROR: 브라우저가 마이크를 차단했습니다.\\n설정 > Safari > 마이크 접근을 확인하세요.\\n에러: " + err);
+        });
+        """
+        page.run_javascript(js)
 
-    # [DEBUG REMOVED] Removing debug button to prevent freeze and restoring clean UI.
-    # The Freeze was likely caused by Overlay accumulation.
+    mic_check_btn = ft.TextButton("마이크 권한 직접 확인 (눌러보세요)", on_click=js_permission_check)
 
     def toggle_rec(e):
         if not state["is_recording"]:
@@ -347,5 +359,5 @@ def get_order_controls(page: ft.Page, navigate_to):
     # [FIX] Return View Controls
     return [
         voice_done_btn,
-        ft.Container(expand=True, bgcolor="white", padding=ft.padding.only(top=50), content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))
+        ft.Container(expand=True, bgcolor="white", padding=ft.padding.only(top=50), content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, mic_check_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))
     ]
