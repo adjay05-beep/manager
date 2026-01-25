@@ -111,6 +111,22 @@ def get_order_controls(page: ft.Page, navigate_to):
     voice_done_btn = ft.IconButton(ft.Icons.CHECK, on_click=on_voice_uploaded, visible=False)
     page.overlay.append(voice_done_btn)
 
+    # [DEBUG] Validating direct JS permission request
+    def js_permission_check(e):
+        js = """
+        navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(function(stream) {
+            alert("브라우저 마이크 권한 확인 완료! (JS 성공)");
+            stream.getTracks().forEach(track => track.stop());
+        })
+        .catch(function(err) {
+            alert("브라우저 권한 에러: " + err);
+        });
+        """
+        page.run_javascript(js)
+
+    mic_check_btn = ft.TextButton("마이크 권한 직접 확인", on_click=js_permission_check)
+
     def toggle_rec(e):
         if not state["is_recording"]:
             # [FIX] On Web, has_permission can be flaky. 
@@ -335,4 +351,4 @@ def get_order_controls(page: ft.Page, navigate_to):
     )
     
     load_memos()
-    return [ft.Container(expand=True, bgcolor="white", padding=ft.padding.only(top=50), content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))]
+    return [ft.Container(expand=True, bgcolor="white", padding=ft.padding.only(top=50), content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, mic_check_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))]
