@@ -45,6 +45,7 @@ def get_order_controls(page: ft.Page, navigate_to):
                         ft.Text(m['content'], size=15, weight="w500", color="black")
                     ], spacing=5, expand=True), 
                     ft.Row([
+                        ft.IconButton(ft.Icons.CALENDAR_TODAY, icon_size=18, icon_color="#FF9800", tooltip="일정 등록", on_click=lambda e, t=m['content']: pkr(t)), 
                         ft.IconButton(ft.Icons.COPY, icon_size=18, tooltip="복사", on_click=lambda e, t=m['content']: copy(t)), 
                         ft.IconButton(ft.Icons.EDIT, icon_size=18, tooltip="수정", on_click=lambda e, mid=m['id']: enter_ed(mid)),
                         ft.IconButton(ft.Icons.DELETE, icon_size=18, icon_color="red", tooltip="삭제", on_click=lambda e, mid=m['id']: delete_memo(mid))
@@ -73,6 +74,14 @@ def get_order_controls(page: ft.Page, navigate_to):
         await load_memos_async()
         page.snack_bar = ft.SnackBar(ft.Text("모든 메모가 삭제되었습니다.")); page.snack_bar.open = True; page.update()
 
+    def pkr(txt=""):
+        # Copy to clipboard and notify user to go to calendar
+        # Reusing the simple logic from before
+        page.set_clipboard(txt)
+        page.snack_bar = ft.SnackBar(ft.Text("캘린더 탭으로 이동하여 등록해주세요. (내용 복사됨)"))
+        page.snack_bar.open=True
+        page.update()
+
     # --- File Upload Logic (Stable) ---
     def pick_file_click(e):
         status_text.value = "파일 선택창 여는 중..."
@@ -88,13 +97,20 @@ def get_order_controls(page: ft.Page, navigate_to):
              page.update()
 
         if hasattr(page, 'file_picker'):
-            # allow_multiple=False, file_type=AUDIO
+            # Relaxed filter to ensure dialog opens on iOS
+            # AUDIO type sometimes fails on Mobile WebViews
             page.file_picker.on_result = on_file_picked
-            page.file_picker.pick_files(
-                allow_multiple=False, 
-                file_type=ft.FilePickerFileType.AUDIO,
-                dialog_title="음성 파일 선택 또는 녹음"
-            )
+            try:
+                page.file_picker.pick_files(
+                    allow_multiple=False, 
+                    file_type=ft.FilePickerFileType.ANY, # Changed from AUDIO to ANY
+                    dialog_title="음성/동영상 파일 선택 (또는 녹음)"
+                )
+                status_text.value = "파일 선택창 요청 보냄..." # Confirmation
+                page.update()
+            except Exception as e:
+                status_text.value = f"Pick Error: {e}"
+                page.update()
         else:
             status_text.value = "오류: FilePicker 로드 실패"
             page.update()
