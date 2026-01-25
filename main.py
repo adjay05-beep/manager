@@ -19,10 +19,8 @@ def main(page: ft.Page):
     # Global FilePicker for all views
     page.file_picker = ft.FilePicker()
     page.overlay.append(page.file_picker)
-
-    # Global AudioRecorder (Prevent Memory Leak/Freeze by init once)
-    page.audio_recorder = ft.AudioRecorder()
-    page.overlay.append(page.audio_recorder)
+    
+    # [NOTE] AudioRecorder removed. We use Custom JS Recorder in order_view.py for iOS compatibility.
     
     def navigate_to(route):
         page.clean()

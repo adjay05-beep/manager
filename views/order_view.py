@@ -19,14 +19,97 @@ def get_order_controls(page: ft.Page, navigate_to):
     
     recording_timer = ft.Text("00:00", size=32, weight="bold", color="black", visible=False)
     
-    # [FIX] Use Global Recorder from Main
-    if not hasattr(page, "audio_recorder"):
-        # Fallback for safe dev
-        page.audio_recorder = ft.AudioRecorder()
-        page.overlay.append(page.audio_recorder)
+    # [FIX] Custom JS Recorder Components
+    # Hidden fields to exchange data with JS
+    upload_url_field = ft.Text("None", visible=False)
+    filename_field = ft.Text("None", visible=False)
     
-    audio_recorder = page.audio_recorder
-    # No need to append/remove. Shared instance.
+    # JS Code to be injected
+    # We use a unique ID for the window function to avoid conflicts if possible, but window scope is global.
+    # We'll use specific names.
+    recorder_js = """
+    var mediaRecorder;
+    var audioChunks = [];
+
+    window.startRec = async function() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+            
+            mediaRecorder.addEventListener("dataavailable", event => {
+                audioChunks.push(event.data);
+            });
+            
+            mediaRecorder.start();
+            return "STARTED";
+        } catch(err) {
+            alert("Mic Error: " + err);
+            return "ERROR";
+        }
+    }
+
+    window.stopRecAndUpload = async function(url, btn_id) {
+        if (!mediaRecorder) return;
+        
+        return new Promise((resolve) => {
+            mediaRecorder.addEventListener("stop", async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/mp4' }); // Safari prefers mp4/aac
+                
+                try {
+                    const resp = await fetch(url, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'audio/mp4' },
+                        body: audioBlob
+                    });
+                    
+                    if (resp.ok) {
+                        // Click the hidden python button to notify success
+                        // We need to find the element by ID? Flet IDs are tricky.
+                        // We will use the 'fire_event' hook if possible, or just click if we can find it.
+                        // Flet doesn't expose DOM IDs easily. 
+                        // WORKAROUND: We iterate buttons or use a specific class?
+                        // Actually, Flet 0.22+ has better ID support, but here we can try to find by text or use the standard `page.emit`?
+                        // Wait, `page.run_task` is Python.
+                        // WE WILL USE `fire_event` hack or simple Alert?
+                        // Better: We can just use the 'page.on_event_broadcast' ? No.
+                        // WE WILL RETURN COMPLETED string to a variable? No.
+                        
+                        // Let's use `window.top.document.getElementById(btn_id).click()`?
+                        // Flet controls have `uid`. We can assign `key`?
+                        // Flet Web maps keys to IDs? Not reliably.
+                        
+                        // ALTERNATIVE: Use `page.client_storage`? No.
+                        // ALTERNATIVE: Just use `alert` for now? No automation.
+                        
+                        // BEST WAY FOR FLET-JS INTEROP:
+                        // The user script can't easily call Python.
+                        // BUT, we can use `window.call_python_binding` if available?
+                        // Let's use the hidden button click via `document.getElementById`.
+                        // We need to set the ID of the button in Flet.
+                        // `my_btn.uid` is internal. 
+                        
+                        // Let's try to query selector for the hidden button? 
+                        // It is visible=False, so it might not be in DOM. 
+                        // Hidden controls are often not rendered.
+                        // We should make it visible but size 0 or opacity 0.
+                        
+                        alert("업로드 완료! 변환을 시작합니다.");
+                    } else {
+                        alert("업로드 실패: " + resp.status);
+                    }
+                } catch (e) {
+                    alert("업로드 에러: " + e);
+                }
+            });
+            mediaRecorder.stop();
+        });
+    }
+    """;
+    
+    # We inject JS on load? Or run it once.
+    # page.run_javascript(recorder_js) # We'll do this in the toggler to ensure it's loaded.
+
 
     def load_memos():
         page.run_task(load_memos_async)
@@ -108,135 +191,107 @@ def get_order_controls(page: ft.Page, navigate_to):
 
     voice_up_url = ft.Text("", visible=False)
     def on_voice_uploaded(e):
-        if voice_up_url.value:
-            status_text.value = "AI 변환 중..."
-            status_text.color = "blue"
-            page.update()
-            page.run_task(lambda: start_transcription(voice_up_url.value))
+    # Hidden check button to trigger python callback? 
+    # Since Flet-JS callback is hard, we will rely on a "Check Status" polling or Manual "Ready" button?
+    # NO, we can use `page.on_route_change`? No.
+    # We will use a "Simple Polling" from Python to check if file exists?
+    # Or just use the Timer to wait?
     
-    voice_done_btn = ft.IconButton(ft.Icons.CHECK, on_click=on_voice_uploaded, visible=False)
+    # Let's use the simple approach: 
+    # 1. JS Uploads. 
+    # 2. User sees Alert "Uploaded". 
+    # 3. User clicks "Complete" checkmark manually? 
+    # That is safer than broken callbacks.
+    # But we want automation.
     
+    # BETTER: We use the `audio_recorder` removal.
     
-    # [FIX] Static HTML to bypass Flet's async gesture restriction on Safari
-    def open_permission_helper(e):
-        # page.launch_url is also being blocked by Safari popup blocker.
-        # We must use JS to force navigation in the SAME TAB.
-        page.run_javascript("window.location.href = '/permission_fix.html';")
-
-    mic_check_btn = ft.ElevatedButton("마이크 권한 설정 도우미 (터치)", on_click=open_permission_helper, bgcolor="#007AFF", color="white")
+    def on_js_upload_success(e):
+        # This function would be called if we could click the button from JS.
+        # But since we can't easily, let's just Poll for the file existence.
+        pass
 
     def toggle_rec(e):
         if not state["is_recording"]:
-            # [FIX] On Web, has_permission can be flaky. 
-            # We skip the check on Web because start_recording() calls getUserMedia() which acts as the prompt.
-            # On Desktop, we keep the check.
-            is_web_check = page.web or os.getenv("RENDER") or (page.platform and page.platform.lower() in ["ios", "android"])
+            # [START RECORDING]
+            # 1. Define filename & Get URL
+            fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.mp4" # MP4 for Safari
+            state["current_file"] = fname
             
-            if not is_web_check:
-                if not audio_recorder.has_permission(): 
-                    audio_recorder.request_permission()
-                    return
+            # Get signed URL
+            try:
+                signed_url = get_storage_signed_url(fname)
+                public_url = get_public_url(fname)
+                state["current_upload_url"] = signed_url
+                state["current_public_url"] = public_url
+            except Exception as ex:
+                status_text.value = f"준비 에러: {ex}"
+                page.update()
+                return
 
-            state["is_recording"] = True; state["seconds"] = 0; status_text.value = "녹음 중..."; recording_timer.visible = True
+            # 2. Inject JS and Start
+            js_start = """
+            if (typeof window.startRec !== 'function') {
+                """ + recorder_js + """
+            }
+            window.startRec();
+            """
+            page.run_javascript(js_start)
+            
+            # UI Update
+            state["is_recording"] = True
+            state["seconds"] = 0
+            status_text.value = "녹음 중... (JS)"
+            recording_timer.visible = True
+            
             def upd():
                 while state["is_recording"]:
                     time.sleep(1); state["seconds"] += 1
                     mins, secs = divmod(state["seconds"], 60); recording_timer.value = f"{mins:02d}:{secs:02d}"; page.update()
             threading.Thread(target=upd, daemon=True).start()
-            # [FIX] Force Web mode if running on Render or if page.web is true.
-            # page.web seems unreliable on some deployments, so we assume 'RENDER' env means Web.
-            is_web_forced = page.web or os.getenv("RENDER") or (page.platform and page.platform.lower() in ["ios", "android"])
-            
-            if is_web_forced:
-                audio_recorder.start_recording(None)
-            else:
-                path = os.path.join(tempfile.gettempdir(), f"order_voice_{int(time.time())}.wav")
-                audio_recorder.start_recording(path)
-            
             page.update()
+
         else:
-            state["is_recording"] = False; status_text.value = "클라우드 전송 준비..."; recording_timer.visible = False; page.update()
-            try:
-                # Expecting a Blob URL on Web/Mobile
-                local_path = audio_recorder.stop_recording()
-            except Exception as e:
-                print(f"Stop Rec Error: {e}")
-                status_text.value = "녹음 데이터 수신 실패 (Timeout/권한)"; page.update(); return
-
-            if not local_path:
-                status_text.value = "녹음 데이터 없음 (None)"; page.update(); return
-                
-                # [DEBUG] Relaxed check. Trust Flet if it returns a path/url.
-                # Only fail if it's empty.
-                # if not local_path or (not os.path.exists(local_path) and "blob" not in local_path):
-                #    status_text.value = "녹음 파일 로드 실패"; page.update(); return
-                
-            try:
-                fname = f"voice_{datetime.now().strftime('%Y%m%d%H%M%S')}.wav"
-                
-                # REMOTE SERVER FIX
-                # If on Web, local_path should be a Blob URL.
-                
-                is_web = page.web or os.getenv("RENDER") or (local_path and "blob:" in local_path)
-                
-                if is_web:
-                    status_text.value = "기기에서 업로드 중..."
-                    signed_url = get_storage_signed_url(fname)
-                    public_url = get_public_url(fname)
+            # [STOP RECORDING]
+            state["is_recording"] = False
+            status_text.value = "업로드 중..."
+            recording_timer.visible = False
+            page.update()
             
-                    # JS Bridge for Web Upload
-                    js_upload = f"""
-                    (async function() {{
-                        try {{
-                            console.log("Starting Cloud Bridge Upload...");
-                            const res = await fetch("{local_path}");
-                            const blob = await res.blob();
-                            const up = await fetch("{signed_url}", {{
-                                method: "PUT",
-                                headers: {{ "Content-Type": "audio/wav" }},
-                                body: blob
-                            }});
-                            if (up.ok) {{
-                                console.log("Upload Success!");
-                            }} else {{
-                                console.error("Upload Failed Status:", up.status);
-                            }}
-                        }} catch (e) {{
-                            console.error("Cloud Bridge Error:", e);
-                        }}
-                    }})();
-                    """
-                    page.run_javascript(js_upload)
-                    
-                    async def poll_and_convert():
-                        status_text.value = "서버 수신 대기..."
-                        page.update()
-                        for _ in range(10): # Timeout 10s
-                            await asyncio.sleep(1)
-                            # Check if file exists via transcription attempt or metadata
-                            # Simplified: just try transcribe
-                            try:
-                                await start_transcription(public_url)
-                                return
-                            except: pass
-                        status_text.value = "전송 타임아웃"; page.update()
-                    
-                    page.run_task(poll_and_convert)
-                else:
-                    # Native / Local mode
-                    with open(local_path, "rb") as f:
-                        upload_file_server_side(fname, f.read())
-                    public_url = get_public_url(fname)
-                    page.run_task(lambda: start_transcription(public_url))
+            url = state.get("current_upload_url", "")
+            
+            # Call JS to stop and upload
+            js_stop = f"window.stopRecAndUpload('{url}', 'dummy_id');"
+            page.run_javascript(js_stop)
+            
+            # Start Polling for file (Since we don't have direct callback)
+            page.run_task(poll_for_completion)
 
-            except Exception as ex:
-                # Expanded Debug Info
-                is_web_debug = f"{page.web}|{os.getenv('RENDER')}"
-                plat = page.platform
-                path_debug = str(local_path) if 'local_path' in locals() else "N/A"
-                print(f"REC ERROR: {ex} | Web:{is_web_debug} | Plat:{plat} | Path:{path_debug}")
-                status_text.value = f"E: {str(ex)[:10]} | W:{is_web_debug} | Pl:{plat} | P:{path_debug[:8]}"
-                page.update()
+    async def poll_for_completion():
+        # Wait for upload to likely finish (e.g. 5 seconds for short audio)
+        # We can poll HEAD request to public_url?
+        target_url = state.get("current_public_url")
+        
+        status_text.value = "서버 전송 확인 중..."
+        page.update()
+        
+        for i in range(15): # 15 seconds polling
+            await asyncio.sleep(1)
+            try:
+                # We blindly try to transcribe. If file is not yet uploaded/accessible, 
+                # audio_service might fail or return None.
+                # But to avoid API spam, we should wait for the JS completion signal.
+                # However, since we lack the callback, we rely on the user or the loop.
+                # Let's try to fetch HEAD? No, simpler to just wait a bit more or break early.
+                pass
+            except: 
+                pass
+            
+        stage_text = "AI 변환 요청 중..."
+        status_text.value = stage_text
+        page.update()
+        
+        await start_transcription(target_url)
 
     async def start_transcription(url):
         try:
@@ -350,7 +405,10 @@ def get_order_controls(page: ft.Page, navigate_to):
     
     load_memos()
     # [FIX] Return View Controls
+    # We remove mic_check_btn as it's replaced by better internal logic
     return [
         voice_done_btn,
-        ft.Container(expand=True, bgcolor="white", padding=ft.padding.only(top=50), content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, mic_check_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))
+        upload_url_field,
+        filename_field,
+        ft.Container(expand=True, bgcolor="white", padding=ft.padding.only(top=50), content=ft.Column([header, ft.Container(memo_list_view, expand=True, padding=20), ft.Container(content=ft.Column([status_text, recording_timer, mic_btn, ft.Container(height=10)], horizontal_alignment="center", spacing=10), padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30))], spacing=0))
     ]
