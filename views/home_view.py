@@ -57,17 +57,11 @@ def get_home_controls(page: ft.Page, navigate_to):
     user_id = page.session.get("user_id")
     role = "staff"
     if user_id:
-        # Use sync call or assumption (auth_service.get_user_role is sync wrapper if simplified, but it was sync in my edit)
-        # Wait, get_user_role accesses Supabase which is I/O. Should be async ideally or use `run_task`.
-        # However, `get_home_controls` is synchronous. 
-        # I will assume I can run it or I should use `page.run_task` to update UI?
-        # But `get_home_controls` returns controls immediately.
-        # Quick hack: Fetch it synchronously (blocking but acceptable for simple dash) or assume "staff" and update later?
-        # Let's try to fetch it. `auth_service.get_user_role` uses `service_supabase...execute()`. This `execute()` is synchronous in the Python client usually unless async client used.
-        # My `service_supabase` is standard client. 
         try:
              role = auth_service.get_user_role(user_id)
-        except: pass
+             print(f"DEBUG: Home View - User {user_id} Role: {role}")
+        except Exception as e:
+             print(f"DEBUG: Home View - Role Fetch Error: {e}")
     
     if role == "owner":
         grid.controls.append(
