@@ -35,7 +35,70 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             page.update()
             build()
 
-    # ... (build skipped) ...
+    def build():
+        month_label.value = f"{view_state['year']}년 {view_state['month']}월"
+        grid.controls = []
+        
+        # Day Headers (Sun-Sat)
+        for d, color in [("일","red"), ("월","black"), ("화","black"), ("수","black"), ("목","black"), ("금","black"), ("토","blue")]:
+            grid.controls.append(ft.Container(content=ft.Text(d, weight="bold", size=12, color=color), alignment=ft.alignment.center, padding=5))
+            
+        first_day, num_days = calendar.monthrange(view_state["year"], view_state["month"])
+        # first_day is Mon=0 to Sun=6. We want Sun=0 to Sat=6.
+        first_day_sun = (first_day + 1) % 7
+        
+        for _ in range(first_day_sun):
+            grid.controls.append(ft.Container())
+            
+        for day in range(1, num_days + 1):
+            day_events = []
+            for ev in view_state["events"]:
+                try:
+                    ev_start = datetime.strptime(ev['start_date'], "%Y-%m-%d %H:%M:%S")
+                    if ev_start.year == view_state["year"] and ev_start.month == view_state["month"] and ev_start.day == day:
+                        day_events.append(ev)
+                except: pass
+            
+            markers = ft.Row([ft.Container(width=4, height=4, border_radius=2, bgcolor=ev.get("color", "blue")) for ev in day_events[:4]], spacing=2, alignment="center")
+            
+            is_today = (datetime.now().year == view_state["year"] and datetime.now().month == view_state["month"] and datetime.now().day == day)
+            
+            grid.controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text(str(day), size=12, weight="bold" if is_today else None, color="blue" if is_today else None),
+                        markers
+                    ], alignment="center", horizontal_alignment="center", spacing=2),
+                    alignment=ft.alignment.center,
+                    padding=5,
+                    on_click=lambda e, d=day, evs=day_events: show_day_events(d, evs)
+                )
+            )
+        page.update()
+
+    def show_day_events(day, day_events):
+        def add_new(_):
+            page.close(dlg)
+            open_event_editor_dialog(day)
+
+        content = ft.Column([
+            ft.ListTile(
+                title=ft.Text(ev['title'], weight="bold"),
+                subtitle=ft.Text(f"{ev['start_date'][11:16]} - {ev['category'] if 'category' in ev else ''}"),
+                leading=ft.Icon(ft.Icons.CIRCLE, color=ev.get('color', 'blue'), size=12),
+                on_click=lambda e, ev=ev: (page.close(dlg), open_event_detail_dialog(ev, day))
+            ) for ev in day_events
+        ], scroll=ft.ScrollMode.AUTO, height=300, tight=True) if day_events else ft.Text("일정이 없습니다.", italic=True, color="grey")
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"{view_state['month']}월 {day}일 일정"),
+            content=ft.Container(width=300, content=content),
+            actions=[
+                ft.TextButton("일정 추가", icon=ft.Icons.ADD, on_click=add_new),
+                ft.TextButton("닫기", on_click=lambda _: page.close(dlg))
+            ]
+        )
+        page.open(dlg)
 
     def open_event_detail_dialog(ev, day):
         def delete_ev(e):
