@@ -4,7 +4,7 @@ from datetime import datetime as dt_class, timezone
 import asyncio
 import threading
 from services import chat_service
-from db import supabase, service_supabase
+from db import supabase, service_supabase, app_logs, log_info
 
 DEBUG_MODE = True
 
@@ -36,17 +36,23 @@ def get_chat_controls(page: ft.Page, navigate_to):
     msg_input = ft.TextField(hint_text="메시지를 입력하세요...", expand=True, multiline=True, max_lines=3)
     root_view = ft.Column(expand=True, spacing=0)
 
-    def load_topics_thread(update_ui=True):
+    async def load_topics_thread(update_ui=True, show_all=False):
         if not state["is_active"]: return
         if not current_user_id:
-            # navigate_to("login") # Thread cannot navigate safely? 
+            log_info("Chat ERROR: No user session found")
             return
             
         try:
+            log_info(f"Loading topics (Mode: {'ALL' if show_all else 'Members Only'}) for {current_user_id}")
             categories_data = chat_service.get_categories()
             categories = [c['name'] for c in categories_data] if categories_data else ["공지", "일반", "중요", "개별 업무"]
 
-            topics = chat_service.get_topics(current_user_id)
+            if show_all:
+                topics = chat_service.get_all_topics()
+            else:
+                topics = chat_service.get_topics(current_user_id)
+                
+            log_info(f"Topics fetched: {len(topics)}")
             sorted_topics = sorted(topics, key=lambda x: (x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
             
             reading_map = chat_service.get_user_read_status(current_user_id)
@@ -124,8 +130,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             topic_list_container.controls = new_controls
             if update_ui: page.update()
         except Exception as ex:
-            print(f"Load Topics Critical Error: {ex}")
-            # Show error to user in a SnackBar
+            log_info(f"Load Topics Critical Error: {ex}")
             try:
                 page.snack_bar = ft.SnackBar(
                     ft.Text(f"데이터 로딩 오류: {ex}", color="white"),
@@ -135,8 +140,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 page.update()
             except: pass
 
-    def load_topics(update_ui=True):
-        threading.Thread(target=load_topics_thread, args=(update_ui,), daemon=True).start()
+    def load_topics(update_ui=True, show_all=False):
+        # Fire and forget task to keep UI responsive
+        page.run_task(load_topics_thread, update_ui=update_ui, show_all=show_all)
 
     def on_topic_reorder(e):
         try:
@@ -409,9 +415,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
         def create_it(e):
             print(f"DEBUG: create_it called, name='{new_name.value}', category='{cat_dropdown.value}'")
             if new_name.value:
-                def _do_create():
+                async def _do_create():
                     try:
-                        print(f"DEBUG: Calling chat_service.create_topic with user_id={current_user_id}")
+                        log_info(f"Creating topic: {new_name.value} ({cat_dropdown.value})")
                         
                         # [EMERGENCY FIX] Ensure profile exists before creating topic
                         try:
@@ -425,20 +431,17 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                     "full_name": full_name,
                                     "role": "staff"
                                 }).execute()
-                                print(f"DEBUG: EMERGENCY - Created missing profile for {current_user_id}")
+                                log_info(f"Auto-created profile for {current_user_id}")
                         except Exception as profile_err:
-                            print(f"ERROR: Failed to create profile: {profile_err}")
-                            # Continue anyway, let create_topic fail with clear error
+                            log_info(f"Profile check failed: {profile_err}")
                         
                         result = chat_service.create_topic(new_name.value, cat_dropdown.value, current_user_id)
-                        print(f"DEBUG: create_topic returned: {result}")
+                        log_info(f"Topic creation success: {new_name.value}")
                         page.close(dlg)
                         load_topics(True)
                     except Exception as ex:
                         error_msg = str(ex)
-                        print(f"ERROR: create_topic failed: {ex}")
-                        import traceback
-                        traceback.print_exc()
+                        log_info(f"Creation ERROR: {ex}")
                         
                         # Give user-friendly error message with technical detail for debugging
                         user_msg = f"토픽 생성 실패: {error_msg}"
@@ -450,7 +453,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                             duration=10000 # Longer duration for debug
                         )
                         page.update()
-                threading.Thread(target=_do_create, daemon=True).start()
+                page.run_task(_do_create)
             else:
                 print("DEBUG: create_it - no name provided")
 
@@ -476,6 +479,34 @@ def get_chat_controls(page: ft.Page, navigate_to):
             edit_btn_ref.current.update()
         load_topics(True)
 
+    # [DIAGNOSTIC] Debug Panel
+    debug_log_col = ft.Column(spacing=2, scroll=ft.ScrollMode.ALWAYS, expand=True)
+    
+    def refresh_debug(_=None):
+        debug_log_col.controls = [ft.Text(log, size=10, color="green" if "Established" in log else "white") for log in app_logs]
+        if page: page.update()
+
+    debug_panel = ft.ExpansionTile(
+        title=ft.Text("Debug Console (Alpha)", size=12, color="orange", weight="bold"),
+        subtitle=ft.Text("Tap to see logs & Force Load", size=10, color="white70"),
+        bgcolor=ft.Colors.with_opacity(0.9, "black"),
+        collapsed_bgcolor=ft.Colors.with_opacity(0.8, "black"),
+        on_change=refresh_debug,
+        controls=[
+            ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.ElevatedButton("Force All Topics", on_click=lambda _: load_topics(show_all=True), bgcolor="blue", color="white"),
+                        ft.ElevatedButton("Refresh Logs", on_click=refresh_debug, bgcolor="grey", color="white"),
+                    ], spacing=10),
+                    ft.Divider(color="white24"),
+                    ft.Container(content=debug_log_col, height=150, padding=5)
+                ]),
+                padding=10
+            )
+        ]
+    )
+
     list_page = ft.Container(
         expand=True, bgcolor="white",
         content=ft.Column([
@@ -497,7 +528,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 padding=ft.padding.only(left=10, right=10, top=40, bottom=0),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
-            ft.Container(content=topic_list_container, expand=True, padding=0) 
+            ft.Container(content=topic_list_container, expand=True, padding=0),
+            debug_panel
         ], spacing=0) 
     )
 

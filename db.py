@@ -147,12 +147,28 @@ if not url or not key:
 else:
     supabase = SupabaseClient(url, key)
 
+# [DIAGNOSTIC] Global log buffer for UI debugging
+app_logs = []
+def log_info(msg):
+    time_str = datetime.now().strftime("%H:%M:%S")
+    formatted = f"[{time_str}] {msg}"
+    app_logs.append(formatted)
+    if len(app_logs) > 50: app_logs.pop(0)
+    print(formatted)
+
 # Service role client for admin operations (bypasses RLS)
-if service_key:
-    service_supabase = SupabaseClient(url, service_key)
-    has_service_key = True
-else:
-    print("INFO: SUPABASE_SERVICE_KEY not set. Using anon key for all operations.")
+try:
+    if service_key:
+        service_supabase = SupabaseClient(url, service_key)
+        has_service_key = True
+        log_info("Service Supabase Connection: Established")
+    else:
+        print("INFO: SUPABASE_SERVICE_KEY not set. Using anon key for all operations.")
+        service_supabase = supabase
+        has_service_key = False
+        log_info("Service Supabase Connection: FAILED (No Key)")
+except Exception as e:
+    log_info(f"Service Supabase Connection: CRITICAL ERROR - {e}")
     service_supabase = supabase
     has_service_key = False
 
