@@ -486,7 +486,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         
                         result = chat_service.create_topic(new_name.value, cat_dropdown.value, current_user_id)
                         log_info(f"Topic creation success: {new_name.value}")
-                        page.close(dlg)
+                        
+                        # [FIX] Proper Flet dialog close
+                        dlg.open = False
+                        page.update()
                         load_topics(True)
                     except Exception as ex:
                         error_msg = str(ex)
@@ -505,13 +508,20 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 page.run_task(_do_create)
             else:
                 print("DEBUG: create_it - no name provided")
+        
+        def close_it(e):
+            dlg.open = False
+            page.update()
 
         dlg = ft.AlertDialog(
             title=ft.Text("새 스레드 만들기"),
             content=ft.Column([new_name, cat_dropdown], tight=True, spacing=15),
-            actions=[ft.TextButton("취소", on_click=lambda _: page.close(dlg)), ft.TextButton("만들기", on_click=create_it)]
+            actions=[ft.TextButton("취소", on_click=close_it), ft.TextButton("만들기", on_click=create_it)]
         )
-        page.open(dlg)
+        # [FIX] Proper Flet dialog open
+        page.dialog = dlg
+        dlg.open = True
+        page.update()
 
     def open_rename_topic_dialog(topic):
         topic_id = topic['id']
