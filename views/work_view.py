@@ -1,6 +1,7 @@
 import flet as ft
 from db import service_supabase
 import asyncio
+import os
 
 def get_work_controls(page: ft.Page, navigate_to):
     # Tabs: Contracts, Labor Info, Tax Info
@@ -90,7 +91,19 @@ def get_work_controls(page: ft.Page, navigate_to):
         if not user_id: return
         
         try:
-            res = await asyncio.to_thread(lambda: service_supabase.table("labor_contracts").select("*").eq("user_id", user_id).order("created_at", desc=True).execute())
+            # [FIX] Use Authenticated Client (Bypass RLS)
+            from services.auth_service import auth_service
+            from postgrest import SyncPostgrestClient
+            
+            headers = auth_service.get_auth_headers()
+            if not headers:
+                print("ERROR: No auth headers, cannot load contracts")
+                return
+            
+            url = os.environ.get("SUPABASE_URL")
+            client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
+            
+            res = await asyncio.to_thread(lambda: client.from_("labor_contracts").select("*").eq("user_id", user_id).order("created_at", desc=True).execute())
             contracts = res.data or []
             
             contract_list.controls.clear()
@@ -132,7 +145,18 @@ def get_work_controls(page: ft.Page, navigate_to):
                 "contract_start_date": "2026-01-01" # Default for now
             }
             try:
-                await asyncio.to_thread(lambda: service_supabase.table("labor_contracts").insert(data).execute())
+                # [FIX] Use Authenticated Client
+                from services.auth_service import auth_service
+                from postgrest import SyncPostgrestClient
+                
+                headers = auth_service.get_auth_headers()
+                if not headers:
+                    raise Exception("세션이 만료되었습니다. 다시 로그인해주세요.")
+                
+                url = os.environ.get("SUPABASE_URL")
+                client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
+                
+                await asyncio.to_thread(lambda: client.from_("labor_contracts").insert(data).execute())
                 await load_contracts_async()
                 c_name.value = ""
                 page.update()

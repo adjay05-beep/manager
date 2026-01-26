@@ -103,6 +103,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             err = traceback.format_exc()
             print(f"Calendar Load Error: {err}")
             debug_text.value = f"Load Error: {e}"
+            page.update()  # Force UI update to show error
             # page.snack_bar = ft.SnackBar(ft.Text(f"일정 로드 실패: {e}"), bgcolor="red")
             # page.snack_bar.open = True
             # page.update()

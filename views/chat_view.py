@@ -183,7 +183,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 page.update()
             except: pass
 
-    def load_topics(update_ui=True, show_all=True):
+    def load_topics(update_ui=True, show_all=False):
         # Fire and forget task to keep UI responsive
         page.run_task(load_topics_thread, update_ui=update_ui, show_all=show_all)
 
