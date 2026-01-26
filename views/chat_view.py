@@ -36,7 +36,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
     msg_input = ft.TextField(hint_text="메시지를 입력하세요...", expand=True, multiline=True, max_lines=3)
     root_view = ft.Column(expand=True, spacing=0)
 
-    async def load_topics_thread(update_ui=True, show_all=False):
+    async def load_topics_thread(update_ui=True, show_all=True):
         if not state["is_active"]: return
         if not current_user_id:
             log_info("Chat ERROR: No user session found")
@@ -140,7 +140,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 page.update()
             except: pass
 
-    def load_topics(update_ui=True, show_all=False):
+    def load_topics(update_ui=True, show_all=True):
         # Fire and forget task to keep UI responsive
         page.run_task(load_topics_thread, update_ui=update_ui, show_all=show_all)
 
@@ -528,8 +528,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 padding=ft.padding.only(left=10, right=10, top=40, bottom=0),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
-            ft.Container(content=topic_list_container, expand=True, padding=0),
-            debug_panel
+            ft.Container(content=topic_list_container, expand=True, padding=0)
+            # debug_panel (Hidden for production)
         ], spacing=0) 
     )
 
