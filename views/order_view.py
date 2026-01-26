@@ -13,11 +13,11 @@ def get_order_controls(page: ft.Page, navigate_to):
     # 2. File Upload Button - Backup for Native App
     
     # Singleton Recorder Safety
-    if hasattr(page, "audio_recorder"):
-        audio_recorder = page.audio_recorder
-    else:
-        audio_recorder = ft.AudioRecorder()
-        page.overlay.append(audio_recorder)
+    # Singleton Recorder Safety
+    # [FIX] Rely on Main.py global instance to prevent overlay race/freeze
+    audio_recorder = getattr(page, "audio_recorder", None)
+    if not audio_recorder:
+        return [ft.Text("Error: Global Recorder not found", color="red")]
 
     state = {
         "is_recording": False, 

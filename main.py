@@ -37,12 +37,14 @@ def main(page: ft.Page):
         idx = e.control.selected_index
         if idx == 0: navigate_to("chat")
         elif idx == 1: navigate_to("order") # Voice Memo
-        elif idx == 2: navigate_to("closing")
+        elif idx == 2: navigate_to("calendar")
+        elif idx == 3: navigate_to("closing")
 
     page.navigation_bar = ft.NavigationBar(
         destinations=[
             ft.NavigationBarDestination(icon=ft.Icons.CHAT, label="팀 스레드"),
             ft.NavigationBarDestination(icon=ft.Icons.MIC, label="음성 메모"),
+            ft.NavigationBarDestination(icon=ft.Icons.CALENDAR_MONTH, label="캘린더"),
             ft.NavigationBarDestination(icon=ft.Icons.CHECK_CIRCLE, label="마감 점검"),
         ],
         on_change=on_nav_change,
@@ -61,10 +63,10 @@ def main(page: ft.Page):
             # Sync Nav Bar State
             if route == "chat": page.navigation_bar.selected_index = 0
             elif route == "order": page.navigation_bar.selected_index = 1
-            elif route == "closing": page.navigation_bar.selected_index = 2
+            elif route == "calendar": page.navigation_bar.selected_index = 2
+            elif route == "closing": page.navigation_bar.selected_index = 3
             else: 
                 # Keep current or set to None/0? 
-                # Ensure it doesn't break. 
                 pass
 
         if route == "login" or route == "/":
