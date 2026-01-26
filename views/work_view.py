@@ -1,10 +1,9 @@
 import flet as ft
-from views.closing_view import get_closing_controls
 from db import service_supabase
 import asyncio
 
 def get_work_controls(page: ft.Page, navigate_to):
-    # Tabs: Labor Info, Tax Info, Closing Check
+    # Tabs: Contracts, Labor Info, Tax Info
     
     # 1. Labor Info (No-mu)
     labor_content = ft.Column([
@@ -63,19 +62,16 @@ def get_work_controls(page: ft.Page, navigate_to):
         )
     ], scroll=ft.ScrollMode.AUTO)
 
-    # 3. Closing Check (Existing View)
-    # We need to wrap it specifically because get_closing_controls returns a list of controls [ft.Stack or Container]
-    closing_controls_list = get_closing_controls(page, navigate_to)
-    closing_content = closing_controls_list[0] # Assuming it returns one main container
+    # [REMOVED] Closing Check (Moved to separate view)
     
     # 4. Contracts Logic & UI
     contract_list = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
     
-    # Form Inputs
-    c_name = ft.TextField(label="직원 이름", width=150)
-    c_type = ft.Dropdown(label="근로 형태", width=150, options=[ft.dropdown.Option("full", "정규직"), ft.dropdown.Option("part", "아르바이트")], value="part")
-    c_wage = ft.TextField(label="시급 (원)", width=150, value="10320")
-    c_hours = ft.TextField(label="일 근무시간", width=150, value="8")
+    # Form Inputs (Black Text)
+    c_name = ft.TextField(label="직원 이름", width=150, color="black", label_style=ft.TextStyle(color="grey"))
+    c_type = ft.Dropdown(label="근로 형태", width=150, options=[ft.dropdown.Option("full", "정규직"), ft.dropdown.Option("part", "아르바이트")], value="part", color="black", label_style=ft.TextStyle(color="grey"))
+    c_wage = ft.TextField(label="시급 (원)", width=150, value="10320", color="black", label_style=ft.TextStyle(color="grey"))
+    c_hours = ft.TextField(label="일 근무시간", width=150, value="8", color="black", label_style=ft.TextStyle(color="grey"))
     
     # Days Selector (0=Mon, 6=Sun)
     days_map = {0:"월", 1:"화", 2:"수", 3:"목", 4:"금", 5:"토", 6:"일"}
@@ -138,8 +134,32 @@ def get_work_controls(page: ft.Page, navigate_to):
             try:
                 await asyncio.to_thread(lambda: service_supabase.table("labor_contracts").insert(data).execute())
                 await load_contracts_async()
-                c_name.value = ""; page.update()
-                page.snack_bar = ft.SnackBar(ft.Text("계약서가 저장되었습니다.")); page.snack_bar.open=True; page.update()
+                c_name.value = ""
+                page.update()
+                
+                # Show Preview
+                day_labels = [days_map[d] for d in selected_days]
+                preview_text = (
+                    f"========== 근로계약서 (예시) ==========\n\n"
+                    f"성명: {data['employee_name']}\n"
+                    f"유형: {'아르바이트' if data['employee_type']=='part' else '정규직'}\n"
+                    f"시급: {data['hourly_wage']:,}원\n"
+                    f"근무시간: 일 {data['daily_work_hours']}시간\n"
+                    f"근무요일: {', '.join(day_labels)}\n\n"
+                    f"위 조건으로 2026년 근로 계약을 체결합니다.\n"
+                    f"====================================="
+                )
+                
+                def close_dlg(e):
+                    page.close(dlg_preview)
+                    
+                dlg_preview = ft.AlertDialog(
+                    title=ft.Text("계약서 생성 완료"),
+                    content=ft.Text(preview_text, size=14, font_family="monospace"),
+                    actions=[ft.TextButton("확인", on_click=close_dlg)]
+                )
+                page.open(dlg_preview)
+
             except Exception as ex:
                 page.snack_bar = ft.SnackBar(ft.Text(f"저장 실패: {ex}")); page.snack_bar.open=True; page.update()
         
@@ -148,7 +168,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     contract_content = ft.Column([
         ft.Container(
             content=ft.Column([
-                ft.Text("직원 등록 (근로계약 정보)", weight="bold", size=16),
+                ft.Text("직원 등록 (근로계약 정보)", weight="bold", size=16, color="black"),
                 ft.Container(height=10),
                 ft.Row([c_name, c_type]),
                 ft.Row([c_wage, c_hours]),
@@ -169,25 +189,26 @@ def get_work_controls(page: ft.Page, navigate_to):
         selected_index=0,
         animation_duration=300,
         tabs=[
+            ft.Tab(text="계약 관리", icon=ft.Icons.FOLDER_SHARED),
             ft.Tab(text="노무 정보", icon=ft.Icons.WORK),
             ft.Tab(text="세무 가이드", icon=ft.Icons.ATTACH_MONEY),
-            ft.Tab(text="마감 점검", icon=ft.Icons.CHECK_CIRCLE),
-            ft.Tab(text="계약 관리", icon=ft.Icons.FOLDER_SHARED),
         ],
         expand=True
     )
 
     # We need to switch content based on Tab
-    body = ft.Container(content=labor_content, expand=True)
+    # Initial: Contract (Index 0)
+    body = ft.Container(content=contract_content, expand=True)
+    # Trigger load for initial
+    page.run_task(load_contracts_async)
 
     def on_tab_change(e):
         idx = e.control.selected_index
-        if idx == 0: body.content = labor_content
-        elif idx == 1: body.content = tax_content
-        elif idx == 2: body.content = closing_content
-        elif idx == 3: 
+        if idx == 0: 
             body.content = contract_content
             page.run_task(load_contracts_async)
+        elif idx == 1: body.content = labor_content
+        elif idx == 2: body.content = tax_content
         page.update()
 
     tabs.on_change = on_tab_change
@@ -196,7 +217,7 @@ def get_work_controls(page: ft.Page, navigate_to):
         content=ft.Row([
             ft.Row([
                 ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda _: navigate_to("home")), 
-                ft.Text("업무 지원", size=20, weight="bold")
+                ft.Text("노무/세무 관리", size=20, weight="bold")
             ]), 
         ], alignment="spaceBetween"), 
         padding=10, 
