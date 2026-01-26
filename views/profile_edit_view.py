@@ -34,11 +34,13 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
         try:
             print(f"DEBUG: Updating profile for {user.id} -> Role: {role_dd.value}")
             
-            # 1. Update
-            res_update = service_supabase.table("profiles").update({
+            # 1. Upsert (Update or Insert if missing) - Auto-Healing
+            res_update = service_supabase.table("profiles").upsert({
+                "id": user.id,
                 "full_name": name_tf.value,
-                "role": role_dd.value
-            }).eq("id", user.id).execute()
+                "role": role_dd.value,
+                "updated_at": "now()"
+            }).execute()
             
             # 2. Verify Update (Read back)
             # Use 'supabase' (standard client) to verify RLS visibility if desired, 
