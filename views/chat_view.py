@@ -2,6 +2,7 @@ import flet as ft
 import datetime
 from datetime import datetime as dt_class, timezone
 import asyncio
+import threading
 from services import chat_service
 from db import supabase
 
@@ -27,26 +28,32 @@ def get_chat_controls(page: ft.Page, navigate_to):
         # But for now, we let it fail or use a dummy if strict mode off? No, request was Strict.
         # We must assume login happened.
         pass
+    
+    # Initialize UI Controls
+    topic_list_container = ft.Column(expand=True, spacing=0)
+    message_list_view = ft.ListView(expand=True, spacing=5, padding=10)
+    chat_header_title = ft.Text("", weight="bold", size=18)
+    msg_input = ft.TextField(hint_text="메시지를 입력하세요...", expand=True, multiline=True, max_lines=3)
+    root_view = ft.Column(expand=True, spacing=0)
 
-    async def load_topics_async(update_ui=True):
+    def load_topics_thread(update_ui=True):
         if not state["is_active"]: return
         if not current_user_id:
-            navigate_to("login")
+            # navigate_to("login") # Thread cannot navigate safely? 
             return
             
         try:
-            categories_data = await chat_service.get_categories()
+            categories_data = chat_service.get_categories()
             categories = [c['name'] for c in categories_data] if categories_data else ["공지", "일반", "중요", "개별 업무"]
 
-            topics = await chat_service.get_topics(current_user_id)
+            topics = chat_service.get_topics(current_user_id)
             sorted_topics = sorted(topics, key=lambda x: (x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
             
-            reading_map = await chat_service.get_user_read_status(current_user_id)
+            reading_map = chat_service.get_user_read_status(current_user_id)
             default_old = "1970-01-01T00:00:00Z"
             earliest_read = min(reading_map.values()) if reading_map else default_old
             
-            # Optimization: Fetch reduced data if needed? No, dataset is small.
-            recent_msgs = await chat_service.get_recent_messages(earliest_read)
+            recent_msgs = chat_service.get_recent_messages(earliest_read)
             
             unread_counts = {}
             for m in recent_msgs:
@@ -120,36 +127,34 @@ def get_chat_controls(page: ft.Page, navigate_to):
             print(f"Load Topics Critical Error: {ex}")
 
     def load_topics(update_ui=True):
-        page.run_task(lambda: load_topics_async(update_ui))
+        threading.Thread(target=load_topics_thread, args=(update_ui,), daemon=True).start()
 
-    async def on_topic_reorder(e):
+    def on_topic_reorder(e):
         try:
             controls = topic_list_container.controls[0].controls
             moved_item = controls.pop(e.old_index)
             controls.insert(e.new_index, moved_item)
             
-            for i, ctrl in enumerate(controls):
-                tid = ctrl.content.data
-                await chat_service.update_topic_order(tid, len(controls) - i)
-            
-            await load_topics_async(True)
+            # Fire and forget update
+            def _update_order():
+                for i, ctrl in enumerate(controls):
+                    tid = ctrl.content.data
+                    chat_service.update_topic_order(tid, len(controls) - i)
+                load_topics(True)
+            threading.Thread(target=_update_order, daemon=True).start()
         except Exception as ex:
             print(f"Reorder Error: {ex}")
 
     def toggle_priority(tid, current_val):
-        try:
-            page.run_task(lambda: chat_service.toggle_topic_priority(tid, current_val))
-            load_topics(True)
-        except Exception as e:
-            print(f"Priority Error: {e}")
+        threading.Thread(target=lambda: (chat_service.toggle_topic_priority(tid, current_val), load_topics(True)), daemon=True).start()
 
     def open_manage_categories_dialog(e):
         cat_list = ft.Column(spacing=5)
         new_cat_input = ft.TextField(hint_text="새 주제 이름", expand=True)
         
         def refresh_cats():
-            async def _refresh():
-                cats = await chat_service.get_categories()
+            def _refresh():
+                cats = chat_service.get_categories()
                 items = []
                 for c in cats:
                     items.append(ft.Row([
@@ -158,19 +163,19 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     ]))
                 cat_list.controls = items
                 page.update()
-            page.run_task(_refresh)
+            threading.Thread(target=_refresh, daemon=True).start()
 
         def add_cat(e):
             if new_cat_input.value:
-                page.run_task(lambda: chat_service.create_category(new_cat_input.value))
+                threading.Thread(target=lambda: (
+                    chat_service.create_category(new_cat_input.value),
+                    refresh_cats(), 
+                    load_topics(True)
+                ), daemon=True).start()
                 new_cat_input.value = ""
-                refresh_cats()
-                load_topics(True)
 
         def delete_cat(cid):
-            page.run_task(lambda: chat_service.delete_category(cid))
-            refresh_cats()
-            load_topics(True)
+            threading.Thread(target=lambda: (chat_service.delete_category(cid), refresh_cats(), load_topics(True)), daemon=True).start()
 
         refresh_cats()
         dlg = ft.AlertDialog(
@@ -184,10 +189,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
         )
         page.open(dlg)
 
-    async def load_messages_async():
+    
+    def load_messages_thread():
         if not state["current_topic_id"] or not state["is_active"]: return
         try:
-            messages = await chat_service.get_messages(state["current_topic_id"])
+            messages = chat_service.get_messages(state["current_topic_id"])
             
             new_controls = []
             for m in messages:
@@ -219,7 +225,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     content=ft.Column(content_elements, spacing=5, tight=True),
                     bgcolor=bubble_bg, padding=12, border_radius=15, 
                     border=ft.border.all(1, "#E0E0E0"),
-                    width=260 
+                    # Dynamic width: no fixed width, content determines size
                 )
                 
                 time_text = ft.Text(time_str, size=10, color="#999999")
@@ -234,7 +240,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 
                 new_controls.append(ft.Container(
                     content=ft.Column([
-                        ft.Text(user_name, size=11, weight="bold", color="#666666") if not is_me else ft.Container(),
+                        ft.Text(user_name, size=11, weight="bold", color="#666666"),  # Always show name
                         bubble_row
                     ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.START if not is_me else ft.CrossAxisAlignment.END),
                     padding=ft.padding.symmetric(vertical=4)
@@ -255,13 +261,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
         message_list_view.controls = [ft.Container(ft.ProgressRing(color="#2E7D32"), alignment=ft.alignment.center, padding=50)]
         page.update()
 
-        async def run_select():
-            await chat_service.update_last_read(topic['id'], current_user_id)
-            await load_messages_async()
-        page.run_task(run_select)
+        threading.Thread(target=lambda: (chat_service.update_last_read(topic['id'], current_user_id), load_messages_thread()), daemon=True).start()
 
     def load_messages():
-        page.run_task(load_messages_async)
+        threading.Thread(target=load_messages_thread, daemon=True).start()
 
     def send_message(content=None, image_url=None):
         final_image_url = image_url or state.get("pending_image_url")
@@ -270,57 +273,73 @@ def get_chat_controls(page: ft.Page, navigate_to):
         if not final_content and not final_image_url: return
         if not state["current_topic_id"]: return
         
-        page.run_task(lambda: _do_send(final_content, final_image_url))
-
-    async def _do_send(c, i):
-        try:
-            await chat_service.send_message(state["current_topic_id"], c, i)
-            msg_input.value = ""
-            state["pending_image_url"] = None
-            pending_container.visible = False
-            pending_container.content = ft.Container()
-            page.update()
-            await load_messages_async()
-        except Exception as ex:
-             page.snack_bar = ft.SnackBar(ft.Text(f"전송 실패: {ex}"), bgcolor="red", open=True); page.update()
+        def _do_send():
+            try:
+                chat_service.send_message(state["current_topic_id"], final_content, final_image_url, current_user_id)
+                msg_input.value = ""
+                state["pending_image_url"] = None
+                pending_container.visible = False
+                pending_container.content = ft.Container()
+                page.update()
+                load_messages_thread()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"전송 실패: {ex}"), bgcolor="red", open=True); page.update()
+        
+        threading.Thread(target=_do_send, daemon=True).start()
 
     pending_container = ft.Container(visible=False, padding=10, bgcolor="#3D4446", border_radius=10)
     
     # [FIX] Use Global Picker event handler connection
-    async def on_chat_file_result(e: ft.FilePickerResultEvent):
+    def on_chat_file_result(e: ft.FilePickerResultEvent):
+        print(f"DEBUG: on_chat_file_result called. files={e.files}")
         # [REFACTOR] Use Unified Storage Service
         if e.files and state["current_topic_id"]:
             f = e.files[0]
-            try:
-                from services import storage_service
-                
-                # Update UI helper
-                def update_snack(msg):
-                    page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
+            def _run_upload():
+                try:
+                    import asyncio
+                    from services import storage_service
+                    
+                    # Update UI helper
+                    def update_snack(msg):
+                        print(f"DEBUG: upload_status: {msg}")
+                        page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
+                        page.update()
+
+                    update_snack(f"'{f.name}' 준비 중...")
+
+                    # Execute Upload (Run the async function in a new loop or the page loop)
+                    # For stability in Sync 앱, we can use run_task if available or just execute logic.
+                    # Since handle_file_upload is async, we need a loop.
+                    
+                    # Simplified: if it's already in a thread, we can use a new loop but 
+                    # better to use page.run_task if picker.upload is involved.
+                    
+                    async def _async_logic():
+                        result = await storage_service.handle_file_upload(page, f, update_snack, picker_ref=page.chat_file_picker)
+                        
+                        # Set pending state from result
+                        if "public_url" in result:
+                            state["pending_image_url"] = result["public_url"]
+                            update_pending_ui(state["pending_image_url"])
+                            update_snack("파일 준비 완료!")
+                        else:
+                            print(f"DEBUG: No public_url in result: {result}")
+
+                    # Use page logic to run async
+                    page.run_task(_async_logic)
+
+                except Exception as ex:
+                    print(f"ERROR in file upload: {ex}")
+                    import traceback
+                    traceback.print_exc()
+                    page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red", open=True)
                     page.update()
-
-                update_snack(f"'{f.name}' 준비 중...")
-
-                # Execute Upload
-                result = await storage_service.handle_file_upload(page, f, update_snack, picker_ref=chat_file_picker)
-
-                # Set pending state from result
-                if "public_url" in result:
-                    state["pending_image_url"] = result["public_url"]
-                    # Generate a clean filename for display or logic if needed, 
-                    # but storage_service handles naming. 
-                    # We utilize the returned public_url.
-                    update_pending_ui(state["pending_image_url"])
-                    update_snack("파일 준비 완료!")
-                
-                # Note: 'web_js' handling is implicit via storage_service for now, 
-                # assuming it executes logic or returns URL. 
-                # If we need strict JS execution from View, storage_service needs refactoring 
-                # to return the JS string, but for now we follow the 'native-first' stability path.
-
-            except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red", open=True)
-                page.update()
+            
+            # Run the logic
+            _run_upload()
+        else:
+            print(f"DEBUG: File selection skipped or no current topic (files={e.files}, topic={state['current_topic_id']})")
 
     def on_chat_upload_progress(e: ft.FilePickerUploadEvent):
         if e.error:
@@ -350,14 +369,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
     
     # Bind Helper handlers only when needed (idempotent?)
     # Flet Event Handlers are multicast, but rewriting them is okay.
-    chat_file_picker.on_result = on_chat_file_result
-    chat_file_picker.on_upload = on_chat_upload_progress
+    page.chat_file_picker.on_result = on_chat_file_result
+    page.chat_file_picker.on_upload = on_chat_upload_progress
 
     def confirm_delete_topic(tid):
         def delete_it(e):
-            page.run_task(lambda: chat_service.delete_topic(tid))
+            threading.Thread(target=lambda: (chat_service.delete_topic(tid), load_topics(True)), daemon=True).start()
             page.close(dlg)
-            load_topics(True)
 
         dlg = ft.AlertDialog(
             title=ft.Text("스레드 삭제"),
@@ -370,25 +388,65 @@ def get_chat_controls(page: ft.Page, navigate_to):
         new_name = ft.TextField(label="새 스레드 이름", autofocus=True)
         cat_dropdown = ft.Dropdown(label="주제 분류", value="일반", options=[])
         
-        async def _load_cats_for_dlg():
-            cats = await chat_service.get_categories()
+        def _load_cats_for_dlg():
+            cats = chat_service.get_categories()
             cat_dropdown.options = [ft.dropdown.Option(c['name']) for c in cats or [{"name": "일반"}]]
             if not cat_dropdown.options: cat_dropdown.options = [ft.dropdown.Option("일반")]
             cat_dropdown.value = cat_dropdown.options[0].key
             page.update()
         
-        page.run_task(_load_cats_for_dlg)
+        threading.Thread(target=_load_cats_for_dlg, daemon=True).start()
 
         def create_it(e):
+            print(f"DEBUG: create_it called, name='{new_name.value}', category='{cat_dropdown.value}'")
             if new_name.value:
-                async def _do_create():
+                def _do_create():
                     try:
-                        await chat_service.create_topic(new_name.value, cat_dropdown.value, current_user_id)
+                        print(f"DEBUG: Calling chat_service.create_topic with user_id={current_user_id}")
+                        
+                        # [EMERGENCY FIX] Ensure profile exists before creating topic
+                        try:
+                            profile_check = supabase.table("profiles").select("id").eq("id", current_user_id).execute()
+                            if not profile_check.data:
+                                # Create profile on the spot
+                                user_email = page.session.get("user_email")
+                                full_name = user_email.split("@")[0] if user_email else "Unknown"
+                                supabase.table("profiles").insert({
+                                    "id": current_user_id,
+                                    "full_name": full_name,
+                                    "role": "staff"
+                                }).execute()
+                                print(f"DEBUG: EMERGENCY - Created missing profile for {current_user_id}")
+                        except Exception as profile_err:
+                            print(f"ERROR: Failed to create profile: {profile_err}")
+                            # Continue anyway, let create_topic fail with clear error
+                        
+                        result = chat_service.create_topic(new_name.value, cat_dropdown.value, current_user_id)
+                        print(f"DEBUG: create_topic returned: {result}")
                         page.close(dlg)
-                        await load_topics_async(True)
+                        load_topics(True)
                     except Exception as ex:
-                        page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}")); page.update()
-                page.run_task(_do_create)
+                        error_msg = str(ex)
+                        print(f"ERROR: create_topic failed: {ex}")
+                        import traceback
+                        traceback.print_exc()
+                        
+                        # Give user-friendly error message
+                        if "profiles" in error_msg and "not present" in error_msg:
+                            user_msg = "❌ 프로필 오류\n\n로그아웃 후 다시 로그인해주세요.\n그래도 안 되면 관리자에게 문의하세요."
+                        else:
+                            user_msg = f"오류: {ex}"
+                        
+                        page.snack_bar = ft.SnackBar(
+                            ft.Text(user_msg, color="white"),
+                            bgcolor="red",
+                            open=True,
+                            duration=5000
+                        )
+                        page.update()
+                threading.Thread(target=_do_create, daemon=True).start()
+            else:
+                print("DEBUG: create_it - no name provided")
 
         dlg = ft.AlertDialog(
             title=ft.Text("새 스레드 만들기"),
@@ -455,7 +513,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 content=ft.Column([
                     pending_container,
                     ft.Row([
-                        ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED, icon_color="#757575", on_click=lambda _: chat_file_picker.pick_files()),
+                        ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED, icon_color="#757575", on_click=lambda _: page.chat_file_picker.pick_files()),
                         msg_input, 
                         ft.IconButton(ft.Icons.SEND_ROUNDED, icon_color="#2E7D32", icon_size=32, on_click=lambda _: send_message())
                     ], spacing=10)
@@ -519,11 +577,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try: await rt_client.disconnect()
             except: pass
 
-    async def init_chat_async():
+    def init_chat():
         update_layer_view()
-        await load_topics_async(True)
+        load_topics(True)
         page.run_task(realtime_task)
 
-    page.run_task(init_chat_async)
+    init_chat()
     
     return [root_view]

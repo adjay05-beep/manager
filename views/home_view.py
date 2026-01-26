@@ -36,6 +36,21 @@ def get_home_controls(page: ft.Page, navigate_to):
             action_btn("음성 메모", "images/icon_voice.png", "order"),
             action_btn("근무 캘린더", "images/icon_calendar.png", "calendar"),
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=15),
+        ft.Container(height=10),
+        ft.Container(
+            content=ft.ElevatedButton(
+                "🆕 프로필 만들기",
+                on_click=lambda _: navigate_to("create_profile"),
+                width=340,
+                height=50,
+                style=ft.ButtonStyle(
+                    bgcolor=ft.Colors.with_opacity(0.15, "#2E7D32"),
+                    color="#4CAF50",
+                    shape=ft.RoundedRectangleBorder(radius=12)
+                )
+            ),
+            alignment=ft.alignment.center
+        )
     ], spacing=15)
 
     # Remove background image if set previously

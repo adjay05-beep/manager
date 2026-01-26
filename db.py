@@ -19,6 +19,8 @@ class SupabaseClient:
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json"
         }
+        # Shared client for efficiency (latency reduction)
+        self._http_client = httpx.Client(headers=self.headers, timeout=30.0)
         
         # Initialize Auth
         self.auth = SyncGoTrueClient(
@@ -35,7 +37,7 @@ class SupabaseClient:
         )
         
         # Manual Storage Client using httpx (Stable in all environments)
-        self.storage = ManualStorageManager(f"{url}/storage/v1", self.headers)
+        self.storage = ManualStorageManager(f"{url}/storage/v1", self.headers, self._http_client)
 
     def get_realtime_client(self):
         if not AsyncRealtimeClient:
@@ -63,16 +65,18 @@ class SupabaseClient:
 
 import httpx
 class ManualStorageManager:
-    def __init__(self, url, headers):
+    def __init__(self, url, headers, client=None):
         self.url = url
         self.headers = headers
+        self.client = client or httpx.Client(headers=headers)
     def from_(self, bucket):
-        return ManualBucket(self.url, self.headers, bucket)
+        return ManualBucket(self.url, self.headers, bucket, self.client)
 
 class ManualBucket:
-    def __init__(self, url, headers, bucket):
+    def __init__(self, url, headers, bucket, client=None):
         self.url = f"{url}/object/{bucket}"
         self.headers = headers
+        self.client = client or httpx.Client(headers=headers)
     def upload(self, path, content):
         # [CRITICAL FIX] Avoid sending 'Content-Type: application/json' for binary files
         upload_headers = self.headers.copy()
@@ -85,7 +89,7 @@ class ManualBucket:
             # Drop if we can't guess but it's binary
             del upload_headers["Content-Type"]
             
-        resp = httpx.post(f"{self.url}/{path}", headers=upload_headers, content=content)
+        resp = self.client.post(f"{self.url}/{path}", headers=upload_headers, content=content)
         if resp.status_code not in [200, 201]:
             print(f"STORAGE ERROR: {resp.status_code} {resp.text}")
         resp.raise_for_status()
@@ -96,60 +100,57 @@ class ManualBucket:
         return f"{self.url}/{path}"
 
     def create_signed_upload_url(self, path, expires_in=120):
-        # [OPTIMIZED] Prioritize 'uploads' bucket to avoid unnecessary requests.
         import urllib.parse
         safe_path = urllib.parse.quote(path)
         
         parts = self.url.split("/object/")
         base_storage_url = parts[0]
-        # Default fallback if parsing fails
-        original_bucket = parts[1] if len(parts) > 1 else "uploads"
+        # Current bucket from instance
+        bucket = self.url.split("/")[-1]
         
         headers = self.headers.copy()
         headers["Content-Type"] = "application/json"
         
-        # [CHANGE] Strict priority: Check 'uploads' first, then others only if needed.
-        # This drastically reduces latency for the happy path.
-        buckets_to_try = ["uploads", original_bucket]
-        buckets_to_try = list(dict.fromkeys(buckets_to_try)) # Dedup
+        # [LATENCY OPTIMIZATION] Most direct path first
+        # Endpoints: 1. standard, 2. legacy
+        endpoints = [
+            f"{base_storage_url}/object/upload/sign/{bucket}/{safe_path}",
+            f"{base_storage_url}/object/{bucket}/{safe_path}/sign"
+        ]
         
         last_error = ""
-        for bucket in buckets_to_try:
-            # 1. Primary Syntax (Standard Supabase)
-            endpoint = f"{base_storage_url}/object/upload/sign/{bucket}/{safe_path}"
+        for endpoint in endpoints:
             try:
-                resp = httpx.post(endpoint, headers=headers, json={"expiresIn": expires_in})
+                resp = self.client.post(endpoint, headers=headers, json={"expiresIn": expires_in})
                 if resp.status_code == 200:
                     data = resp.json()
                     s_url = data.get("url") or data.get("signedUrl")
                     if s_url and s_url.startswith("/"):
                         s_url = f"{base_storage_url}{s_url}"
                     return s_url
-                
-                # 2. Fallback Syntax (Older Supabase)
-                fb_endpoint = f"{base_storage_url}/object/{bucket}/{safe_path}/sign"
-                resp = httpx.post(fb_endpoint, headers=headers, json={"expiresIn": expires_in})
-                if resp.status_code == 200:
-                    data = resp.json()
-                    s_url = data.get("url") or data.get("signedUrl")
-                    if s_url and s_url.startswith("/"):
-                        s_url = f"{base_storage_url}{s_url}"
-                    return s_url
-                
-                last_error = f"Bucket '{bucket}': {resp.status_code} {resp.text}"
+                last_error = f"{resp.status_code}: {resp.text}"
             except Exception as e:
                 last_error = str(e)
                 continue
         
-        msg = f"SIGNED URL ERROR: Failed for path '{path}'. Tried {buckets_to_try}. Last Error: {last_error}"
+        msg = f"SIGNED URL ERROR: Failed for path '{path}'. Last Error: {last_error}"
         print(msg)
         raise Exception(msg)
 
 url = os.environ.get("SUPABASE_URL")
 key = os.environ.get("SUPABASE_KEY")
+service_key = os.environ.get("SUPABASE_SERVICE_KEY")
 
 if not url or not key:
     print("WARNING: SUPABASE_URL or SUPABASE_KEY not found in .env")
     supabase = None
 else:
     supabase = SupabaseClient(url, key)
+
+# Service role client for admin operations (bypasses RLS)
+if service_key:
+    service_supabase = SupabaseClient(url, service_key)
+else:
+    print("INFO: SUPABASE_SERVICE_KEY not set. Using anon key for all operations.")
+    service_supabase = supabase
+

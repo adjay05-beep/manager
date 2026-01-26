@@ -4,6 +4,11 @@ from services.auth_service import auth_service
 def get_login_controls(page: ft.Page, navigate_to):
     # [REAL AUTH] Replaced "1234" with Supabase Auth
     
+    # [FIX] Auto-redirect if already logged in (prevents flash on app start)
+    if page.session.get("user_id"):
+        navigate_to("home")
+        return []  # Return empty controls since we're redirecting
+    
     email_tf = ft.TextField(
         label="이메일", 
         width=280, 
@@ -78,7 +83,7 @@ def get_login_controls(page: ft.Page, navigate_to):
                     shape=ft.RoundedRectangleBorder(radius=8)
                 )
             ),
-            ft.TextButton("계정이 없으신가요? (문의: 관리자)", on_click=lambda _: page.launch_url("mailto:admin@example.com")) # User registration logic usually separate
+            ft.TextButton("계정이 없으신가요? 회원가입", on_click=lambda _: navigate_to("signup"))
         ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         padding=40,
         border_radius=30,

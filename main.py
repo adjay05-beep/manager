@@ -5,6 +5,8 @@ from views.chat_view import get_chat_controls
 from views.calendar_view import get_calendar_controls
 from views.order_view import get_order_controls
 from views.closing_view import get_closing_controls
+from views.signup_view import get_signup_controls
+from views.create_profile_view import get_create_profile_controls
 
 def main(page: ft.Page):
     page.title = "The Manager"
@@ -34,6 +36,14 @@ def main(page: ft.Page):
         page.clean()
         if route == "login" or route == "/":
             controls = get_login_controls(page, navigate_to)
+        elif route == "signup":
+            controls = get_signup_controls(page, navigate_to)
+        elif route == "create_profile":
+            user_id = page.session.get("user_id")
+            user_email = page.session.get("user_email")
+            if not user_email:
+                user_email = "unknown@example.com"
+            controls = get_create_profile_controls(page, navigate_to, user_id, user_email)
         elif route == "home":
             controls = get_home_controls(page, navigate_to)
         elif route == "chat":

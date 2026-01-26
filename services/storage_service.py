@@ -29,7 +29,7 @@ async def handle_file_upload(page: ft.Page, file_obj: ft.FilePickerFile, status_
             
             if picker_ref:
                 # Execute Flet's internal Web Upload logic
-                await page.run_task(lambda: picker_ref.upload(
+                picker_ref.upload(
                     files=[
                         ft.FilePickerUploadFile(
                             name=file_obj.name,
@@ -37,7 +37,7 @@ async def handle_file_upload(page: ft.Page, file_obj: ft.FilePickerFile, status_
                             method="PUT"
                         )
                     ]
-                ))
+                )
                 return {
                     "type": "web_upload_triggered",
                     "public_url": public_url,
