@@ -21,7 +21,7 @@ class SupabaseClient:
             "Content-Type": "application/json"
         }
         # Shared client for efficiency (latency reduction)
-        self._http_client = httpx.Client(headers=self.headers, timeout=60.0)
+        self._http_client = httpx.Client(headers=self.headers, timeout=300.0)
         
         # Initialize Auth
         self.auth = SyncGoTrueClient(
@@ -36,7 +36,7 @@ class SupabaseClient:
             f"{url}/rest/v1", 
             headers=self.headers, 
             schema="public",
-            http_client=self._http_client
+            timeout=300
         )
         
         # Manual Storage Client using httpx (Stable in all environments)
