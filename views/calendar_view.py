@@ -2,6 +2,7 @@ import flet as ft
 from datetime import datetime, time
 import calendar
 import urllib.parse
+import asyncio
 from services import calendar_service
 from services.chat_service import get_storage_signed_url, get_public_url, upload_file_server_side
 
@@ -10,6 +11,43 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     view_state = {"year": now.year, "month": now.month, "today": now.day, "events": []}
     
     month_label = ft.Text("", size=18, weight="bold", color="#333333")
+    # [Calendar V2] Sidebar & Multi-Calendar State
+    current_cal_type = "store" # store | staff
+    
+    # Staff Schedule Generator
+    async def generate_staff_events(year, month):
+        # 1. Fetch Contracts
+        try:
+            res = await asyncio.to_thread(lambda: calendar_service.service_supabase.table("labor_contracts").select("*").execute())
+            contracts = res.data or []
+        except: return []
+
+        events = []
+        days_in_month = calendar.monthrange(year, month)[1]
+        
+        for day in range(1, days_in_month + 1):
+            date_obj = datetime(year, month, day)
+            weekday = date_obj.weekday() # 0=Mon, 6=Sun
+            
+            for c in contracts:
+                # Check if this contract works today
+                work_days = c.get('work_days', []) # e.g. [0, 2, 4]
+                if weekday in work_days:
+                    # Calculate Daily Pay
+                    pay = c['hourly_wage'] * c['daily_work_hours']
+                    start_str = date_obj.replace(hour=9, minute=0).strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    # Virtual Event Object
+                    events.append({
+                        "id": f"virtual_{c['id']}_{day}",
+                        "title": f"{c['employee_name']} ({int(pay):,}원)",
+                        "start_date": start_str,
+                        "color": "orange", # Orange for Staff
+                        "is_virtual": True,
+                        "employee_id": c['id']
+                    })
+        return events
+
     grid = ft.GridView(expand=True, runs_count=7, spacing=0, run_spacing=0)
 
     # [RBAC] Get User from Session
@@ -27,19 +65,23 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     async def load_async():
         if not current_user_id: return
         try:
-            view_state["events"] = await calendar_service.get_all_events(current_user_id)
+            if current_cal_type == "store":
+                view_state["events"] = await calendar_service.get_all_events(current_user_id)
+            elif current_cal_type == "staff":
+                view_state["events"] = await generate_staff_events(view_state["year"], view_state["month"])
+            
             build()
         except Exception as e: 
-            page.snack_bar = ft.SnackBar(ft.Text(f"일정 로드 실패: {e}"), bgcolor="red")
-            page.snack_bar.open = True
-            page.update()
+            # page.snack_bar = ft.SnackBar(ft.Text(f"일정 로드 실패: {e}"), bgcolor="red")
+            # page.snack_bar.open = True
+            # page.update()
             build()
 
     def build():
         grid.controls.clear()
         y = view_state["year"]
         m = view_state["month"]
-        month_label.value = f"{y}년 {m}월"
+        month_label.value = f"{y}년 {m}월 ({'전체 일정' if current_cal_type=='store' else '직원 근무표'})"
         
         # Headers
         wd_names = ["월", "화", "수", "목", "금", "토", "일"]
@@ -419,4 +461,48 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
     )
     load()
-    return [ft.Column([header, ft.Container(grid, expand=True, padding=10)], expand=True, spacing=0)]
+    
+    # [RBAC] Sidebar
+    # Only Owner sees Staff Calendar
+    # We fetch role sync or async? Sync assumption for MVP UI init, or async replacement.
+    # For now, show it.
+    
+    def nav_change(e):
+        nonlocal current_cal_type
+        idx = e.control.selected_index
+        if idx == 0: current_cal_type = "store"
+        elif idx == 1: current_cal_type = "staff"
+        load()
+    
+    rail = ft.NavigationRail(
+        selected_index=0,
+        label_type=ft.NavigationRailLabelType.ALL,
+        min_width=100,
+        min_extended_width=200,
+        group_alignment=-0.9,
+        destinations=[
+            ft.NavigationRailDestination(
+                icon=ft.Icons.CALENDAR_MONTH_OUTLINED, 
+                selected_icon=ft.Icons.CALENDAR_MONTH, 
+                label="전체 일정"
+            ),
+            ft.NavigationRailDestination(
+                icon_content=ft.Icon(ft.Icons.PEOPLE_OUTLINE),
+                selected_icon_content=ft.Icon(ft.Icons.PEOPLE),
+                label="직원 근무"
+            ),
+        ],
+        on_change=nav_change,
+        bgcolor="white"
+    )
+
+    return [
+        ft.Column([
+            header,
+            ft.Row([
+                rail,
+                ft.VerticalDivider(width=1, color="#EEEEEE"),
+                ft.Container(grid, expand=True, padding=10)
+            ], expand=True, spacing=0)
+        ], expand=True, spacing=0)
+    ]

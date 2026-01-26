@@ -29,13 +29,29 @@ def get_home_controls(page: ft.Page, navigate_to):
         border_radius=5
     )
 
+    # [DEBUG] Expose Role in UI
+    user_id = page.session.get("user_id")
+    role = "staff"
+    if user_id:
+        try:
+             role = auth_service.get_user_role(user_id)
+        except: pass
+
     header = ft.Container(
         padding=ft.padding.only(left=20, right=20, top=40, bottom=20),
         content=ft.Row([
             ft.Column([
                 ft.Text("Welcome back,", size=14, color="white70"),
                 ft.Text("The Manager", size=24, weight="bold", color="white"),
-                debug_badge
+                ft.Row([
+                    debug_badge,
+                    ft.Container(
+                        content=ft.Text(f"Role: {role}", size=10, color="yellow", weight="bold"),
+                        bgcolor=ft.Colors.with_opacity(0.1, "yellow"),
+                        padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                        border_radius=5
+                    )
+                ])
             ], spacing=2),
             ft.IconButton(ft.Icons.LOGOUT_ROUNDED, icon_color="white", on_click=lambda _: navigate_to("login"))
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
@@ -53,15 +69,8 @@ def get_home_controls(page: ft.Page, navigate_to):
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=15),
     ], spacing=15)
 
-    # [RBAC] Staff Management Button (Owner Only)
-    user_id = page.session.get("user_id")
-    role = "staff"
-    if user_id:
-        try:
-             role = auth_service.get_user_role(user_id)
-             print(f"DEBUG: Home View - User {user_id} Role: {role}")
-        except Exception as e:
-             print(f"DEBUG: Home View - Role Fetch Error: {e}")
+    # [RBAC Logic Moved Up]
+    # user_id and role already fetched above
     
     if role == "owner":
         grid.controls.append(
