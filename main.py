@@ -39,11 +39,11 @@ def main(page: ft.Page):
 
     page.navigation_bar = ft.NavigationBar(
         destinations=[
-            ft.NavigationDestination(icon=ft.Icons.CHAT_BUBBLE_OUTLINE, selected_icon=ft.Icons.CHAT_BUBBLE, label="팀"),
-            ft.NavigationDestination(icon=ft.Icons.MIC_NONE, selected_icon=ft.Icons.MIC, label="음성"),
-            ft.NavigationDestination(icon=ft.Icons.HOME_OUTLINED, selected_icon=ft.Icons.HOME, label="홈"),
-            ft.NavigationDestination(icon=ft.Icons.WORK_OUTLINE, selected_icon=ft.Icons.WORK, label="업무"),
-            ft.NavigationDestination(icon=ft.Icons.CALENDAR_MONTH_OUTLINED, selected_icon=ft.Icons.CALENDAR_MONTH, label="일정"),
+            ft.NavigationBarDestination(icon=ft.Icons.CHAT_BUBBLE_OUTLINE, selected_icon=ft.Icons.CHAT_BUBBLE, label="팀"),
+            ft.NavigationBarDestination(icon=ft.Icons.MIC_NONE, selected_icon=ft.Icons.MIC, label="음성"),
+            ft.NavigationBarDestination(icon=ft.Icons.HOME_OUTLINED, selected_icon=ft.Icons.HOME, label="홈"),
+            ft.NavigationBarDestination(icon=ft.Icons.WORK_OUTLINE, selected_icon=ft.Icons.WORK, label="업무"),
+            ft.NavigationBarDestination(icon=ft.Icons.CALENDAR_MONTH_OUTLINED, selected_icon=ft.Icons.CALENDAR_MONTH, label="일정"),
         ],
         on_change=lambda e: navigate_to(
             "chat" if e.control.selected_index == 0 else
