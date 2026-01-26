@@ -7,6 +7,7 @@ from views.order_view import get_order_controls
 from views.closing_view import get_closing_controls
 from views.signup_view import get_signup_controls
 from views.create_profile_view import get_create_profile_controls
+from views.work_view import get_work_controls
 
 def main(page: ft.Page):
     page.title = "The Manager"
@@ -33,21 +34,24 @@ def main(page: ft.Page):
     
     
     # Persistent Navigation Bar
-    def on_nav_change(e):
-        idx = e.control.selected_index
-        if idx == 0: navigate_to("chat")
-        elif idx == 1: navigate_to("order") # Voice Memo
-        elif idx == 2: navigate_to("calendar")
-        elif idx == 3: navigate_to("closing")
+    # The on_nav_change function is now integrated into the NavigationBar's on_change property
+    # and will be dynamically updated in navigate_to.
 
     page.navigation_bar = ft.NavigationBar(
         destinations=[
-            ft.NavigationBarDestination(icon=ft.Icons.CHAT, label="팀 스레드"),
-            ft.NavigationBarDestination(icon=ft.Icons.MIC, label="음성 메모"),
-            ft.NavigationBarDestination(icon=ft.Icons.CALENDAR_MONTH, label="캘린더"),
-            ft.NavigationBarDestination(icon=ft.Icons.CHECK_CIRCLE, label="마감 점검"),
+            ft.NavigationDestination(icon=ft.Icons.CHAT_BUBBLE_OUTLINE, selected_icon=ft.Icons.CHAT_BUBBLE, label="팀"),
+            ft.NavigationDestination(icon=ft.Icons.MIC_NONE, selected_icon=ft.Icons.MIC, label="음성"),
+            ft.NavigationDestination(icon=ft.Icons.HOME_OUTLINED, selected_icon=ft.Icons.HOME, label="홈"),
+            ft.NavigationDestination(icon=ft.Icons.WORK_OUTLINE, selected_icon=ft.Icons.WORK, label="업무"),
+            ft.NavigationDestination(icon=ft.Icons.CALENDAR_MONTH_OUTLINED, selected_icon=ft.Icons.CALENDAR_MONTH, label="일정"),
         ],
-        on_change=on_nav_change,
+        on_change=lambda e: navigate_to(
+            "chat" if e.control.selected_index == 0 else
+            "order" if e.control.selected_index == 1 else
+            "home" if e.control.selected_index == 2 else 
+            "work" if e.control.selected_index == 3 else
+            "calendar"
+        ),
         bgcolor="#1A237E", # Dark Blue SaaS Theme
         indicator_color="#3949AB"
     )
@@ -63,10 +67,11 @@ def main(page: ft.Page):
             # Sync Nav Bar State
             if route == "chat": page.navigation_bar.selected_index = 0
             elif route == "order": page.navigation_bar.selected_index = 1
-            elif route == "calendar": page.navigation_bar.selected_index = 2
-            elif route == "closing": page.navigation_bar.selected_index = 3
+            elif route == "home": page.navigation_bar.selected_index = 2
+            elif route == "work": page.navigation_bar.selected_index = 3
+            elif route == "calendar": page.navigation_bar.selected_index = 4
             else: 
-                # Home or others: No tab selected
+                # If route is not explicitly mapped to a nav bar item, select None
                 page.navigation_bar.selected_index = None
 
         if route == "login" or route == "/":
@@ -81,10 +86,6 @@ def main(page: ft.Page):
             controls = get_create_profile_controls(page, navigate_to, user_id, user_email)
         elif route == "home":
             controls = get_home_controls(page, navigate_to)
-            # Home is not in nav bar, maybe select None? 
-            # Or make Home accessible? User asked for 3 icons. 
-            # If user goes to home, nav bar is visible? 
-            # Let's keep it visible.
         elif route == "chat":
             controls = get_chat_controls(page, navigate_to)
         elif route == "calendar":
@@ -93,7 +94,10 @@ def main(page: ft.Page):
             # Pass the global recorder
             controls = get_order_controls(page, navigate_to)
         elif route == "closing":
+            # Direct link support, but now part of Work tab usually
             controls = get_closing_controls(page, navigate_to)
+        elif route == "work":
+            controls = get_work_controls(page, navigate_to)
         else:
             controls = [ft.Text("Not Found")]
         
