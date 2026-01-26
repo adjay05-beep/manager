@@ -32,15 +32,26 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
 
     def save(e):
         try:
-            service_supabase.table("profiles").update({
+            print(f"DEBUG: Updating profile for {user.id} -> Role: {role_dd.value}")
+            
+            # 1. Update
+            res_update = service_supabase.table("profiles").update({
                 "full_name": name_tf.value,
                 "role": role_dd.value
             }).eq("id", user.id).execute()
             
-            # Update user metadata too for consistency?
-            # supabase.auth.update_user(...)
+            # 2. Verify Update (Read back)
+            # Use 'supabase' (standard client) to verify RLS visibility if desired, 
+            # but let's stick to service_supabase to confirm DATA persistence first.
+            res_verify = service_supabase.table("profiles").select("role").eq("id", user.id).single().execute()
             
-            msg.value = "저장되었습니다! (홈으로 이동...)"
+            new_role = res_verify.data.get("role") if res_verify.data else "unknown"
+            print(f"DEBUG: Verification Read -> Role: {new_role}")
+
+            if new_role != role_dd.value:
+                raise Exception(f"업데이트 실패: DB 값이 변경되지 않았습니다. ({new_role})")
+
+            msg.value = f"저장 완료! (현재 권한: {new_role})"
             msg.color = "green"
             page.update()
             
@@ -49,7 +60,8 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
             navigate_to("home")
             
         except Exception as ex:
-            msg.value = f"저장 실패: {ex}"
+            print(f"ERROR: Profile Update Failed: {ex}")
+            msg.value = f"API 오류: {ex}"
             msg.color = "red"
             page.update()
 
