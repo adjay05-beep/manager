@@ -150,7 +150,10 @@ else:
 # Service role client for admin operations (bypasses RLS)
 if service_key:
     service_supabase = SupabaseClient(url, service_key)
+    has_service_key = True
 else:
     print("INFO: SUPABASE_SERVICE_KEY not set. Using anon key for all operations.")
     service_supabase = supabase
+    has_service_key = False
+
 

@@ -16,16 +16,30 @@ def get_home_controls(page: ft.Page, navigate_to):
             border=ft.border.all(0.5, ft.Colors.with_opacity(0.1, "white"))
         )
 
+    from db import has_service_key
+    
+    debug_badge = ft.Container(
+        content=ft.Text(
+            "Service Key: OK" if has_service_key else "Service Key: Missing (Bypass OFF)",
+            size=10, color="white" if has_service_key else "orange", weight="bold"
+        ),
+        bgcolor=ft.Colors.with_opacity(0.1, "green" if has_service_key else "red"),
+        padding=ft.padding.symmetric(horizontal=10, vertical=4),
+        border_radius=5
+    )
+
     header = ft.Container(
         padding=ft.padding.only(left=20, right=20, top=40, bottom=20),
         content=ft.Row([
             ft.Column([
                 ft.Text("Welcome back,", size=14, color="white70"),
                 ft.Text("The Manager", size=24, weight="bold", color="white"),
+                debug_badge
             ], spacing=2),
             ft.IconButton(ft.Icons.LOGOUT_ROUNDED, icon_color="white", on_click=lambda _: navigate_to("login"))
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
     )
+
 
     grid = ft.Column([
         ft.Row([
