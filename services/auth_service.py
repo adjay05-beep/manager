@@ -1,5 +1,5 @@
 import flet as ft
-from db import supabase
+from db import supabase, service_supabase
 
 # [NEW] Authentication Service for Real Login
 
@@ -16,11 +16,11 @@ class AuthService:
                 
                 # [FIX] Auto-create profile if it doesn't exist (same as verify_otp)
                 try:
-                    profile_check = supabase.table("profiles").select("id").eq("id", res.user.id).execute()
+                    profile_check = service_supabase.table("profiles").select("id").eq("id", res.user.id).execute()
                     if not profile_check.data:
                         # Create profile for existing user without one
                         full_name = res.user.user_metadata.get("full_name", email.split("@")[0])
-                        supabase.table("profiles").insert({
+                        service_supabase.table("profiles").insert({
                             "id": res.user.id,
                             "full_name": full_name,
                             "role": "staff"
@@ -67,11 +67,11 @@ class AuthService:
                 # [FIX] Auto-create profile if it doesn't exist
                 # Check if profile exists
                 try:
-                    profile_check = supabase.table("profiles").select("id").eq("id", res.user.id).execute()
+                    profile_check = service_supabase.table("profiles").select("id").eq("id", res.user.id).execute()
                     if not profile_check.data:
                         # Create profile for new user
                         full_name = res.user.user_metadata.get("full_name", email.split("@")[0])
-                        supabase.table("profiles").insert({
+                        service_supabase.table("profiles").insert({
                             "id": res.user.id,
                             "full_name": full_name,
                             "role": "staff"

@@ -12,7 +12,7 @@ CURRENT_USER_ID = "00000000-0000-0000-0000-000000000001"
 def get_categories() -> List[Dict[str, Any]]:
     """Fetch all chat categories."""
     try:
-        res = supabase.table("chat_categories").select("*").order("display_order", desc=True).execute()
+        res = service_supabase.table("chat_categories").select("*").order("display_order", desc=True).execute()
         return res.data or []
     except Exception as e:
         print(f"Service Error (get_categories): {e}")
@@ -100,7 +100,7 @@ def create_topic(name: str, category: str, creator_id: str):
 def get_messages(topic_id: str, limit: int = 50) -> List[Dict[str, Any]]:
     """Fetch messages for a topic."""
     try:
-        res = supabase.table("chat_messages").select("id, topic_id, user_id, content, image_url, created_at, profiles(username, full_name)").eq("topic_id", topic_id).order("created_at", desc=True).limit(limit).execute()
+        res = service_supabase.table("chat_messages").select("id, topic_id, user_id, content, image_url, created_at, profiles(username, full_name)").eq("topic_id", topic_id).order("created_at", desc=True).limit(limit).execute()
         messages = res.data or []
         messages.reverse()
         return messages

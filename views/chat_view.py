@@ -4,7 +4,7 @@ from datetime import datetime as dt_class, timezone
 import asyncio
 import threading
 from services import chat_service
-from db import supabase
+from db import supabase, service_supabase
 
 DEBUG_MODE = True
 
@@ -406,12 +406,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         
                         # [EMERGENCY FIX] Ensure profile exists before creating topic
                         try:
-                            profile_check = supabase.table("profiles").select("id").eq("id", current_user_id).execute()
+                            profile_check = service_supabase.table("profiles").select("id").eq("id", current_user_id).execute()
                             if not profile_check.data:
                                 # Create profile on the spot
                                 user_email = page.session.get("user_email")
                                 full_name = user_email.split("@")[0] if user_email else "Unknown"
-                                supabase.table("profiles").insert({
+                                service_supabase.table("profiles").insert({
                                     "id": current_user_id,
                                     "full_name": full_name,
                                     "role": "staff"
