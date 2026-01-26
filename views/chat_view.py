@@ -125,6 +125,15 @@ def get_chat_controls(page: ft.Page, navigate_to):
             if update_ui: page.update()
         except Exception as ex:
             print(f"Load Topics Critical Error: {ex}")
+            # Show error to user in a SnackBar
+            try:
+                page.snack_bar = ft.SnackBar(
+                    ft.Text(f"데이터 로딩 오류: {ex}", color="white"),
+                    bgcolor="red",
+                    open=True
+                )
+                page.update()
+            except: pass
 
     def load_topics(update_ui=True):
         threading.Thread(target=load_topics_thread, args=(update_ui,), daemon=True).start()
@@ -431,17 +440,14 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         import traceback
                         traceback.print_exc()
                         
-                        # Give user-friendly error message
-                        if "profiles" in error_msg and "not present" in error_msg:
-                            user_msg = "❌ 프로필 오류\n\n로그아웃 후 다시 로그인해주세요.\n그래도 안 되면 관리자에게 문의하세요."
-                        else:
-                            user_msg = f"오류: {ex}"
+                        # Give user-friendly error message with technical detail for debugging
+                        user_msg = f"토픽 생성 실패: {error_msg}"
                         
                         page.snack_bar = ft.SnackBar(
                             ft.Text(user_msg, color="white"),
                             bgcolor="red",
                             open=True,
-                            duration=5000
+                            duration=10000 # Longer duration for debug
                         )
                         page.update()
                 threading.Thread(target=_do_create, daemon=True).start()
