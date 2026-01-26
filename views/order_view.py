@@ -119,7 +119,26 @@ def get_order_controls(page: ft.Page, navigate_to):
             else:
                 status_text.value = "인식 실패"
         except Exception as ex:
-            status_text.value = f"AI Error: {ex}"
+            # Check for Web Blob Error
+            err_msg = str(ex)
+            if "Audio file not found" in err_msg and "blob:" in url:
+                status_text.value = "웹 사용 불가 (다운로드 필요)"
+                
+                def download_rec(e):
+                    page.launch_url(url)
+                    page.close(dlg_web_err)
+                
+                dlg_web_err = ft.AlertDialog(
+                    title=ft.Text("웹 브라우저 제한 안내"),
+                    content=ft.Text("웹에서는 보안상 자동 분석이 어렵습니다.\n녹음 파일을 다운로드한 후 [업로드] 버튼을 이용해주세요."),
+                    actions=[
+                        ft.TextButton("녹음 파일 다운로드", on_click=download_rec),
+                        ft.TextButton("닫기", on_click=lambda _: page.close(dlg_web_err))
+                    ]
+                )
+                page.open(dlg_web_err)
+            else:
+                status_text.value = f"AI Error: {ex}"
         finally:
             page.update()
 
@@ -129,21 +148,9 @@ def get_order_controls(page: ft.Page, navigate_to):
             res = await audio_recorder.stop_recording_async()
             if res:
                 print(f"Recording stopped, file: {res}")
-                
-                # [Web Compatibility] Handle Blob URLs
-                if res.startswith("blob:"):
-                    state["is_recording"] = False
-                    update_mic_ui()
-                    
-                    # Web Trigger Download
-                    page.launch_url(res)
-                    status_text.value = "웹 보안상 자동 분석불가. 다운로드된 파일을 업로드해주세요."
-                    status_text.color = "orange"
-                    page.update()
-                    return
-
-                # Native/Desktop Auto Transcribe
+                # Always try to transcribe first (User expectation)
                 await start_transcription(res)
+            
             state["is_recording"] = False
             update_mic_ui()
         except Exception as e:
