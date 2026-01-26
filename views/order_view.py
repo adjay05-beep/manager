@@ -139,7 +139,8 @@ def get_order_controls(page: ft.Page, navigate_to):
 
     async def start_recording():
         try:
-            if audio_recorder.is_recording(): # If already recording
+            # [FIX] Rely on internal state instead of calling blocking is_recording()
+            if state["is_recording"]:
                 await stop_recording()
                 return
 
