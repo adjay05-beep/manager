@@ -25,20 +25,27 @@ async def get_all_events(user_id: str) -> List[Dict[str, Any]]:
     t1 = asyncio.to_thread(lambda: client.from_("calendar_events").select("*, profiles!calendar_events_created_by_fkey(full_name)").eq("created_by", user_id).execute())
     
     # query 2: Events with Me as Participant (JSONB Containment)
-    t2 = asyncio.to_thread(lambda: client.from_("calendar_events").select("*, profiles!calendar_events_created_by_fkey(full_name)").contains("participant_ids", [user_id]).execute())
+    # [FIX] Temporarily disabled due to Postgrest JSON serialization issues (22P02)
+    # t2 = asyncio.to_thread(lambda: client.from_("calendar_events").select("*, profiles!calendar_events_created_by_fkey(full_name)").cs("participant_ids", f'["{user_id}"]').execute())
+    t2 = None # Skip
     
-    # Run in parallel
+    # Run in parallel with error handling
+    res1 = None
+    res2 = None
     try:
-        res1, res2 = await asyncio.gather(t1, t2)
+        # Only run t1
+        # results = await asyncio.gather(t1, t2, return_exceptions=True)
+        res1 = await t1
+            
     except Exception as e:
-        print(f"Calendar Fetch Error: {e}")
+        print(f"Calendar Fetch Fatal Error: {e}")
         return []
     
     # Merge and Deduplicate by ID
     events_map = {}
-    if res1.data:
+    if res1 and res1.data:
         for e in res1.data: events_map[e['id']] = e
-    if res2.data:
+    if res2 and res2.data:
         for e in res2.data: events_map[e['id']] = e
         
     return list(events_map.values())
