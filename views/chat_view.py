@@ -110,7 +110,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         item = ft.Container(
                             content=ft.Row([
                                 ft.Row([delete_btn, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=5),
-                                ft.Row([edit_topic_btn, ft.ReorderableDragHandle(ft.Icon(ft.Icons.REORDER, size=24, color="blue"))], spacing=5)
+                                ft.Row([
+                                    edit_topic_btn, 
+                                    ft.Icon(ft.Icons.DRAG_HANDLE, size=24, color=ft.Colors.BLUE)
+                                ], spacing=0)
                             ], alignment="spaceBetween"),
                             padding=ft.padding.symmetric(horizontal=15, vertical=12),
                             bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
@@ -121,7 +124,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 list_view = ft.ReorderableListView(
                     expand=True, 
                     on_reorder=on_topic_reorder, 
-                    show_default_drag_handles=False, # Disable auto-handles
+                    show_default_drag_handles=False, # Disable system gray handle
                     padding=0,
                     controls=edit_list_ctrls
                 )
