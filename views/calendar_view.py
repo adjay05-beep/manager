@@ -5,6 +5,7 @@ import urllib.parse
 import asyncio
 from services import calendar_service
 from services.chat_service import get_storage_signed_url, get_public_url, upload_file_server_side
+import os
 
 def get_calendar_controls(page: ft.Page, navigate_to):
     now = datetime.now()

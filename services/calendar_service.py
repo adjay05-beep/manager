@@ -6,19 +6,33 @@ CURRENT_USER_ID = "00000000-0000-0000-0000-000000000001"
 
 async def get_all_events(user_id: str) -> List[Dict[str, Any]]:
     """Fetch calendar events visible to the user."""
-    # [ROBUSTNESS] Split into two simple queries to avoid fragile OR/JSON syntax in one call.
+    # [ROBUSTNESS] Use Authenticated Client if possible to bypass RLS
+    from services.auth_service import auth_service
+    from postgrest import SyncPostgrestClient
+    import os
+    
+    headers = auth_service.get_auth_headers()
+    client = service_supabase
+    
+    if headers:
+        url = os.environ.get("SUPABASE_URL")
+        # Creating a temporary client for this request
+        # Note: SyncPostgrestClient is lightweight
+        client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
     
     # query 1: Events Created by Me
-    # [FIX] Explicit relationship name to avoid ambiguity (created_by vs user_id)
-    t1 = asyncio.to_thread(lambda: service_supabase.table("calendar_events").select("*, profiles!calendar_events_created_by_fkey(full_name)").eq("created_by", user_id).execute())
+    # Use client.from_(...) instead of service_supabase.table(...)
+    t1 = asyncio.to_thread(lambda: client.from_("calendar_events").select("*, profiles!calendar_events_created_by_fkey(full_name)").eq("created_by", user_id).execute())
     
     # query 2: Events with Me as Participant (JSONB Containment)
-    # Note: participant_ids.cs.[user_id]
-    # If list is empty, this query might fail or return nothing.
-    t2 = asyncio.to_thread(lambda: service_supabase.table("calendar_events").select("*, profiles!calendar_events_created_by_fkey(full_name)").contains("participant_ids", [user_id]).execute())
+    t2 = asyncio.to_thread(lambda: client.from_("calendar_events").select("*, profiles!calendar_events_created_by_fkey(full_name)").contains("participant_ids", [user_id]).execute())
     
     # Run in parallel
-    res1, res2 = await asyncio.gather(t1, t2)
+    try:
+        res1, res2 = await asyncio.gather(t1, t2)
+    except Exception as e:
+        print(f"Calendar Fetch Error: {e}")
+        return []
     
     # Merge and Deduplicate by ID
     events_map = {}

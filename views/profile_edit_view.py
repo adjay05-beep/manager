@@ -1,4 +1,5 @@
 import flet as ft
+import os
 from services.auth_service import auth_service
 from db import service_supabase
 
