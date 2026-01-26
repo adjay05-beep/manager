@@ -1,5 +1,7 @@
 import flet as ft
 from views.closing_view import get_closing_controls
+from db import service_supabase
+import asyncio
 
 def get_work_controls(page: ft.Page, navigate_to):
     # Tabs: Labor Info, Tax Info, Closing Check
@@ -66,16 +68,101 @@ def get_work_controls(page: ft.Page, navigate_to):
     closing_controls_list = get_closing_controls(page, navigate_to)
     closing_content = closing_controls_list[0] # Assuming it returns one main container
     
-    # 4. Contracts (Placeholder for next step)
-    contract_content = ft.Container(
-        content=ft.Column([
-            ft.Icon(ft.Icons.HANDSHAKE, size=50, color="#EEEEEE"),
-            ft.Text("근로계약서 관리", weight="bold"),
-            ft.Text("직원별 계약서를 작성하고 급여를 자동 계산합니다.", color="grey"),
-            ft.ElevatedButton("새 계약서 작성", on_click=lambda _: page.snack_bar.open.__setattr__("content", ft.Text("준비 중입니다.")) or page.update())
-        ], horizontal_alignment="center", alignment="center"),
-        alignment=ft.alignment.center, padding=50
-    )
+    # 4. Contracts Logic & UI
+    contract_list = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
+    
+    # Form Inputs
+    c_name = ft.TextField(label="직원 이름", width=150)
+    c_type = ft.Dropdown(label="근로 형태", width=150, options=[ft.dropdown.Option("full", "정규직"), ft.dropdown.Option("part", "아르바이트")], value="part")
+    c_wage = ft.TextField(label="시급 (원)", width=150, value="10320")
+    c_hours = ft.TextField(label="일 근무시간", width=150, value="8")
+    
+    # Days Selector (0=Mon, 6=Sun)
+    days_map = {0:"월", 1:"화", 2:"수", 3:"목", 4:"금", 5:"토", 6:"일"}
+    selected_days = []
+    
+    def toggle_day(e):
+        day_idx = e.control.data
+        if day_idx in selected_days: selected_days.remove(day_idx); e.control.bgcolor = None; e.control.color = "black"
+        else: selected_days.append(day_idx); e.control.bgcolor = "green"; e.control.color = "white"
+        e.control.update()
+        
+    day_buttons = ft.Row([ft.Container(content=ft.Text(label), data=idx, width=40, height=40, border_radius=20, alignment=ft.alignment.center, border=ft.border.all(1, "grey"), on_click=toggle_day, ink=True) for idx, label in days_map.items()], alignment="center")
+
+    async def load_contracts_async():
+        user_id = page.session.get("user_id")
+        if not user_id: return
+        
+        try:
+            res = await asyncio.to_thread(lambda: service_supabase.table("labor_contracts").select("*").eq("user_id", user_id).order("created_at", desc=True).execute())
+            contracts = res.data or []
+            
+            contract_list.controls.clear()
+            for c in contracts:
+                w_days = [days_map[d] for d in c.get('work_days', []) if d in days_map]
+                day_str = ",".join(w_days)
+                
+                contract_list.controls.append(
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Row([
+                                ft.Text(c['employee_name'], weight="bold", size=16),
+                                ft.Container(content=ft.Text("알바" if c['employee_type']=='part' else "정규", size=10, color="white"), bgcolor="orange", padding=5, border_radius=5)
+                            ], alignment="spaceBetween"),
+                            ft.Text(f"시급: {c['hourly_wage']:,}원 | {day_str} 근무", size=12, color="grey"),
+                            ft.Text(f"계약일: {c['contract_start_date']}", size=10, color="grey")
+                        ]),
+                        padding=15, bgcolor="white", border_radius=10, border=ft.border.all(1, "#EEEEEE")
+                    )
+                )
+            page.update()
+        except Exception as e:
+            print(f"Load Error: {e}")
+
+    def save_contract_click(e):
+        async def _save():
+            if not c_name.value: return
+            user_id = page.session.get("user_id")
+            if not user_id: 
+                page.snack_bar = ft.SnackBar(ft.Text("로그인이 필요합니다.")); page.snack_bar.open=True; page.update(); return
+            
+            data = {
+                "user_id": user_id,
+                "employee_name": c_name.value,
+                "employee_type": c_type.value,
+                "hourly_wage": int(c_wage.value),
+                "daily_work_hours": float(c_hours.value),
+                "work_days": selected_days,
+                "contract_start_date": "2026-01-01" # Default for now
+            }
+            try:
+                await asyncio.to_thread(lambda: service_supabase.table("labor_contracts").insert(data).execute())
+                await load_contracts_async()
+                c_name.value = ""; page.update()
+                page.snack_bar = ft.SnackBar(ft.Text("계약서가 저장되었습니다.")); page.snack_bar.open=True; page.update()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"저장 실패: {ex}")); page.snack_bar.open=True; page.update()
+        
+        page.run_task(_save)
+
+    contract_content = ft.Column([
+        ft.Container(
+            content=ft.Column([
+                ft.Text("직원 등록 (근로계약 정보)", weight="bold", size=16),
+                ft.Container(height=10),
+                ft.Row([c_name, c_type]),
+                ft.Row([c_wage, c_hours]),
+                ft.Text("근무 요일 선택", size=12, color="grey"),
+                day_buttons,
+                ft.Container(height=10),
+                ft.ElevatedButton("저장 및 계약 생성", on_click=save_contract_click, width=300, bgcolor="#1A237E", color="white")
+            ]),
+            padding=20, bgcolor="white", border_radius=10, shadow=ft.BoxShadow(blur_radius=5, color="#05000000")
+        ),
+        ft.Divider(),
+        ft.Text("나의 직원 리스트", weight="bold"),
+        contract_list
+    ], scroll=ft.ScrollMode.AUTO)
 
 
     tabs = ft.Tabs(
@@ -98,7 +185,9 @@ def get_work_controls(page: ft.Page, navigate_to):
         if idx == 0: body.content = labor_content
         elif idx == 1: body.content = tax_content
         elif idx == 2: body.content = closing_content
-        elif idx == 3: body.content = contract_content
+        elif idx == 3: 
+            body.content = contract_content
+            page.run_task(load_contracts_async)
         page.update()
 
     tabs.on_change = on_tab_change
