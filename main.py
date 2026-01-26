@@ -8,6 +8,7 @@ from views.closing_view import get_closing_controls
 from views.signup_view import get_signup_controls
 from views.create_profile_view import get_create_profile_controls
 from views.work_view import get_work_controls
+from views.profile_edit_view import get_profile_edit_controls
 
 def main(page: ft.Page):
     page.title = "The Manager"
@@ -60,7 +61,7 @@ def main(page: ft.Page):
         page.clean()
         
         # Hide Nav Bar on Auth Pages
-        if route in ["login", "signup", "create_profile"]:
+        if route in ["login", "signup", "create_profile", "edit_profile"]:
             page.navigation_bar.visible = False
         else:
             page.navigation_bar.visible = True
@@ -84,6 +85,8 @@ def main(page: ft.Page):
             if not user_email:
                 user_email = "unknown@example.com"
             controls = get_create_profile_controls(page, navigate_to, user_id, user_email)
+        elif route == "edit_profile":
+            controls = get_profile_edit_controls(page, navigate_to)
         elif route == "home":
             controls = get_home_controls(page, navigate_to)
         elif route == "chat":

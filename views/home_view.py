@@ -83,8 +83,8 @@ def get_home_controls(page: ft.Page, navigate_to):
         ft.Container(height=10),
         ft.Container(
             content=ft.ElevatedButton(
-                "🆕 프로필 만들기",
-                on_click=lambda _: navigate_to("create_profile"),
+                "⚙️ 내 정보 수정 (권한 변경)",
+                on_click=lambda _: navigate_to("edit_profile"),
                 width=340,
                 height=50,
                 style=ft.ButtonStyle(
