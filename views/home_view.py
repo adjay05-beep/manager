@@ -51,7 +51,7 @@ def get_home_controls(page: ft.Page, navigate_to):
             action_btn("음성 메모", "images/icon_voice.png", "order"),
             action_btn("근무 캘린더", "images/icon_calendar.png", "calendar"),
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=15),
-    ]
+    ])
 
     # [RBAC] Staff Management Button (Owner Only)
     user_id = page.session.get("user_id")
