@@ -19,21 +19,16 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         # 1. Fetch Contracts (Authenticated)
         try:
             # [FIX] Use Authenticated Request to bypass RLS/Server Key issues
-            from db import supabase 
-            import os
             from postgrest import SyncPostgrestClient
+            import os
+            from services.auth_service import auth_service # Import instance
             
-            session = None
-            try: session = supabase.auth.get_session() 
-            except: pass
-            
+            headers = auth_service.get_auth_headers()
             contracts = []
             
-            if session and session.access_token:
+            if headers:
                 # Use User Token
                 url = os.environ.get("SUPABASE_URL")
-                key = os.environ.get("SUPABASE_KEY")
-                headers = {"Authorization": f"Bearer {session.access_token}", "apikey": key}
                 
                 def _fetch():
                     cl = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)

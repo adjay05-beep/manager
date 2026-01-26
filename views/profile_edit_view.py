@@ -34,32 +34,18 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
         try:
             print(f"DEBUG: Updating profile for {user.id} -> Role: {role_dd.value}")
             
-            # [FIX] Use Authenticated Request (RLS)
-            # 1. Get Session Token
-            session = None
-            try:
-                session = supabase.auth.get_session()
-            except: pass
-            
-            if not session or not session.access_token:
+            # [FIX] Use Authenticated Request via AuthService
+            # This handles session retrieval and formatting centrally
+            headers = auth_service.get_auth_headers()
+            if not headers:
                 raise Exception("세션이 만료되었습니다. 다시 로그인해주세요.")
-                
-            token = session.access_token
             
             # 2. Direct Update using PostgREST with User Token
-            # We override the auth header to use the User's JWT instead of Anon Key
             from postgrest import SyncPostgrestClient
             url = os.environ.get("SUPABASE_URL")
             
-            # Create a temporary authenticated client
-            auth_headers = {
-                "Authorization": f"Bearer {token}",
-                "apikey": os.environ.get("SUPABASE_KEY"),
-                "Content-Type": "application/json"
-            }
-            
             # Use this client for the upsert
-            user_client = SyncPostgrestClient(f"{url}/rest/v1", headers=auth_headers, schema="public", timeout=20)
+            user_client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
             
             res_update = user_client.from_("profiles").upsert({
                 "id": user.id,
@@ -67,10 +53,6 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
                 "role": role_dd.value,
                 "updated_at": "now()"
             }).execute()
-            
-            # 3. Verify
-            # Update local session/auth service cache if needed?
-            # auth_service.current_user might need refresh? 
             
             msg.value = f"저장 완료! (권한: {role_dd.value})"
             

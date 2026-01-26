@@ -118,5 +118,28 @@ class AuthService:
             return session.user
         return None
 
+    def get_access_token(self):
+        """Retrieve a valid access token for the current user."""
+        try:
+            session = supabase.auth.get_session()
+            if session and session.access_token:
+                return session.access_token
+        except: pass
+        return None
+
+    def get_auth_headers(self):
+        """Get headers for authenticated requests."""
+        token = self.get_access_token()
+        if not token:
+            return None
+        
+        import os
+        key = os.environ.get("SUPABASE_KEY")
+        return {
+            "Authorization": f"Bearer {token}",
+            "apikey": key,
+            "Content-Type": "application/json"
+        }
+
 # Singleton Instance
 auth_service = AuthService()
