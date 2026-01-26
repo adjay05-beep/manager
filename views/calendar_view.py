@@ -15,6 +15,9 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     # [Calendar V2] Sidebar & Multi-Calendar State
     current_cal_type = "store" # store | staff
     
+    # [DEBUG]
+    debug_text = ft.Text(value="", color="red", size=14)
+    
     # Staff Schedule Generator
     async def generate_staff_events(year, month):
         # 1. Fetch Contracts (Authenticated)
@@ -94,7 +97,12 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 view_state["events"] = await generate_staff_events(view_state["year"], view_state["month"])
             
             build()
+            build()
         except Exception as e: 
+            import traceback
+            err = traceback.format_exc()
+            print(f"Calendar Load Error: {err}")
+            debug_text.value = f"Load Error: {e}"
             # page.snack_bar = ft.SnackBar(ft.Text(f"일정 로드 실패: {e}"), bgcolor="red")
             # page.snack_bar.open = True
             # page.update()
@@ -521,6 +529,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
 
     return [
         ft.Column([
+            debug_text,
             header,
             ft.Row([
                 rail,
