@@ -151,14 +151,19 @@ def get_work_controls(page: ft.Page, navigate_to):
                 )
                 
                 def close_dlg(e):
-                    page.close(dlg_preview)
+                    dlg_preview.open = False
+                    page.update()
                     
                 dlg_preview = ft.AlertDialog(
                     title=ft.Text("계약서 생성 완료"),
                     content=ft.Text(preview_text, size=14, font_family="monospace"),
                     actions=[ft.TextButton("확인", on_click=close_dlg)]
                 )
-                page.open(dlg_preview)
+                
+                # [FIX] Legacy Dialog Open for Compatibility
+                page.dialog = dlg_preview
+                dlg_preview.open = True
+                page.update()
 
             except Exception as ex:
                 page.snack_bar = ft.SnackBar(ft.Text(f"저장 실패: {ex}")); page.snack_bar.open=True; page.update()
@@ -217,7 +222,7 @@ def get_work_controls(page: ft.Page, navigate_to):
         content=ft.Row([
             ft.Row([
                 ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda _: navigate_to("home")), 
-                ft.Text("노무/세무 관리", size=20, weight="bold")
+                ft.Text("직원 관리", size=20, weight="bold")
             ]), 
         ], alignment="spaceBetween"), 
         padding=10, 

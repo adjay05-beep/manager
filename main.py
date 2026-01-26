@@ -41,7 +41,6 @@ def main(page: ft.Page):
         destinations=[
             ft.NavigationBarDestination(icon=ft.Icons.CHAT_BUBBLE_OUTLINE, selected_icon=ft.Icons.CHAT_BUBBLE, label="팀"),
             ft.NavigationBarDestination(icon=ft.Icons.MIC_NONE, selected_icon=ft.Icons.MIC, label="음성"),
-            ft.NavigationBarDestination(icon=ft.Icons.WORK_OUTLINE, selected_icon=ft.Icons.WORK, label="노무"),
             ft.NavigationBarDestination(icon=ft.Icons.HOME_OUTLINED, selected_icon=ft.Icons.HOME, label="홈"),
             ft.NavigationBarDestination(icon=ft.Icons.CHECK_CIRCLE_OUTLINE, selected_icon=ft.Icons.CHECK_CIRCLE, label="마감"),
             ft.NavigationBarDestination(icon=ft.Icons.CALENDAR_MONTH_OUTLINED, selected_icon=ft.Icons.CALENDAR_MONTH, label="일정"),
@@ -49,9 +48,8 @@ def main(page: ft.Page):
         on_change=lambda e: navigate_to(
             "chat" if e.control.selected_index == 0 else
             "order" if e.control.selected_index == 1 else
-            "work" if e.control.selected_index == 2 else 
-            "home" if e.control.selected_index == 3 else
-            "closing" if e.control.selected_index == 4 else
+            "home" if e.control.selected_index == 2 else 
+            "closing" if e.control.selected_index == 3 else
             "calendar"
         ),
         bgcolor="#1A237E", # Dark Blue SaaS Theme
@@ -66,13 +64,12 @@ def main(page: ft.Page):
             page.navigation_bar.visible = False
         else:
             page.navigation_bar.visible = True
-            # Sync Nav Bar State (6 Items)
+            # Sync Nav Bar State (5 Items)
             if route == "chat": page.navigation_bar.selected_index = 0
             elif route == "order": page.navigation_bar.selected_index = 1
-            elif route == "work": page.navigation_bar.selected_index = 2
-            elif route == "home": page.navigation_bar.selected_index = 3
-            elif route == "closing": page.navigation_bar.selected_index = 4
-            elif route == "calendar": page.navigation_bar.selected_index = 5
+            elif route == "home": page.navigation_bar.selected_index = 2
+            elif route == "closing": page.navigation_bar.selected_index = 3
+            elif route == "calendar": page.navigation_bar.selected_index = 4
             else: 
                 # If route is not explicitly mapped to a nav bar item, select None
                 page.navigation_bar.selected_index = None

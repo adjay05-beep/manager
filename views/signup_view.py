@@ -22,6 +22,12 @@ def get_signup_controls(page: ft.Page, navigate_to):
     pw_tf = ft.TextField(label="비밀번호 (6자 이상)", password=True, width=300, color="white", border_color="white70")
     pw_cf_tf = ft.TextField(label="비밀번호 확인", password=True, width=300, color="white", border_color="white70")
     
+    # [NEW] Role Selection
+    role_group = ft.RadioGroup(content=ft.Row([
+        ft.Radio(value="owner", label="사장님 (Owner)"),
+        ft.Radio(value="staff", label="직원 (Staff)")
+    ], alignment="center"), value="staff")
+    
     error_txt = ft.Text("", color="red", size=12)
 
     # --- Verification Controls ---
@@ -37,7 +43,8 @@ def get_signup_controls(page: ft.Page, navigate_to):
     def _signup_thread():
         try:
             # Direct Sync Call
-            res = auth_service.sign_up(state["email"], pw_tf.value, name_tf.value)
+            role = role_group.value
+            res = auth_service.sign_up(state["email"], pw_tf.value, name_tf.value, role)
             
             if res.user and res.user.identities and len(res.user.identities) > 0:
                 state["step"] = "verify"
@@ -148,6 +155,7 @@ def get_signup_controls(page: ft.Page, navigate_to):
             controls_list = [
                 header, sub_header, ft.Container(height=20),
                 email_tf, name_tf, pw_tf, pw_cf_tf,
+                ft.Container(content=role_group, bgcolor="white", border_radius=8, padding=5, width=300),
                 ft.Container(height=10), error_txt,
                 submit_btn,
                 ft.TextButton("인증 코드가 이미 있으신가요?", on_click=lambda _: (state.update({"step": "verify"}), update_view())),

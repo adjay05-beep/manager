@@ -44,11 +44,11 @@ class AuthService:
         except Exception as e:
             print(f"Sign Out Error: {e}")
 
-    def sign_up(self, email, password, full_name):
+    def sign_up(self, email, password, full_name, role="staff"):
         """Register a new user."""
         try:
-            # Send metadata (full_name) to be stored in profiles trigger or raw user_metadata
-            options = {"data": {"full_name": full_name}}
+            # Send metadata (full_name, role)
+            options = {"data": {"full_name": full_name, "role": role}}
             res = supabase.auth.sign_up({"email": email, "password": password, "options": options})
             return res
         except Exception as e:
@@ -71,10 +71,11 @@ class AuthService:
                     if not profile_check.data:
                         # Create profile for new user
                         full_name = res.user.user_metadata.get("full_name", email.split("@")[0])
+                        role = res.user.user_metadata.get("role", "staff")
                         service_supabase.table("profiles").insert({
                             "id": res.user.id,
                             "full_name": full_name,
-                            "role": "staff"
+                            "role": role
                         }).execute()
                         print(f"DEBUG: Created profile for user {res.user.id}")
                 except Exception as profile_err:
@@ -85,6 +86,16 @@ class AuthService:
             return None
         except Exception as e:
             raise Exception(f"인증 실패: {e}")
+
+    def get_user_role(self, user_id):
+        """Fetch user role from profiles."""
+        try:
+            res = service_supabase.table("profiles").select("role").eq("id", user_id).single().execute()
+            if res.data:
+                return res.data.get("role", "staff")
+            return "staff"
+        except:
+            return "staff"
 
     def resend_otp(self, email):
         """Resend status/OTP."""

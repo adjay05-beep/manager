@@ -1,4 +1,5 @@
 import flet as ft
+from services.auth_service import auth_service
 
 def get_home_controls(page: ft.Page, navigate_to):
     def action_btn(label, icon_path, route):
@@ -50,9 +51,32 @@ def get_home_controls(page: ft.Page, navigate_to):
             action_btn("음성 메모", "images/icon_voice.png", "order"),
             action_btn("근무 캘린더", "images/icon_calendar.png", "calendar"),
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=15),
-        ft.Row([
-            action_btn("노무/세무", "images/icon_check.png", "work"), # Placeholder icon
-        ], alignment=ft.MainAxisAlignment.CENTER, spacing=15),
+    ]
+
+    # [RBAC] Staff Management Button (Owner Only)
+    user_id = page.session.get("user_id")
+    role = "staff"
+    if user_id:
+        # Use sync call or assumption (auth_service.get_user_role is sync wrapper if simplified, but it was sync in my edit)
+        # Wait, get_user_role accesses Supabase which is I/O. Should be async ideally or use `run_task`.
+        # However, `get_home_controls` is synchronous. 
+        # I will assume I can run it or I should use `page.run_task` to update UI?
+        # But `get_home_controls` returns controls immediately.
+        # Quick hack: Fetch it synchronously (blocking but acceptable for simple dash) or assume "staff" and update later?
+        # Let's try to fetch it. `auth_service.get_user_role` uses `service_supabase...execute()`. This `execute()` is synchronous in the Python client usually unless async client used.
+        # My `service_supabase` is standard client. 
+        try:
+             role = auth_service.get_user_role(user_id)
+        except: pass
+    
+    if role == "owner":
+        grid.controls.append(
+             ft.Row([
+                action_btn("직원 관리", "images/icon_check.png", "work"),
+            ], alignment=ft.MainAxisAlignment.CENTER, spacing=15)
+        )
+
+    grid.controls.extend([
         ft.Container(height=10),
         ft.Container(
             content=ft.ElevatedButton(
