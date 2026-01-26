@@ -21,20 +21,22 @@ class SupabaseClient:
             "Content-Type": "application/json"
         }
         # Shared client for efficiency (latency reduction)
-        self._http_client = httpx.Client(headers=self.headers, timeout=30.0)
+        self._http_client = httpx.Client(headers=self.headers, timeout=60.0)
         
         # Initialize Auth
         self.auth = SyncGoTrueClient(
             url=f"{url}/auth/v1",
             headers=self.headers,
-            storage_key="supabase.auth.token"
+            storage_key="supabase.auth.token",
+            http_client=self._http_client
         )
         
         # Initialize Database (PostgREST)
         self.rest = SyncPostgrestClient(
             f"{url}/rest/v1", 
             headers=self.headers, 
-            schema="public"
+            schema="public",
+            http_client=self._http_client
         )
         
         # Manual Storage Client using httpx (Stable in all environments)
