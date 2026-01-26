@@ -66,8 +66,8 @@ def main(page: ft.Page):
             elif route == "calendar": page.navigation_bar.selected_index = 2
             elif route == "closing": page.navigation_bar.selected_index = 3
             else: 
-                # Keep current or set to None/0? 
-                pass
+                # Home or others: No tab selected
+                page.navigation_bar.selected_index = None
 
         if route == "login" or route == "/":
             controls = get_login_controls(page, navigate_to)
