@@ -41,9 +41,9 @@ def main(page: ft.Page):
 
     page.navigation_bar = ft.NavigationBar(
         destinations=[
-            ft.NavigationDestination(icon=ft.Icons.CHAT, label="팀 스레드"),
-            ft.NavigationDestination(icon=ft.Icons.MIC, label="음성 메모"),
-            ft.NavigationDestination(icon=ft.Icons.CHECK_CIRCLE, label="마감 점검"),
+            ft.NavigationBarDestination(icon=ft.Icons.CHAT, label="팀 스레드"),
+            ft.NavigationBarDestination(icon=ft.Icons.MIC, label="음성 메모"),
+            ft.NavigationBarDestination(icon=ft.Icons.CHECK_CIRCLE, label="마감 점검"),
         ],
         on_change=on_nav_change,
         bgcolor="#1A237E", # Dark Blue SaaS Theme
