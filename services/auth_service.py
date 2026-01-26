@@ -20,10 +20,11 @@ class AuthService:
                     if not profile_check.data:
                         # Create profile for existing user without one
                         full_name = res.user.user_metadata.get("full_name", email.split("@")[0])
+                        role = res.user.user_metadata.get("role", "staff")
                         service_supabase.table("profiles").insert({
                             "id": res.user.id,
                             "full_name": full_name,
-                            "role": "staff"
+                            "role": role
                         }).execute()
                         print(f"DEBUG: Auto-created profile for user {res.user.id} during login")
                 except Exception as profile_err:
