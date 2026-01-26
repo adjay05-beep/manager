@@ -16,11 +16,38 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     
     # Staff Schedule Generator
     async def generate_staff_events(year, month):
-        # 1. Fetch Contracts
+        # 1. Fetch Contracts (Authenticated)
         try:
-            res = await asyncio.to_thread(lambda: calendar_service.service_supabase.table("labor_contracts").select("*").execute())
-            contracts = res.data or []
-        except: return []
+            # [FIX] Use Authenticated Request to bypass RLS/Server Key issues
+            from db import supabase 
+            import os
+            from postgrest import SyncPostgrestClient
+            
+            session = None
+            try: session = supabase.auth.get_session() 
+            except: pass
+            
+            contracts = []
+            
+            if session and session.access_token:
+                # Use User Token
+                url = os.environ.get("SUPABASE_URL")
+                key = os.environ.get("SUPABASE_KEY")
+                headers = {"Authorization": f"Bearer {session.access_token}", "apikey": key}
+                
+                def _fetch():
+                    cl = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
+                    return cl.from_("labor_contracts").select("*").execute()
+                
+                res = await asyncio.to_thread(_fetch)
+                contracts = res.data or []
+            else:
+                # Fallback to Service Key (likely to fail on Render if Anon)
+                res = await asyncio.to_thread(lambda: calendar_service.service_supabase.table("labor_contracts").select("*").execute())
+                contracts = res.data or []
+        except Exception as ex: 
+            print(f"Calendar Staff Fetch Error: {ex}")
+            return []
 
         events = []
         days_in_month = calendar.monthrange(year, month)[1]

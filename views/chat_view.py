@@ -36,7 +36,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
     msg_input = ft.TextField(hint_text="메시지를 입력하세요...", expand=True, multiline=True, max_lines=3)
     root_view = ft.Column(expand=True, spacing=0)
 
-    async def load_topics_thread(update_ui=True, show_all=True):
+    async def load_topics_thread(update_ui=True, show_all=False):
         if not state["is_active"]: return
         if not current_user_id:
             log_info("Chat ERROR: No user session found")
