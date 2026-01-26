@@ -18,6 +18,16 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     # [DEBUG]
     debug_text = ft.Text(value="", color="red", size=14)
     
+    # [FIX] Initialize grid BEFORE it's used in build()
+    grid = ft.GridView(
+        expand=True,
+        runs_count=7,
+        max_extent=150,
+        child_aspect_ratio=1.0,
+        spacing=0,
+        run_spacing=0
+    )
+    
     # Staff Schedule Generator
     async def generate_staff_events(year, month):
         # 1. Fetch Contracts (Authenticated)
@@ -110,58 +120,65 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             build()
 
     def build():
-        grid.controls.clear()
-        y = view_state["year"]
-        m = view_state["month"]
-        month_label.value = f"{y}년 {m}월 ({'전체 일정' if current_cal_type=='store' else '직원 근무표'})"
-        
-        # Headers
-        wd_names = ["월", "화", "수", "목", "금", "토", "일"]
-        for wd in wd_names:
-            grid.controls.append(ft.Container(content=ft.Text(wd, color="grey", size=12, text_align="center"), alignment=ft.alignment.center, height=30))
+        try:
+            grid.controls.clear()
+            y = view_state["year"]
+            m = view_state["month"]
+            month_label.value = f"{y}년 {m}월 ({'전체 일정' if current_cal_type=='store' else '직원 근무표'})"
             
-        cal = calendar.monthcalendar(y, m)
-        for week in cal:
-            for day in week:
-                if day == 0:
-                    grid.controls.append(ft.Container(bgcolor="#F4F4F4")) # Padding
-                    continue
+            # Headers
+            wd_names = ["월", "화", "수", "목", "금", "토", "일"]
+            for wd in wd_names:
+                grid.controls.append(ft.Container(content=ft.Text(wd, color="grey", size=12, text_align="center"), alignment=ft.alignment.center, height=30))
                 
-                # Check events (Naively filter from state)
-                day_cols = []
-                day_label = ft.Text(str(day), color="black", weight="bold" if day == now.day and m == now.month and y == now.year else "normal", size=12)
-                day_cols.append(day_label)
-                
-                day_events = []
-                for ev in view_state["events"]:
-                    try:
-                        # Simple date string check for MVP
-                        if ev.get("start_date") and str(ev["start_date"]).startswith(f"{y}-{m:02d}-{day:02d}"):
-                             day_events.append(ev)
-                    except: pass
-                
-                # Event chips
-                for ev in day_events[:3]:
-                    day_cols.append(
-                         ft.Container(
-                             content=ft.Text(ev['title'], size=10, color="white", no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS),
-                             bgcolor=ev.get('color', 'blue'), border_radius=4, padding=ft.padding.symmetric(horizontal=4, vertical=1),
-                             on_click=lambda e, ev=ev: open_event_detail_dialog(ev, day),
-                             height=16
-                         )
-                    )
+            cal = calendar.monthcalendar(y, m)
+            for week in cal:
+                for day in week:
+                    if day == 0:
+                        grid.controls.append(ft.Container(bgcolor="#F4F4F4")) # Padding
+                        continue
+                    
+                    # Check events (Naively filter from state)
+                    day_cols = []
+                    day_label = ft.Text(str(day), color="black", weight="bold" if day == now.day and m == now.month and y == now.year else "normal", size=12)
+                    day_cols.append(day_label)
+                    
+                    day_events = []
+                    for ev in view_state["events"]:
+                        try:
+                            # Simple date string check for MVP
+                            if ev.get("start_date") and str(ev["start_date"]).startswith(f"{y}-{m:02d}-{day:02d}"):
+                                 day_events.append(ev)
+                        except: pass
+                    
+                    # Event chips
+                    for ev in day_events[:3]:
+                        day_cols.append(
+                             ft.Container(
+                                 content=ft.Text(ev['title'], size=10, color="white", no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS),
+                                 bgcolor=ev.get('color', 'blue'), border_radius=4, padding=ft.padding.symmetric(horizontal=4, vertical=1),
+                                 on_click=lambda e, ev=ev: open_event_detail_dialog(ev, day),
+                                 height=16
+                             )
+                        )
 
-                grid.controls.append(
-                    ft.Container(
-                        content=ft.Column(day_cols, spacing=2),
-                        bgcolor="white", # Current month is white
-                        border=ft.border.all(0.5, "#EEEEEE"),
-                        padding=4,
-                        on_click=lambda e, d=day: open_event_editor_dialog(d),
-                        alignment=ft.alignment.top_left
+                    grid.controls.append(
+                        ft.Container(
+                            content=ft.Column(day_cols, spacing=2),
+                            bgcolor="white", # Current month is white
+                            border=ft.border.all(0.5, "#EEEEEE"),
+                            padding=4,
+                            on_click=lambda e, d=day: open_event_editor_dialog(d),
+                            alignment=ft.alignment.top_left
+                        )
                     )
-                )
-        if page: page.update()
+            if page: page.update()
+        except Exception as build_err:
+            print(f"Calendar Build Error: {build_err}")
+            import traceback
+            traceback.print_exc()
+            debug_text.value = f"Build Error: {build_err}"
+            if page: page.update()
 
     def open_event_detail_dialog(ev, day):
         def delete_ev(e):
