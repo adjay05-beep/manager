@@ -68,23 +68,63 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
             new_controls = []
             if state["edit_mode"]:
-                list_view = ft.ReorderableListView(expand=True, on_reorder=on_topic_reorder, show_default_drag_handles=True, padding=0)
-                for i, t in enumerate(sorted_topics):
-                    tid = t['id']
-                    delete_btn = ft.IconButton(
-                        ft.Icons.REMOVE_CIRCLE, icon_color="red", icon_size=24,
-                        on_click=lambda e, tid=tid: confirm_delete_topic(tid)
+                edit_list_ctrls = []
+                grouped = {}
+                for t in sorted_topics:
+                    cat = t.get('category', '일반')
+                    if cat not in grouped: grouped[cat] = []
+                    grouped[cat].append(t)
+                
+                for cat_name in [c for c in categories if c in grouped]:
+                    # Find category ID for rename
+                    cat_id = next((c['id'] for c in categories_data if c['name'] == cat_name), None)
+                    
+                    # Category Header in Edit Mode
+                    edit_list_ctrls.append(
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Row([
+                                    ft.Text(f"• {cat_name}", size=12, weight="bold", color="#757575"),
+                                    ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_size=16, icon_color="#757575", padding=0, 
+                                                 on_click=lambda e, cid=cat_id, cn=cat_name: open_rename_cat_dialog(cid, cn))
+                                ], spacing=5),
+                                ft.Text(str(len(grouped[cat_name])), size=10, color="#BDBDBD")
+                            ], alignment="spaceBetween"),
+                            padding=ft.padding.only(left=20, right=20, top=10, bottom=5),
+                            bgcolor="#FAFAFA",
+                            data={"type": "category", "id": cat_id} # Tag for Reorder
+                        )
                     )
-                    item = ft.Container(
-                        content=ft.Row([
-                            ft.Row([delete_btn, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=5),
-                            ft.Text(f"[{t.get('category','일반')}]", size=10, color="#9E9E9E")
-                        ], alignment="spaceBetween"),
-                        padding=ft.padding.symmetric(horizontal=15, vertical=12),
-                        bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
-                        data=tid
-                    )
-                    list_view.controls.append(item)
+                    
+                    for t in grouped[cat_name]:
+                        tid = t['id']
+                        delete_btn = ft.IconButton(
+                            ft.Icons.REMOVE_CIRCLE, icon_color="red", icon_size=20,
+                            on_click=lambda e, tid=tid: confirm_delete_topic(tid)
+                        )
+                        edit_topic_btn = ft.IconButton(
+                            ft.Icons.EDIT_OUTLINED, icon_color="#757575", icon_size=20,
+                            on_click=lambda e, topic=t: open_rename_topic_dialog(topic)
+                        )
+                        
+                        item = ft.Container(
+                            content=ft.Row([
+                                ft.Row([delete_btn, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=5),
+                                ft.Row([edit_topic_btn, ft.Icon(ft.Icons.REORDER, size=20, color="#BDBDBD")], spacing=5)
+                            ], alignment="spaceBetween"),
+                            padding=ft.padding.symmetric(horizontal=15, vertical=12),
+                            bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
+                            data={"type": "topic", "id": tid} # Crucial for reorder
+                        )
+                        edit_list_ctrls.append(item)
+                
+                list_view = ft.ReorderableListView(
+                    expand=True, 
+                    on_reorder=on_topic_reorder, 
+                    show_default_drag_handles=True, # Handlers for whole list reorder
+                    padding=0,
+                    controls=edit_list_ctrls
+                )
                 new_controls = [list_view]
             else:
                 list_view_ctrls = []
@@ -146,19 +186,25 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     def on_topic_reorder(e):
         try:
-            controls = topic_list_container.controls[0].controls
+            list_ctrl = topic_list_container.controls[0]
+            controls = list_ctrl.controls
             moved_item = controls.pop(e.old_index)
             controls.insert(e.new_index, moved_item)
             
             # Fire and forget update
             def _update_order():
-                for i, ctrl in enumerate(controls):
-                    tid = ctrl.content.data
-                    chat_service.update_topic_order(tid, len(controls) - i)
+                # Process topics in the list based on their new visual index
+                # We iterate backwards so items at the top have higher display_order
+                current_order = len(controls)
+                for ctrl in controls:
+                    data = ctrl.data
+                    if isinstance(data, dict) and data.get("type") == "topic":
+                        chat_service.update_topic_order(data["id"], current_order)
+                    current_order -= 1
                 load_topics(True)
             threading.Thread(target=_update_order, daemon=True).start()
         except Exception as ex:
-            print(f"Reorder Error: {ex}")
+            log_info(f"Reorder Error: {ex}")
 
     def toggle_priority(tid, current_val):
         threading.Thread(target=lambda: (chat_service.toggle_topic_priority(tid, current_val), load_topics(True)), daemon=True).start()
@@ -461,6 +507,52 @@ def get_chat_controls(page: ft.Page, navigate_to):
             title=ft.Text("새 스레드 만들기"),
             content=ft.Column([new_name, cat_dropdown], tight=True, spacing=15),
             actions=[ft.TextButton("취소", on_click=lambda _: page.close(dlg)), ft.TextButton("만들기", on_click=create_it)]
+        )
+        page.open(dlg)
+
+    def open_rename_topic_dialog(topic):
+        topic_id = topic['id']
+        name_input = ft.TextField(value=topic['name'], label="스레드 이름", expand=True)
+        
+        async def do_rename(e):
+            if name_input.value:
+                try:
+                    chat_service.rename_topic(topic_id, name_input.value)
+                    page.close(dlg)
+                    load_topics(True)
+                except Exception as ex:
+                    log_info(f"Rename Topic Error: {ex}")
+        
+        dlg = ft.AlertDialog(
+            title=ft.Text("스레드 이름 수정"),
+            content=name_input,
+            actions=[
+                ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
+                ft.ElevatedButton("저장", on_click=do_rename, bgcolor="#2E7D32", color="white")
+            ]
+        )
+        page.open(dlg)
+
+    def open_rename_cat_dialog(cat_id, old_name):
+        if not cat_id: return # Cannot rename system default if missing ID
+        name_input = ft.TextField(value=old_name, label="주제 그룹 이름", expand=True)
+        
+        async def do_rename(e):
+            if name_input.value:
+                try:
+                    chat_service.update_category(cat_id, old_name, name_input.value)
+                    page.close(dlg)
+                    load_topics(True)
+                except Exception as ex:
+                    log_info(f"Rename Category Error: {ex}")
+        
+        dlg = ft.AlertDialog(
+            title=ft.Text("주제 그룹 이름 수정"),
+            content=name_input,
+            actions=[
+                ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
+                ft.ElevatedButton("저장", on_click=do_rename, bgcolor="#2E7D32", color="white")
+            ]
         )
         page.open(dlg)
 

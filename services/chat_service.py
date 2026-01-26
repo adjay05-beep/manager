@@ -95,6 +95,17 @@ def delete_category(cat_id: str):
     """Delete a category."""
     service_supabase.table("chat_categories").delete().eq("id", cat_id).execute()
 
+def update_category(cat_id: str, old_name: str, new_name: str):
+    """Update category name in both categories table and dependent topics."""
+    # 1. Update the category record
+    service_supabase.table("chat_categories").update({"name": new_name}).eq("id", cat_id).execute()
+    # 2. Update all topics using this category string
+    service_supabase.table("chat_topics").update({"category": new_name}).eq("category", old_name).execute()
+
+def rename_topic(topic_id: str, new_name: str):
+    """Rename a specific topic."""
+    service_supabase.table("chat_topics").update({"name": new_name}).eq("id", topic_id).execute()
+
 def create_topic(name: str, category: str, creator_id: str):
     """Create a new topic and add creator as owner."""
     # 1. Create Topic (use service_supabase to bypass RLS)
