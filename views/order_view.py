@@ -129,7 +129,20 @@ def get_order_controls(page: ft.Page, navigate_to):
             res = await audio_recorder.stop_recording_async()
             if res:
                 print(f"Recording stopped, file: {res}")
-                # Transcribe
+                
+                # [Web Compatibility] Handle Blob URLs
+                if res.startswith("blob:"):
+                    state["is_recording"] = False
+                    update_mic_ui()
+                    
+                    # Web Trigger Download
+                    page.launch_url(res)
+                    status_text.value = "웹 보안상 자동 분석불가. 다운로드된 파일을 업로드해주세요."
+                    status_text.color = "orange"
+                    page.update()
+                    return
+
+                # Native/Desktop Auto Transcribe
                 await start_transcription(res)
             state["is_recording"] = False
             update_mic_ui()
