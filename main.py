@@ -32,8 +32,41 @@ def main(page: ft.Page):
         page.overlay.append(page.audio_recorder)
     
     
+    # Persistent Navigation Bar
+    def on_nav_change(e):
+        idx = e.control.selected_index
+        if idx == 0: navigate_to("chat")
+        elif idx == 1: navigate_to("order") # Voice Memo
+        elif idx == 2: navigate_to("closing")
+
+    page.navigation_bar = ft.NavigationBar(
+        destinations=[
+            ft.NavigationDestination(icon=ft.Icons.CHAT, label="팀 스레드"),
+            ft.NavigationDestination(icon=ft.Icons.MIC, label="음성 메모"),
+            ft.NavigationDestination(icon=ft.Icons.CHECK_CIRCLE, label="마감 점검"),
+        ],
+        on_change=on_nav_change,
+        bgcolor="#1A237E", # Dark Blue SaaS Theme
+        indicator_color="#3949AB"
+    )
+
     def navigate_to(route):
         page.clean()
+        
+        # Hide Nav Bar on Auth Pages
+        if route in ["login", "signup", "create_profile"]:
+            page.navigation_bar.visible = False
+        else:
+            page.navigation_bar.visible = True
+            # Sync Nav Bar State
+            if route == "chat": page.navigation_bar.selected_index = 0
+            elif route == "order": page.navigation_bar.selected_index = 1
+            elif route == "closing": page.navigation_bar.selected_index = 2
+            else: 
+                # Keep current or set to None/0? 
+                # Ensure it doesn't break. 
+                pass
+
         if route == "login" or route == "/":
             controls = get_login_controls(page, navigate_to)
         elif route == "signup":
@@ -46,6 +79,10 @@ def main(page: ft.Page):
             controls = get_create_profile_controls(page, navigate_to, user_id, user_email)
         elif route == "home":
             controls = get_home_controls(page, navigate_to)
+            # Home is not in nav bar, maybe select None? 
+            # Or make Home accessible? User asked for 3 icons. 
+            # If user goes to home, nav bar is visible? 
+            # Let's keep it visible.
         elif route == "chat":
             controls = get_chat_controls(page, navigate_to)
         elif route == "calendar":

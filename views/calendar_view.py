@@ -36,69 +36,58 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             build()
 
     def build():
-        month_label.value = f"{view_state['year']}년 {view_state['month']}월"
-        grid.controls = []
+        grid.controls.clear()
+        y = view_state["year"]
+        m = view_state["month"]
+        month_label.value = f"{y}년 {m}월"
         
-        # Day Headers (Sun-Sat)
-        for d, color in [("일","red"), ("월","black"), ("화","black"), ("수","black"), ("목","black"), ("금","black"), ("토","blue")]:
-            grid.controls.append(ft.Container(content=ft.Text(d, weight="bold", size=12, color=color), alignment=ft.alignment.center, padding=5))
+        # Headers
+        wd_names = ["월", "화", "수", "목", "금", "토", "일"]
+        for wd in wd_names:
+            grid.controls.append(ft.Container(content=ft.Text(wd, color="grey", size=12, text_align="center"), alignment=ft.alignment.center, height=30))
             
-        first_day, num_days = calendar.monthrange(view_state["year"], view_state["month"])
-        # first_day is Mon=0 to Sun=6. We want Sun=0 to Sat=6.
-        first_day_sun = (first_day + 1) % 7
-        
-        for _ in range(first_day_sun):
-            grid.controls.append(ft.Container())
-            
-        for day in range(1, num_days + 1):
-            day_events = []
-            for ev in view_state["events"]:
-                try:
-                    ev_start = datetime.strptime(ev['start_date'], "%Y-%m-%d %H:%M:%S")
-                    if ev_start.year == view_state["year"] and ev_start.month == view_state["month"] and ev_start.day == day:
-                        day_events.append(ev)
-                except: pass
-            
-            markers = ft.Row([ft.Container(width=4, height=4, border_radius=2, bgcolor=ev.get("color", "blue")) for ev in day_events[:4]], spacing=2, alignment="center")
-            
-            is_today = (datetime.now().year == view_state["year"] and datetime.now().month == view_state["month"] and datetime.now().day == day)
-            
-            grid.controls.append(
-                ft.Container(
-                    content=ft.Column([
-                        ft.Text(str(day), size=12, weight="bold" if is_today else None, color="blue" if is_today else None),
-                        markers
-                    ], alignment="center", horizontal_alignment="center", spacing=2),
-                    alignment=ft.alignment.center,
-                    padding=5,
-                    on_click=lambda e, d=day, evs=day_events: show_day_events(d, evs)
+        cal = calendar.monthcalendar(y, m)
+        for week in cal:
+            for day in week:
+                if day == 0:
+                    grid.controls.append(ft.Container(bgcolor="#F4F4F4")) # Padding
+                    continue
+                
+                # Check events (Naively filter from state)
+                day_cols = []
+                day_label = ft.Text(str(day), color="black", weight="bold" if day == now.day and m == now.month and y == now.year else "normal", size=12)
+                day_cols.append(day_label)
+                
+                day_events = []
+                for ev in view_state["events"]:
+                    try:
+                        # Simple date string check for MVP
+                        if ev.get("start_date") and str(ev["start_date"]).startswith(f"{y}-{m:02d}-{day:02d}"):
+                             day_events.append(ev)
+                    except: pass
+                
+                # Event chips
+                for ev in day_events[:3]:
+                    day_cols.append(
+                         ft.Container(
+                             content=ft.Text(ev['title'], size=10, color="white", no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS),
+                             bgcolor=ev.get('color', 'blue'), border_radius=4, padding=ft.padding.symmetric(horizontal=4, vertical=1),
+                             on_click=lambda e, ev=ev: open_event_detail_dialog(ev, day),
+                             height=16
+                         )
+                    )
+
+                grid.controls.append(
+                    ft.Container(
+                        content=ft.Column(day_cols, spacing=2),
+                        bgcolor="white", # Current month is white
+                        border=ft.border.all(0.5, "#EEEEEE"),
+                        padding=4,
+                        on_click=lambda e, d=day: open_event_editor_dialog(d),
+                        alignment=ft.alignment.top_left
+                    )
                 )
-            )
-        page.update()
-
-    def show_day_events(day, day_events):
-        def add_new(_):
-            page.close(dlg)
-            open_event_editor_dialog(day)
-
-        content = ft.Column([
-            ft.ListTile(
-                title=ft.Text(ev['title'], weight="bold"),
-                subtitle=ft.Text(f"{ev['start_date'][11:16]} - {ev['category'] if 'category' in ev else ''}"),
-                leading=ft.Icon(ft.Icons.CIRCLE, color=ev.get('color', 'blue'), size=12),
-                on_click=lambda e, ev=ev: (page.close(dlg), open_event_detail_dialog(ev, day))
-            ) for ev in day_events
-        ], scroll=ft.ScrollMode.AUTO, height=300, tight=True) if day_events else ft.Text("일정이 없습니다.", italic=True, color="grey")
-
-        dlg = ft.AlertDialog(
-            title=ft.Text(f"{view_state['month']}월 {day}일 일정"),
-            content=ft.Container(width=300, content=content),
-            actions=[
-                ft.TextButton("일정 추가", icon=ft.Icons.ADD, on_click=add_new),
-                ft.TextButton("닫기", on_click=lambda _: page.close(dlg))
-            ]
-        )
-        page.open(dlg)
+        if page: page.update()
 
     def open_event_detail_dialog(ev, day):
         def delete_ev(e):
@@ -417,13 +406,15 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         padding=ft.padding.only(left=20, right=20, top=40), # Added top padding
         content=ft.Row([
             ft.Row([
-                ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=lambda _: change_m(-1)), 
-                month_label, 
-                ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=lambda _: change_m(1))
-            ], spacing=10), 
+                ft.Row([
+                    ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=lambda _: change_m(-1)), 
+                    month_label, 
+                    ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=lambda _: change_m(1))
+                ], alignment=ft.MainAxisAlignment.CENTER),
+            ], expand=True, alignment=ft.MainAxisAlignment.CENTER), # Center the month navigator
             ft.Row([
                 ft.IconButton(ft.Icons.REFRESH, on_click=lambda _: load()), 
-                ft.TextButton("나가기", icon=ft.Icons.LOGOUT, on_click=lambda _: navigate_to("home"))
+                # ft.TextButton("나가기", icon=ft.Icons.LOGOUT, on_click=lambda _: navigate_to("home")) # Moved to Nav Bar
             ])
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
     )
