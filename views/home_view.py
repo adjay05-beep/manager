@@ -182,19 +182,20 @@ def get_home_controls(page: ft.Page, navigate_to):
 
     # === GRID LAYOUT ===
     # Collect all items
+    # [FIX] Use absolute paths for Mobile Web compatibility
     menu_items = [
-        action_btn("팀 스레드", "images/icon_chat_3d.png?v=6", "chat"),
-        action_btn("마감 점검", "images/icon_closing_3d.png?v=6", "closing"),
-        action_btn("음성 메모", "images/icon_voice_3d.png?v=6", "voice"),
-        action_btn("캘린더", "images/icon_calendar_3d.png?v=6", "calendar"),
+        action_btn("팀 스레드", "/images/icon_chat_3d.png?v=6", "chat"),
+        action_btn("마감 점검", "/images/icon_closing_3d.png?v=6", "closing"),
+        action_btn("음성 메모", "/images/icon_voice_3d.png?v=6", "voice"),
+        action_btn("캘린더", "/images/icon_calendar_3d.png?v=6", "calendar"),
     ]
 
     # RBAC: Show "직원 관리" for owners
     if role == "owner":
-        menu_items.append(action_btn("직원 관리", "images/icon_work_3d.png?v=6", "work"))
+        menu_items.append(action_btn("직원 관리", "/images/icon_work_3d.png?v=6", "work"))
     
     # Settings is for everyone
-    menu_items.append(action_btn("설정", "images/icon_settings_3d.png?v=6", "store_info"))
+    menu_items.append(action_btn("설정", "/images/icon_settings_3d.png?v=6", "store_info"))
 
     grid = ft.ResponsiveRow(
         controls=menu_items,
@@ -210,66 +211,65 @@ def get_home_controls(page: ft.Page, navigate_to):
             content=ft.Column([
                 # === HEADER WITH STORE SELECTOR ===
                 ft.Container(
-                    padding=ft.padding.only(left=20, right=20, top=20, bottom=10),
-                    content=ft.Column([
-                        # Top Row: Logo & Icons
+                    # [FIX] Move up (top=5) as requested
+                    padding=ft.padding.only(left=15, right=15, top=5, bottom=10),
+                    content=ft.Row([
+                        # Left: Logo
+                        ft.Image(
+                             src="/images/logo.png?v=2",
+                             height=40, # [FIX] Resized for Mobile
+                             fit=ft.ImageFit.CONTAIN,
+                             tooltip="OwnersKit"
+                         ),
+
+                        # Center: Store Info
+                        ft.Column([
+                            ft.Text(
+                                page.session.get("channel_name") or "매장",
+                                size=20, # Slightly smaller for mobile safe fit
+                                weight="bold",
+                                color="black",
+                                text_align=ft.TextAlign.CENTER
+                            ),
+                            ft.Text(
+                                f"{display_name}님",
+                                size=12,
+                                color="grey",
+                                text_align=ft.TextAlign.CENTER
+                            )
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
+
+                        # Right: Actions
                         ft.Row([
-                             # Logo Area: Image
-                             ft.Image(
-                                 src="images/logo.png?v=2",
-                                 height=50, # Adjusted height for header
-                                 fit=ft.ImageFit.CONTAIN,
-                                 tooltip="OwnersKit"
-                             ),
-                             
-                             # Right Icons (Preserving existing logic)
-                             ft.Row([
-                                ft.IconButton(
-                                    ft.Icons.ADD_BUSINESS,
-                                    icon_color="#1565C0",
-                                    tooltip="새 매장 추가",
-                                    on_click=lambda _: navigate_to("onboarding"),
-                                    visible=True
-                                ) if len(user_channels) > 1 else ft.Container(),
-                                
-                                ft.Container(
-                                    content=store_selector,
-                                    visible=len(user_channels) > 1
-                                ) if len(user_channels) > 1 else ft.IconButton(
-                                    ft.Icons.ADD_BUSINESS,
-                                    icon_color="#1565C0",
-                                    tooltip="새 매장 추가",
-                                    on_click=lambda _: navigate_to("onboarding")
-                                ),
-                                
-                                ft.IconButton(
-                                    ft.Icons.LOGOUT,
-                                    icon_color="#E53935",
-                                    tooltip="로그아웃",
-                                    on_click=perform_logout
-                                )
-                             ], spacing=5, alignment=ft.MainAxisAlignment.END)
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        
-                        # Center Info (Wrapped in Row to force center alignment)
-                        ft.Row([
-                            ft.Column([
-                                ft.Text(
-                                    page.session.get("channel_name") or "매장",
-                                    size=24,
-                                    weight="bold",
-                                    color="black",
-                                    text_align=ft.TextAlign.CENTER
-                                ),
-                                ft.Text(
-                                    f"{display_name}님 반갑습니다",
-                                    size=14,
-                                    color="grey",
-                                    text_align=ft.TextAlign.CENTER
-                                )
-                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5)
-                        ], alignment=ft.MainAxisAlignment.CENTER)
-                    ], spacing=20)
+                            ft.IconButton(
+                                ft.Icons.ADD_BUSINESS,
+                                icon_color="#1565C0",
+                                symbol=False, # Standard Material Icon
+                                tooltip="새 매장 추가",
+                                on_click=lambda _: navigate_to("onboarding"),
+                                visible=True
+                            ) if len(user_channels) > 1 else ft.Container(),
+                            
+                            ft.Container(
+                                content=store_selector,
+                                visible=len(user_channels) > 1,
+                                width=120 # Compact dropdown
+                            ) if len(user_channels) > 1 else ft.IconButton(
+                                ft.Icons.ADD_BUSINESS,
+                                icon_color="#1565C0",
+                                tooltip="새 매장 추가",
+                                on_click=lambda _: navigate_to("onboarding")
+                            ),
+                            
+                            ft.IconButton(
+                                ft.Icons.LOGOUT,
+                                icon_color="#E53935",
+                                tooltip="로그아웃",
+                                on_click=perform_logout
+                            )
+                        ], spacing=0, alignment=ft.MainAxisAlignment.END)
+
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                 ),
                 
                 ft.Divider(color="#EEEEEE", height=1),

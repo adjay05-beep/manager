@@ -976,7 +976,8 @@ def get_work_controls(page: ft.Page, navigate_to):
                 ft.Text("직원 관리", size=20, weight="bold", color="black")
             ]), 
         ], alignment="spaceBetween"), 
-        padding=10, 
+        # [FIX] Match Mobile Top Padding (Safe Area)
+        padding=ft.padding.only(left=10, right=10, top=50, bottom=10),
         border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE"))
     )
 
