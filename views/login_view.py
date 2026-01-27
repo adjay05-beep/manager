@@ -4,8 +4,8 @@ from services.channel_service import channel_service
 import json
 from utils.logger import log_debug, log_info, log_error
 
-def handle_successful_login(page: ft.Page, user, navigate_to, explicit_session=None):
-    log_info(f"User logged in: {user.email} ({user.id})")
+def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_token: str = None):
+    log_info(f"User logged in: {user_data.get('email')} ({user_data.get('id')})")
     """
     Common logic for processing a logged-in user:
     1. Channel Routing (Smart Login)
@@ -14,30 +14,35 @@ def handle_successful_login(page: ft.Page, user, navigate_to, explicit_session=N
     """
     try:
         # Save session for Auto-Login
-        # [FIX] Use explicit session from login response if available (Render Fix)
-        access_token = None
-        session = explicit_session or auth_service.get_session() 
-        if session:
-            access_token = session.access_token
-            # Serialize
+        # [FIX] Use explicit token from login response if available (Render Fix)
+        token = access_token
+        
+        # If no explicit token (Auto-Login case), try to get from session
+        if not token:
+            session = auth_service.get_session()
+            if session:
+                token = session.access_token
+        
+        if token:
+            # We construct a simple session dict to avoid storing complex objects
             sess_data = {
-                "access_token": session.access_token,
-                "refresh_token": session.refresh_token,
-                "expires_at": session.expires_at,
-                "token_type": session.token_type,
-                "user": {"id": user.id, "email": user.email}
+                "access_token": token,
+                "refresh_token": "", # We might not have refresh token here if just access_token passed, but that's ok for now
+                "user": user_data
             }
+            # If we have a real session object from auto-login, we might want refresh token. 
+            # But for now, ensuring access_token is enough for RLS.
             page.client_storage.set("supa_session", json.dumps(sess_data))
 
         # Explicitly pass token to ensure RLS works on Mobile/Web
-        channels = channel_service.get_user_channels(user.id, access_token)
+        channels = channel_service.get_user_channels(user_data['id'], token)
         page.splash = None
         
         if len(channels) == 1:
             # Case A: Single Channel
             target_ch = channels[0]
-            page.session.set("user_id", user.id)
-            page.session.set("user_email", user.email)
+            page.session.set("user_id", user_data['id'])
+            page.session.set("user_email", user_data['email'])
             page.session.set("channel_id", target_ch["id"])
             page.session.set("channel_name", target_ch["name"])
             page.session.set("user_role", target_ch["role"])
@@ -47,8 +52,8 @@ def handle_successful_login(page: ft.Page, user, navigate_to, explicit_session=N
             # Case B: Multi Channel
             def pick_channel(ch):
                 page.close(ch_dialog)
-                page.session.set("user_id", user.id)
-                page.session.set("user_email", user.email)
+                page.session.set("user_id", user_data['id'])
+                page.session.set("user_email", user_data['email'])
                 page.session.set("channel_id", ch["id"])
                 page.session.set("channel_name", ch["name"])
                 page.session.set("user_role", ch["role"])
@@ -108,12 +113,12 @@ def handle_successful_login(page: ft.Page, user, navigate_to, explicit_session=N
             
         else:
             # Case C: No Channel
-            page.session.set("user_id", user.id)
+            page.session.set("user_id", user_data['id'])
             navigate_to("onboarding")
 
     except Exception as login_logic_err:
             print(f"Smart Login Error: {login_logic_err}")
-            page.session.set("user_id", user.id)
+            page.session.set("user_id", user_data['id'])
             navigate_to("home")
 
 
@@ -130,7 +135,8 @@ def get_login_controls(page: ft.Page, navigate_to):
                 user = auth_service.recover_session(data["access_token"], data["refresh_token"])
                 if user:
                     print("Auto-Login Successful")
-                    handle_successful_login(page, user, navigate_to)
+                    user_data = {"id": user.id, "email": user.email}
+                    handle_successful_login(page, user_data, navigate_to)
                     return [] # Redirecting
         except Exception as e:
             print(f"Auto-Login Failed: {e}")
@@ -202,8 +208,18 @@ def get_login_controls(page: ft.Page, navigate_to):
                 page.client_storage.remove("saved_email")
                 page.client_storage.remove("saved_password")
             
+            # Extract pure data to avoid RecursionError with Supabase objects
+            user_obj = res.user
+            session_obj = res.session
+            
+            user_data = {
+                "id": user_obj.id,
+                "email": user_obj.email
+            }
+            access_token = session_obj.access_token if session_obj else None
+
             # handle_successful_login will clear splash
-            handle_successful_login(page, res.user, navigate_to, res.session)
+            handle_successful_login(page, user_data, navigate_to, access_token)
 
         except Exception as e:
             page.splash = None
