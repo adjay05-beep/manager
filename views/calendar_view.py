@@ -839,22 +839,118 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     def open_event_dialog():
         open_event_editor_dialog(datetime.now().day)
 
+    # [NEW] Drawer & Channel Switching
+    def switch_channel(ch):
+        page.session.set("channel_id", ch["id"])
+        page.session.set("channel_name", ch["name"])
+        page.session.set("user_role", ch["role"])
+        page.close_drawer()
+        navigate_to("calendar") # Refresh view
+
+    def on_drawer_change(e):
+        nonlocal current_cal_type
+        idx = e.control.selected_index
+        if idx == 0: current_cal_type = "store"
+        elif idx == 1: current_cal_type = "staff"
+        
+        # Update label immediately (load will do it too but for responsiveness)
+        month_label.value = f"{view_state['year']}년 {view_state['month']}월"
+        load()
+        page.close_drawer()
+
+    def build_drawer():
+        u_name = page.session.get("display_name", "User")
+        
+        # Fetch Channels
+        from services.auth_service import auth_service
+        token = auth_service.get_access_token()
+        channels = channel_service.get_user_channels(current_user_id, token)
+        
+        drawer = ft.NavigationDrawer(
+            on_change=on_drawer_change,
+            bgcolor="white",
+            selected_index=(0 if current_cal_type == 'store' else 1),
+            controls=[
+                ft.Container(
+                    padding=ft.padding.only(left=20, top=50, bottom=20), 
+                    bgcolor="white",
+                    content=ft.Row([
+                        ft.CircleAvatar(
+                            content=ft.Text(u_name[0] if u_name else "U", size=20, weight="bold"),
+                            bgcolor="#1565C0", radius=25, color="white"
+                        ),
+                        ft.Column([
+                            ft.Text(u_name, color="black", size=18, weight="bold"),
+                            ft.Text("나의 캘린더", color="grey", size=12)
+                        ], spacing=2)
+                    ], spacing=15)
+                ),
+                ft.Divider(thickness=1, color="#EEEEEE"),
+                ft.NavigationDrawerDestination(
+                    icon=ft.Icons.CALENDAR_MONTH_OUTLINED, 
+                    label="전체 일정 (Store)",
+                    selected_icon=ft.Icons.CALENDAR_MONTH
+                ),
+                 ft.NavigationDrawerDestination(
+                    icon=ft.Icons.PEOPLE_OUTLINE, 
+                    label="직원 근무표 (Staff)",
+                    selected_icon=ft.Icons.PEOPLE
+                ),
+                ft.Divider(thickness=1, color="#EEEEEE"),
+                ft.Container(
+                    padding=ft.padding.only(left=20, top=10, bottom=10),
+                    content=ft.Text("내 매장 리스트", color="grey", weight="bold", size=12)
+                ),
+            ]
+        )
+        
+        # Add Store List Tiles
+        for ch in channels:
+            is_cur = (str(ch['id']) == str(channel_id))
+            drawer.controls.append(
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.STORE, color="#1565C0" if is_cur else "grey", size=20),
+                        ft.Text(ch['name'], color="#1565C0" if is_cur else "black", weight="bold" if is_cur else "normal", size=14, expand=True),
+                        ft.Icon(ft.Icons.CHECK, color="#1565C0", size=18) if is_cur else ft.Container()
+                    ]),
+                    padding=ft.padding.symmetric(horizontal=20, vertical=12),
+                    on_click=lambda e, c=ch: switch_channel(c),
+                    ink=True,
+                    border_radius=0
+                )
+            )
+            
+        drawer.controls.append(ft.Divider(thickness=1, color="#EEEEEE"))
+        drawer.controls.append(
+            ft.Container(
+                content=ft.Row([ft.Icon(ft.Icons.ADD, color="grey"), ft.Text("새 매장 만들기", color="grey")]),
+                padding=ft.padding.symmetric(horizontal=20, vertical=15),
+                on_click=lambda _: navigate_to("onboarding")
+            )
+        )
+        return drawer
+
+    # Apply Drawer
+    page.drawer = build_drawer()
+
     top_bar = ft.Container(
         padding=10,
         bgcolor="white",
         content=ft.Row([
-            # Back button on the left
-            ft.IconButton(ft.Icons.ARROW_BACK, icon_color="#333333", on_click=lambda _: navigate_to("home"), tooltip="돌아가기"),
+            # Left: Menu (Drawer Trigger)
+            ft.IconButton(ft.Icons.MENU, icon_color="#333333", icon_size=28, on_click=lambda _: page.open_drawer(page.drawer), tooltip="메뉴"),
+            
+            # Center: Month Nav
             ft.Row([
-                ft.Row([
-                    ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=lambda _: change_m(-1), icon_color="#0A1929"), 
-                    month_label, 
-                    ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=lambda _: change_m(1), icon_color="#0A1929")
-                ], alignment=ft.MainAxisAlignment.CENTER),
-            ], expand=True, alignment=ft.MainAxisAlignment.CENTER), # Center the month navigator
+                ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=lambda _: change_m(-1), icon_color="#0A1929"), 
+                month_label, 
+                ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=lambda _: change_m(1), icon_color="#0A1929")
+            ], alignment=ft.MainAxisAlignment.CENTER, expand=True),
+            
+            # Right: Actions
             ft.Row([
                 ft.IconButton(ft.Icons.REFRESH, on_click=lambda _: load(), icon_color="#0A1929"), 
-                # ft.TextButton("나가기", icon=ft.Icons.LOGOUT, on_click=lambda _: navigate_to("home")) # Moved to Nav Bar
             ])
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
     )
@@ -863,94 +959,50 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         height=100, # Increased height for SafeArea
         bgcolor="white", 
         border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE")), 
-        padding=ft.padding.only(left=20, right=20, top=40), # Added top padding
+        padding=ft.padding.only(left=10, right=10, top=40),
         content=ft.Column([
             top_bar,
             ft.Row([
-                ft.ElevatedButton("오늘", on_click=lambda e: go_today(), bgcolor="#EEEEEE", color="black"),
+                ft.ElevatedButton("오늘", on_click=lambda e: go_today(), bgcolor="#EEEEEE", color="black", height=30, style=ft.ButtonStyle(padding=10)),
                 ft.FloatingActionButton(icon=ft.Icons.ADD, on_click=lambda e: open_event_dialog(), bgcolor="#1565C0", mini=True)
-            ], alignment=ft.MainAxisAlignment.END) # Align to end for "Today" and "Add" buttons
+            ], alignment=ft.MainAxisAlignment.END, spacing=10) 
         ])
     )
     
     async def initial_load_delayed():
         try:
-            await asyncio.sleep(0.5) # Increased delay to be safe
+            await asyncio.sleep(0.5) 
             await load_async()
         except Exception as e:
-            msg = f"Init Load Error: {e}"
-            print(msg)
-            try:
-                log_error(msg)
+            try: log_error(f"Init Load Error: {e}")
             except: pass
 
     page.run_task(initial_load_delayed)
     
-    # [RBAC] Sidebar
-    # Only Owner sees Staff Calendar
-    # We fetch role sync or async? Sync assumption for MVP UI init, or async replacement.
-    # For now, show it.
-    
-    def nav_change(e):
-        nonlocal current_cal_type
-        idx = e.control.selected_index
-        if idx == 0: current_cal_type = "store"
-        elif idx == 1: current_cal_type = "staff"
-        load()
-    
-    rail = ft.NavigationRail(
-        selected_index=0,
-        label_type=ft.NavigationRailLabelType.ALL,
-        min_width=100,
-        min_extended_width=200,
-        group_alignment=-0.9,
-        destinations=[
-            ft.NavigationRailDestination(
-                icon=ft.Icons.CALENDAR_MONTH_OUTLINED, 
-                selected_icon=ft.Icons.CALENDAR_MONTH, 
-                label="전체 일정"
-            ),
-            ft.NavigationRailDestination(
-                icon=ft.Icons.PEOPLE_OUTLINE,
-                selected_icon=ft.Icons.PEOPLE,
-                label="직원 근무"
-            ),
-        ],
-        on_change=nav_change,
-        bgcolor="white",
-        indicator_color="#1565C0",  # Deep blue for selected background
-        indicator_shape=ft.RoundedRectangleBorder(radius=20),
-        selected_label_text_style=ft.TextStyle(color="white", weight=ft.FontWeight.BOLD),
-        unselected_label_text_style=ft.TextStyle(color="black")
-    )
-
     log_debug("Exiting get_calendar_controls (Returning UI)")
     
+    # [FIX] Return layout without NavigationRail
     return [
         ft.Column([
             debug_text,
             header,
-            ft.Row([
-                rail,
-                ft.VerticalDivider(width=1, color="#EEEEEE"),
-                ft.Container(
-                    expand=True,
-                    padding=ft.padding.only(left=10, right=10, bottom=10, top=5),
-                    content=ft.Column([
-                        # Weekday header row
-                        ft.Row([
-                            ft.Container(content=ft.Text("월", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
-                            ft.Container(content=ft.Text("화", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
-                            ft.Container(content=ft.Text("수", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
-                            ft.Container(content=ft.Text("목", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
-                            ft.Container(content=ft.Text("금", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
-                            ft.Container(content=ft.Text("토", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
-                            ft.Container(content=ft.Text("일", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
-                        ], spacing=0),
-                        # Grid with only date cells
-                        grid
-                    ], spacing=0, expand=True)
-                )
-            ], expand=True, spacing=0)
+            ft.Container(
+                expand=True,
+                padding=ft.padding.only(left=5, right=5, bottom=0, top=0),
+                content=ft.Column([
+                    # Weekday header row
+                    ft.Row([
+                        ft.Container(content=ft.Text("월", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                        ft.Container(content=ft.Text("화", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                        ft.Container(content=ft.Text("수", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                        ft.Container(content=ft.Text("목", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                        ft.Container(content=ft.Text("금", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                        ft.Container(content=ft.Text("토", color="blue", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                        ft.Container(content=ft.Text("일", color="red", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                    ], spacing=0),
+                    # Grid
+                    grid
+                ], spacing=0, expand=True)
+            )
         ], expand=True, spacing=0)
     ]

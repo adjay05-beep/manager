@@ -234,8 +234,9 @@ def get_home_controls(page: ft.Page, navigate_to):
                             ft.IconButton(
                                 ft.Icons.ADD_BUSINESS,
                                 icon_color="#1565C0",
-                                symbol=False, # Standard Material Icon
+                                symbol=False, 
                                 tooltip="새 매장 추가",
+                                icons_size=35, # [FIX] 130% larger (approx)
                                 on_click=lambda _: navigate_to("onboarding"),
                                 visible=True
                             ) if len(user_channels) > 1 else ft.Container(),
@@ -243,11 +244,12 @@ def get_home_controls(page: ft.Page, navigate_to):
                             ft.Container(
                                 content=store_selector,
                                 visible=len(user_channels) > 1,
-                                width=120 # Compact dropdown
+                                width=120
                             ) if len(user_channels) > 1 else ft.IconButton(
                                 ft.Icons.ADD_BUSINESS,
                                 icon_color="#1565C0",
                                 tooltip="새 매장 추가",
+                                icon_size=35, # [FIX] 130% larger
                                 on_click=lambda _: navigate_to("onboarding")
                             ),
                             
@@ -255,11 +257,12 @@ def get_home_controls(page: ft.Page, navigate_to):
                                 ft.Icons.LOGOUT,
                                 icon_color="#E53935",
                                 tooltip="로그아웃",
+                                icon_size=35, # [FIX] 130% larger
                                 on_click=perform_logout
                             )
-                        ], spacing=0, alignment=ft.MainAxisAlignment.END)
+                        ], spacing=0, alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.START)
 
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.START) # [FIX] Align Tops
                 ),
                 
                 ft.Divider(color="#EEEEEE", height=1),
