@@ -123,27 +123,10 @@ def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_
 
 
 def get_login_controls(page: ft.Page, navigate_to):
-    # [Auto-Login Check]
-    if not page.session.get("user_id"):
-        # Check Client Storage
-        try:
-            stored_session_json = page.client_storage.get("supa_session")
-            if stored_session_json:
-                data = json.loads(stored_session_json)
-                # Try to recover
-                # We need auth_service to support set_session
-                user = auth_service.recover_session(data["access_token"], data["refresh_token"])
-                if user:
-                    print("Auto-Login Successful")
-                    user_data = {"id": user.id, "email": user.email}
-                    # [FIX] Pass cached token explicitly for RLS
-                    cached_token = data.get("access_token") 
-                    handle_successful_login(page, user_data, navigate_to, cached_token)
-                    return [] # Redirecting
-        except Exception as e:
-            print(f"Auto-Login Failed: {e}")
-            # Clear invalid session
-            page.client_storage.remove("supa_session")
+    # [Auto-Login Check] - DISABLED by user request
+    # Only "Remember Me" (pre-fill) is active.
+    # if not page.session.get("user_id"):
+    #     ... (Removed for stability)
 
     # Already logged in check
     if page.session.get("user_id"):
