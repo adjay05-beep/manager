@@ -5,11 +5,16 @@ import asyncio
 import os
 import calendar as cal_mod
 import re
+from utils.logger import log_debug, log_error, log_info
 
 def get_work_controls(page: ft.Page, navigate_to):
-    print("Initializing Work View...", flush=True)
+    # Initializing Work View
     
     # 0. Common Variables & Styles
+    channel_id = page.session.get("channel_id")
+    if not channel_id:
+        return [ft.Container(content=ft.Text("매장 정보가 없습니다. 다시 로그인해 주세요.", color="black"), padding=20)]
+
     black_text = "black"
     grey_text = "grey"
     
@@ -27,19 +32,19 @@ def get_work_controls(page: ft.Page, navigate_to):
     )
     
     # 2. Form Inputs
-    reg_name = ft.TextField(label="이름", width=150, color=black_text, label_style=ft.TextStyle(color=grey_text))
+    reg_name = ft.TextField(label="이름", width=150, color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
     reg_type = ft.Dropdown(
         label="고용 형태", width=120,
         options=[ft.dropdown.Option("full", "정규직"), ft.dropdown.Option("part", "아르바이트")],
-        value="part", color=black_text, label_style=ft.TextStyle(color=grey_text)
+        value="part", color=black_text, label_style=ft.TextStyle(color=grey_text), border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14
     )
     reg_wage_type = ft.Dropdown(
         label="급여 형태", width=100,
         options=[ft.dropdown.Option("hourly", "시급"), ft.dropdown.Option("monthly", "월급")],
-        value="hourly", color=black_text, label_style=ft.TextStyle(color=grey_text)
+        value="hourly", color=black_text, label_style=ft.TextStyle(color=grey_text), border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14
     )
-    reg_wage = ft.TextField(label="금액 (원)", width=120, value="10320", keyboard_type="number", color=black_text, label_style=ft.TextStyle(color=grey_text))
-    reg_start_date = ft.TextField(label="근무 시작일", width=120, value=datetime.now().strftime("%Y-%m-%d"), color=black_text, label_style=ft.TextStyle(color=grey_text))
+    reg_wage = ft.TextField(label="금액 (원)", width=120, value="10320", keyboard_type="number", color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
+    reg_start_date = ft.TextField(label="근무 시작일", width=120, value=datetime.now().strftime("%Y-%m-%d"), color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
     
     # Days Schedule
     days_map = {0: "월", 1: "화", 2: "수", 3: "목", 4: "금", 5: "토", 6: "일"}
@@ -47,13 +52,13 @@ def get_work_controls(page: ft.Page, navigate_to):
     for day_idx in range(7):
         day_schedule[day_idx] = {
             "enabled": ft.Checkbox(label=days_map[day_idx], value=False),
-            "start": ft.TextField(value="09:00", width=60, color=black_text, label_style=ft.TextStyle(color=grey_text), text_size=12),
-            "end": ft.TextField(value="18:00", width=60, color=black_text, label_style=ft.TextStyle(color=grey_text), text_size=12)
+            "start": ft.TextField(value="09:00", width=60, color=black_text, label_style=ft.TextStyle(color=grey_text), text_size=12, height=40, border_color="#E0E0E0", border_radius=8, content_padding=10),
+            "end": ft.TextField(value="18:00", width=60, color=black_text, label_style=ft.TextStyle(color=grey_text), text_size=12, height=40, border_color="#E0E0E0", border_radius=8, content_padding=10)
         }
     
     # Schedule UI Components
-    uniform_start = ft.TextField(label="시작", value="09:00", width=70, color=black_text, label_style=ft.TextStyle(color=grey_text))
-    uniform_end = ft.TextField(label="종료", value="18:00", width=70, color=black_text, label_style=ft.TextStyle(color=grey_text))
+    uniform_start = ft.TextField(label="시작", value="09:00", width=80, color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
+    uniform_end = ft.TextField(label="종료", value="18:00", width=80, color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
     
     # Separate checkboxes for Uniform Mode to avoid parent conflict
     uniform_day_checks = [ft.Checkbox(label=days_map[i], value=False) for i in range(7)]
@@ -86,7 +91,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     
     # Mode Buttons
     mode_btn_uniform = ft.Container(
-        content=ft.Text("모든 요일 동일", size=12, color="white"),
+        content=ft.Text("모든 요일 동일", size=12, color="black"),
         bgcolor="#1A237E", padding=8, border_radius=5, ink=True
     )
     mode_btn_custom = ft.Container(
@@ -97,7 +102,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     schedule_mode_state = {"value": "uniform"}
     
     def set_mode(mode):
-        print(f"Set mode: {mode}", flush=True)
+
         schedule_mode_state["value"] = mode
         if mode == "uniform":
             uniform_ui.visible = True; custom_ui.visible = False
@@ -117,7 +122,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     
     # Edit Dialog Function
     def open_edit_dialog(contract):
-        print(f"Opening edit dialog for {contract.get('id')}", flush=True)
+
         
         # Mode Selection
         edit_mode = ft.RadioGroup(content=ft.Row([
@@ -126,20 +131,29 @@ def get_work_controls(page: ft.Page, navigate_to):
         ]), value="correction")
         
         # Effective Date (for change mode)
-        effective_date = ft.TextField(label="변경 적용 약속일 (YYYY-MM-DD)", value=datetime.now().strftime("%Y-%m-%d"), visible=False)
+        effective_date = ft.TextField(label="변경 적용 약속일 (YYYY-MM-DD)", value=datetime.now().strftime("%Y-%m-%d"), visible=False, height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
         
+        # New Control: Contract Start Date (for correction mode)
+        e_contract_start_date = ft.TextField(
+            label="근무 시작일 (YYYY-MM-DD)",
+            value=contract.get("contract_start_date", ""),
+            height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14
+        )
+
         def on_mode_change(e):
-            effective_date.visible = (e.control.value == "change")
+            val = e.control.value
+            effective_date.visible = (val == "change")
+            e_contract_start_date.visible = (val == "correction")
             page.update()
         
         edit_mode.on_change = on_mode_change
 
-        e_name = ft.TextField(label="이름", value=contract.get('employee_name'))
-        e_type = ft.Dropdown(options=[ft.dropdown.Option("full", "정규직"), ft.dropdown.Option("part", "아르바이트")], value=contract.get('employee_type'))
-        e_wage_type = ft.Dropdown(options=[ft.dropdown.Option("hourly", "시급"), ft.dropdown.Option("monthly", "월급")], value=contract.get('wage_type', 'hourly'))
+        e_name = ft.TextField(label="이름", value=contract.get('employee_name'), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
+        e_type = ft.Dropdown(options=[ft.dropdown.Option("full", "정규직"), ft.dropdown.Option("part", "아르바이트")], value=contract.get('employee_type'), border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
+        e_wage_type = ft.Dropdown(options=[ft.dropdown.Option("hourly", "시급"), ft.dropdown.Option("monthly", "월급")], value=contract.get('wage_type', 'hourly'), border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
         
         wage_val = contract.get('hourly_wage') or contract.get('monthly_wage') or 0
-        e_wage = ft.TextField(label="금액", value=str(wage_val))
+        e_wage = ft.TextField(label="금액", value=str(wage_val), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
         
         # Initialize checkboxes based on current work_days
         current_days = contract.get('work_days', [])
@@ -156,12 +170,12 @@ def get_work_controls(page: ft.Page, navigate_to):
             start_val = ws[first_k].get('start', "09:00")
             end_val = ws[first_k].get('end', "18:00")
             
-        e_start = ft.TextField(label="시작", value=start_val, width=80)
-        e_end = ft.TextField(label="종료", value=end_val, width=80)
+        e_start = ft.TextField(label="시작", value=start_val, width=80, height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
+        e_end = ft.TextField(label="종료", value=end_val, width=80, height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
         
         async def save_edit(e=None):
              try:
-                 print("Save edit triggered", flush=True)
+
                  new_schedule = {}
                  selected_indices = [i for i, chk in enumerate(e_day_checks) if chk.value]
                  
@@ -180,6 +194,7 @@ def get_work_controls(page: ft.Page, navigate_to):
                      "wage_type": e_wage_type.value,
                      "hourly_wage": int(e_wage.value) if e_wage_type.value == 'hourly' else None,
                      "monthly_wage": int(e_wage.value) if e_wage_type.value == 'monthly' else None,
+                     "contract_start_date": e_contract_start_date.value,
                      "work_days": selected_indices,
                      "work_schedule": new_schedule,
                      "daily_work_hours": contract.get('daily_work_hours', 8)
@@ -246,6 +261,7 @@ def get_work_controls(page: ft.Page, navigate_to):
                     ft.Text("수정 유형 선택:", size=12, color="grey"),
                     edit_mode,
                     effective_date,
+                    e_contract_start_date,
                     ft.Divider(),
                     e_name, 
                     e_type, 
@@ -263,7 +279,7 @@ def get_work_controls(page: ft.Page, navigate_to):
             ]
         )
         page.open(dlg)
-        print("Dialog open command sent via page.open()", flush=True)
+
 
     def open_resign_dialog(contract, mode="resign"):
         # mode: "resign" or "restore"
@@ -318,7 +334,7 @@ def get_work_controls(page: ft.Page, navigate_to):
 
     # 4. Async Functions
     async def load_contracts_async():
-        print("Loading contracts...", flush=True)
+
         user_id = page.session.get("user_id")
         if not user_id: return
 
@@ -336,13 +352,21 @@ def get_work_controls(page: ft.Page, navigate_to):
             one_month_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
             await asyncio.to_thread(lambda: client.from_("labor_contracts").delete().lte("contract_end_date", one_month_ago).execute())
 
-            res = await asyncio.to_thread(lambda: client.from_("labor_contracts").select("*").eq("user_id", user_id).order("created_at", desc=True).execute())
+            # [FIX] Filter by channel_id
+            cid = page.session.get("channel_id")
+            res = await asyncio.to_thread(lambda: client.from_("labor_contracts").select("*").eq("channel_id", cid).order("created_at", desc=True).execute())
             contracts = res.data or []
+            
+            # [NEW] Fetch Channel Members to find new employees
+
             
             # Categories
             full_list = []
             part_list = []
             resigned_list = []
+
+
+
 
             # Group by Name to find latest/earliest
             grouped = {}
@@ -460,6 +484,7 @@ def get_work_controls(page: ft.Page, navigate_to):
                 )
                 contract_list.controls.extend(items)
 
+
             add_section("정규 (주 15시간 이상)", ft.Icons.PEOPLE, full_list, "#1A237E")
             add_section("알바 (주 15시간 미만)", ft.Icons.PEOPLE_OUTLINE, part_list, "orange")
             add_section("퇴사 직원", ft.Icons.PERSON_OFF, resigned_list, "grey")
@@ -548,21 +573,29 @@ def get_work_controls(page: ft.Page, navigate_to):
         page.run_task(_delete)
 
     def save_contract_click(e):
-        print("Save button clicked", flush=True)
+
         async def _save():
             try:
                 if not reg_name.value:
                     page.open(ft.SnackBar(ft.Text("이름을 입력해주세요."), bgcolor="red"))
                     page.update()
                     return
-                
-                user_id = page.session.get("user_id")
-                if not user_id:
-                    page.open(ft.SnackBar(ft.Text("로그인이 필요합니다."), bgcolor="red"))
+
+                # 1. Setup Client FIRST
+                from services.auth_service import auth_service
+                from postgrest import SyncPostgrestClient
+                headers = auth_service.get_auth_headers()
+                if not headers:
+                    page.open(ft.SnackBar(ft.Text("인증 정보가 없습니다. 다시 로그인해주세요."), bgcolor="red"))
                     page.update()
                     return
+                if "apikey" not in headers: headers["apikey"] = os.environ.get("SUPABASE_KEY")
+                url = os.environ.get("SUPABASE_URL")
+                client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
 
+                # 2. Build Work Schedule
                 work_schedule = {}
+                # schedule_mode_state is defined in get_work_controls closure
                 if schedule_mode_state["value"] == "uniform":
                     for idx in range(7):
                         if uniform_day_checks[idx].value:
@@ -581,8 +614,27 @@ def get_work_controls(page: ft.Page, navigate_to):
                     page.update()
                     return
 
+                # 3. Resolve User ID from Name
+                target_user_id = None
+                try:
+                    cid = page.session.get("channel_id")
+                    # Fetch valid members to link
+                    m_res = await asyncio.to_thread(lambda: client.from_("channel_members").select("user_id, profiles:user_id(full_name)").eq("channel_id", cid).execute())
+                    norm_name = reg_name.value.strip()
+                    for m in (m_res.data or []):
+                         p = m.get('profiles')
+                         if isinstance(p, list) and p: p = p[0]
+                         if p and p.get('full_name') == norm_name:
+                             target_user_id = m.get('user_id')
+                             log_debug(f"Resolved User ID for {norm_name}: {target_user_id}")
+                             break
+                except Exception as e:
+                    log_error(f"User ID Resolution Error: {e}")
+
+                # 4. Construct Data
                 data = {
-                    "user_id": user_id,
+                    "user_id": target_user_id, # Can be None for offline employees
+                    "channel_id": page.session.get("channel_id"),
                     "employee_name": reg_name.value,
                     "employee_type": reg_type.value,
                     "wage_type": reg_wage_type.value,
@@ -593,28 +645,12 @@ def get_work_controls(page: ft.Page, navigate_to):
                     "daily_work_hours": 8,
                     "contract_start_date": reg_start_date.value
                 }
-                print(f"Saving data: {data}", flush=True)
-
-                from services.auth_service import auth_service
-                from postgrest import SyncPostgrestClient
-                headers = auth_service.get_auth_headers()
-                if not headers:
-                    page.open(ft.SnackBar(ft.Text("인증 정보가 없습니다. 다시 로그인해주세요."), bgcolor="red"))
-                    page.update()
-                    return
-
-                # [FIX] Add apikey to headers
-                if "apikey" not in headers:
-                    headers["apikey"] = os.environ.get("SUPABASE_KEY")
-                url = os.environ.get("SUPABASE_URL")
-                client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
                 
+                log_debug(f"Inserting Contract Data: {data}")
                 await asyncio.to_thread(lambda: client.from_("labor_contracts").insert(data).execute())
                 
                 page.open(ft.SnackBar(ft.Text("등록되었습니다."), bgcolor="green"))
                 
-                # Reset
-                reg_name.value = ""
                 # Reset
                 reg_name.value = ""
                 for idx in range(7): 
@@ -625,7 +661,7 @@ def get_work_controls(page: ft.Page, navigate_to):
                 await load_contracts_async()
                 
             except Exception as ex:
-                print(f"Save Error: {ex}", flush=True)
+                log_error(f"Save Contract Error: {ex}")
                 import traceback
                 traceback.print_exc()
                 page.open(ft.SnackBar(ft.Text(f"저장 오류: {str(ex)}"), bgcolor="red"))
@@ -637,7 +673,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     contract_content = ft.Column([
         ft.Container(
             content=ft.Column([
-                ft.Text("신규 직원 등록", weight="bold", size=16, color="black"),
+                ft.Text("신규 직원 등록", weight="bold", size=18, color="black"),
                 ft.Container(height=10),
                 ft.Row([reg_name, reg_type]),
                 ft.Row([reg_wage_type, reg_wage]),
@@ -647,7 +683,7 @@ def get_work_controls(page: ft.Page, navigate_to):
                 uniform_ui,
                 custom_ui,
                 ft.Container(height=10),
-                ft.ElevatedButton("신규 등록", on_click=save_contract_click, width=300, bgcolor="#1A237E", color="white")
+                ft.ElevatedButton("신규 등록", on_click=save_contract_click, width=300, height=40, bgcolor="#1A237E", color="white")
             ]),
             padding=20, bgcolor="white", border_radius=10, shadow=ft.BoxShadow(blur_radius=5, color="#05000000")
         ),
@@ -672,9 +708,9 @@ def get_work_controls(page: ft.Page, navigate_to):
                 ft.Container(height=10),
                 ft.Container(
                     content=ft.Column([
-                        ft.Text("주휴수당 계산법", weight="bold", color="white"),
-                        ft.Text("(1주 근로시간 / 40) × 8 × 시급", color="white", size=16),
-                        ft.Text("* 주 15시간 이상 근무 시 적용", size=12, color="white70")
+                        ft.Text("주휴수당 계산법", weight="bold", color="#0A1929"),
+                        ft.Text("(1주 근로시간 / 40) × 8 × 시급", color="#0A1929", size=16),
+                        ft.Text("⚠️ 1주 소정근로시간이 15시간 이상인 경우에만 적용됩니다.", size=12, color="red")
                     ]),
                     bgcolor="#2196F3", padding=20, border_radius=10, width=400
                 )
@@ -731,208 +767,68 @@ def get_work_controls(page: ft.Page, navigate_to):
                 payroll_res_col.controls = [ft.ProgressBar()]
                 page.update()
                 
-                from services.auth_service import auth_service
-                from postgrest import SyncPostgrestClient
-                headers = auth_service.get_auth_headers()
-                if not headers:
-                    payroll_res_col.controls = [ft.Text("인증 정보가 없습니다.", color="red")]
-                    page.update()
-                    return
-
-                # [FIX] Add apikey to headers
-                if "apikey" not in headers:
-                    headers["apikey"] = os.environ.get("SUPABASE_KEY")
+                # [REFACTOR] Use PayrollService
+                from services.payroll_service import payroll_service
                 
-                url = os.environ.get("SUPABASE_URL")
-                client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
+                # Fetch & Calculate
+                data = await payroll_service.calculate_payroll(user_id, channel_id, y, m)
+                employees = data["employees"]
+                summary_data = data["summary"]
                 
-                res = await asyncio.to_thread(lambda: client.from_("labor_contracts").select("*").eq("user_id", user_id).execute())
-                contracts = res.data or []
-                
-                # Fetch Overrides (Strictly filtered by user_id)
-                start_iso = f"{y}-{m:02d}-01T00:00:00"
-                last_day = cal_mod.monthrange(y, m)[1]
-                end_iso = f"{y}-{m:02d}-{last_day}T23:59:59"
-                o_res = await asyncio.to_thread(lambda: client.from_("calendar_events")
-                                               .select("*")
-                                               .eq("is_work_schedule", True)
-                                               .eq("created_by", user_id)
-                                               .gte("start_date", start_iso)
-                                               .lte("start_date", end_iso)
-                                               .execute())
-                overrides = o_res.data or []
-                
-                # [Group by Name] Consolidate overrides and contracts
-                eid_to_name = {c['id']: c.get('employee_name', 'Unknown').strip() for c in contracts}
-                
-                def parse_name(ev):
-                    eid = ev.get('employee_id')
-                    if eid and eid in eid_to_name: return eid_to_name[eid]
-                    t = ev.get('title', '')
-                    # Strictly require an emoji for non-linked entries to be counted as "Ledger" entries
-                    if not any(em in t for em in ["🟢", "❌", "⭐", "🔥"]) and not eid:
-                        return None
-                    for emoji in ["🟢", "❌", "⭐", "🔥"]:
-                        t = t.replace(emoji, '')
-                    return t.split('(')[0].split('결근')[0].strip() or "Unknown"
-
-                name_to_events = {}
-                all_names = set(eid_to_name.values())
-                for o in overrides:
-                    nm = parse_name(o)
-                    if not nm: continue # Skip ghost/legacy data
-                    all_names.add(nm)
-                    if nm not in name_to_events: name_to_events[nm] = []
-                    name_to_events[nm].append(o)
-                
-                name_to_history = {}
-                for c in contracts:
-                    nm = c.get('employee_name', 'Unknown').strip()
-                    if nm not in name_to_history: name_to_history[nm] = []
-                    name_to_history[nm].append(c)
-
                 std_items, act_items = [], []
-                total_std, total_act = 0, 0
-                has_incomplete = False
-                days_in_month = cal_mod.monthrange(y, m)[1]
-
-                for name in sorted(all_names):
-                    history = name_to_history.get(name, [])
-                    latest = None
-                    if history:
-                        history.sort(key=lambda x: x.get('created_at', ''), reverse=True)
-                        latest = history[0]
-
-                    # Standard setup
-                    std_pay, std_days = 0, 0
-                    h_wage, m_wage = None, 0
-                    wage_type = 'hourly'
-                    daily_hours, work_days = 0, []
-
-                    if latest:
-                        # Resigned check
-                        ed_str = latest.get('contract_end_date')
-                        if ed_str:
-                            try:
-                                ed = datetime.strptime(ed_str, "%Y-%m-%d")
-                                if ed.year < y or (ed.year == y and ed.month < m): continue
-                            except: pass
-                        
-                        wage_type = latest.get('wage_type', 'hourly')
-                        h_wage = latest.get('hourly_wage') or 9860
-                        m_wage = latest.get('monthly_wage') or 0
-                        daily_hours = latest.get('daily_work_hours', 8)
-                        work_days = latest.get('work_days', [])
-                        
-                        for d in range(1, days_in_month + 1):
-                            if datetime(y, m, d).weekday() in work_days: std_days += 1
-                        
-                        if wage_type == 'monthly': std_pay = m_wage
-                        else: std_pay = std_days * daily_hours * h_wage
-                        
-                        total_std += std_pay
-                        if std_days > 0:
-                            std_items.append(
-                                ft.Container(
-                                    content=ft.Row([
-                                        ft.Column([ft.Text(name, weight="bold", size=14), ft.Text(f"계약 스케줄 ({std_days}일)", size=10, color="grey")], spacing=2),
-                                        ft.Text(f"{int(std_pay):,}원", weight="bold", size=14)
-                                    ], alignment="spaceBetween"),
-                                    padding=10, bgcolor="white", border_radius=8, border=ft.border.all(1, "#F0F0F0")
-                                )
+                
+                for emp in employees:
+                    name = emp['name']
+                    
+                    # 1. Standard UI
+                    if emp['std_days'] > 0:
+                        std_items.append(
+                            ft.Container(
+                                content=ft.Row([
+                                    ft.Column([ft.Text(name, weight="bold", size=14), ft.Text(f"계약 스케줄 ({emp['std_days']}일)", size=10, color="grey")], spacing=2),
+                                    ft.Text(f"{int(emp['std_pay']):,}원", weight="bold", size=14)
+                                ], alignment="spaceBetween"),
+                                padding=10, bgcolor="white", border_radius=8, border=ft.border.all(1, "#F0F0F0")
                             )
+                        )
 
-                    # Actual calculation
-                    act_pay, act_hours, act_days = 0, 0, 0
-                    override_wage = None
+                    # 2. Actual UI
+                    diff_val = emp['diff']
+                    act_pay = emp['act_pay']
+                    diff_color = "red" if diff_val > 0 else "blue" if diff_val < 0 else "grey"
                     
-                    # Track which days have overrides to avoid double-counting standard hours
-                    override_days = set()
+                    pay_display = ft.Text(f"{int(act_pay):,}원", weight="bold", size=16, color="blue") if act_pay is not None else ft.Text("???원", weight="bold", size=16, color="red")
                     
-                    for o in name_to_events.get(name, []):
-                        # Use hourly_wage column from DB
-                        if o.get('hourly_wage'): 
-                            override_wage = float(o['hourly_wage'])
-                        
+                    # Inline Wage Edit
+                    async def on_wage_submit(e, nm=name, custom_val=None, events=emp['events']):
                         try:
-                            day = int(o['start_date'].split('T')[0].split('-')[-1])
-                            override_days.add(day)
+                            raw_val = custom_val if custom_val is not None else e.control.value
+                            if not raw_val: return
+                            val = float(str(raw_val).replace(',', '').strip())
                             
-                            s_str = o['start_date'].split('T')[1][:5]
-                            e_str = o['end_date'].split('T')[1][:5]
-                            sh, sm = map(int, s_str.split(':'))
-                            eh, em = map(int, e_str.split(':'))
-                            diff = (eh + em/60) - (sh + sm/60)
-                            if diff < 0: diff += 24
-                            act_hours += diff
-                        except: pass
+                            target_ids = [o['id'] for o in events]
+                            if target_ids:
+                                await payroll_service.update_wage_override(target_ids, val)
+                                page.open(ft.SnackBar(ft.Text(f"{nm}님 시급 {val:,}원으로 연동되었습니다."), bgcolor="green"))
+                                await _calc()
+                            else:
+                                page.open(ft.SnackBar(ft.Text("근무 기록이 없어 시급을 변경할 수 없습니다."), bgcolor="orange"))
+                        except Exception as ex:
+                            page.open(ft.SnackBar(ft.Text(f"입력 오류: {ex}"), bgcolor="red"))
+
+                    wage_input = ft.TextField(
+                        label="시급", value=str(int(emp['h_wage'])) if emp['h_wage'] else "", 
+                        width=100, text_size=12, content_padding=5,
+                        on_submit=lambda e, n=name, evs=emp['events']: page.run_task(on_wage_submit, e, n, None, evs),
+                    )
                     
-                    act_days = len(override_days)
-                    
-                    for d in range(1, days_in_month + 1):
-                        if d not in override_days and datetime(y, m, d).weekday() in work_days:
-                            act_hours += daily_hours
-                            act_days += 1
+                    save_btn = ft.ElevatedButton(
+                        text="입력", color="white", bgcolor="blue",
+                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5), padding=5),
+                        on_click=lambda _, n=name, inp=wage_input, evs=emp['events']: page.run_task(on_wage_submit, None, n, inp.value, evs)
+                    )
 
-                    if not latest:
-                        h_wage = override_wage
-                        wage_type = 'hourly'
-                    elif override_wage: # Contract exists but event has override
-                        h_wage = override_wage
-
-                    if h_wage is None and wage_type == 'hourly':
-                        act_pay = None # Unknown
-                        if (act_hours > 0): has_incomplete = True
-                    elif wage_type == 'monthly': 
-                        act_pay = m_wage
-                    else: 
-                        act_pay = act_hours * h_wage
-                    
-                    if act_pay is not None: total_act += act_pay
-                    if act_days > 0 or act_hours > 0:
-                        diff_val = (act_pay - std_pay) if act_pay is not None else 0
-                        diff_color = "red" if diff_val > 0 else "blue" if diff_val < 0 else "grey"
-                        
-                        pay_display = ft.Text(f"{int(act_pay):,}원", weight="bold", size=16, color="blue") if act_pay is not None else ft.Text("???원", weight="bold", size=16, color="red")
-                        
-                        # Inline Edit for Substitutes or Overrides
-                        async def on_wage_submit(e, nm=name, custom_val=None):
-                            try:
-                                raw_val = custom_val if custom_val is not None else e.control.value
-                                if not raw_val: return
-                                val = float(str(raw_val).replace(',', '').strip())
-                                
-                                # Update all events for this name/month
-                                target_ids = [o['id'] for o in name_to_events.get(nm, [])]
-                                if target_ids:
-                                    # Update hourly_wage column with audit tracking
-                                    await asyncio.to_thread(lambda: client.from_("calendar_events").update({
-                                        "hourly_wage": val,
-                                        "wage_updated_at": datetime.now().isoformat()
-                                    }).in_("id", target_ids).execute())
-                                    
-                                    page.open(ft.SnackBar(ft.Text(f"{nm}님 시급 {val:,}원으로 연동되었습니다."), bgcolor="green"))
-                                    await _calc()
-                                else:
-                                    page.open(ft.SnackBar(ft.Text(f"{nm}님의 근무 기록을 찾을 수 없습니다."), bgcolor="orange"))
-                            except Exception as ex:
-                                print(f"Wage Update Error: {ex}")
-                                page.open(ft.SnackBar(ft.Text(f"입력 오류: {ex}"), bgcolor="red"))
-
-                        wage_input = ft.TextField(
-                            label="시급", value=str(int(h_wage)) if h_wage else "", 
-                            width=100, text_size=12, content_padding=5,
-                            on_submit=lambda e, n=name: page.run_task(on_wage_submit, e, n),
-                        )
-                        
-                        save_btn = ft.ElevatedButton(
-                            text="입력",
-                            color="white",
-                            bgcolor="blue",
-                            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5), padding=5),
-                            on_click=lambda _, n=name, inp=wage_input: page.run_task(on_wage_submit, None, n, inp.value)
-                        )
-
+                    if emp['act_days'] > 0 or emp['act_hours'] > 0:
                         act_items.append(
                             ft.Container(
                                 content=ft.Row([
@@ -944,9 +840,9 @@ def get_work_controls(page: ft.Page, navigate_to):
                                                 bgcolor=diff_color, padding=ft.padding.symmetric(horizontal=5, vertical=2),
                                                 border_radius=4, visible=(diff_val!=0 and act_pay is not None)
                                             ),
-                                            ft.Row([wage_input, save_btn], spacing=5) if (not latest or h_wage is None) else ft.Container()
+                                            ft.Row([wage_input, save_btn], spacing=5) 
                                         ], spacing=5, vertical_alignment="center"),
-                                        ft.Text(f"실제 근무 ({act_days}일, {act_hours:.1f}시간)", size=10, color="grey")
+                                        ft.Text(f"실제 근무 ({emp['act_days']}일, {emp['act_hours']:.1f}시간)", size=10, color="grey")
                                     ], spacing=2, expand=True),
                                     pay_display,
                                 ], alignment="spaceBetween"),
@@ -955,6 +851,11 @@ def get_work_controls(page: ft.Page, navigate_to):
                             )
                         )
                 
+                # Summary Card
+                has_incomplete = summary_data["has_incomplete"]
+                total_act = summary_data["total_act"]
+                total_std = summary_data["total_std"]
+
                 summary = ft.Container(
                     content=ft.Column([
                         ft.Row([
@@ -1007,6 +908,8 @@ def get_work_controls(page: ft.Page, navigate_to):
                 
             except Exception as ex:
                 print(f"Payroll Error: {ex}")
+                import traceback
+                traceback.print_exc()
                 payroll_res_col.controls = [ft.Text(f"오류: {ex}", color="red")]
                 page.update()
         page.run_task(_calc)
@@ -1014,40 +917,57 @@ def get_work_controls(page: ft.Page, navigate_to):
     payroll_content = ft.Column([
         ft.Text("급여 정산", weight="bold", size=18),
         ft.Text("* 상단: 계약 기준 예상 / 하단: 캘린더 실제 기록 기준", size=12, color="grey"),
-        ft.Row([dd_year, ft.Text("년"), dd_month, ft.Text("월"), ft.ElevatedButton("조회", on_click=calc_payroll)], vertical_alignment="center"),
+        ft.Row([dd_year, ft.Text("년", size=14), dd_month, ft.Text("월", size=14), ft.ElevatedButton("조회", on_click=calc_payroll, height=40, bgcolor="#1565C0", color="white")], vertical_alignment="center"),
         ft.Divider(),
         payroll_res_col
     ], scroll=ft.ScrollMode.AUTO)
 
-    tabs = ft.Tabs(
-        selected_index=0,
-        animation_duration=300,
-        height=45,
-        tabs=[
-            ft.Tab(text="계약 관리", icon=ft.Icons.FOLDER_SHARED),
-            ft.Tab(text="급여 정산", icon=ft.Icons.MONETIZATION_ON),
-            ft.Tab(text="노무 정보", icon=ft.Icons.WORK),
-            ft.Tab(text="세무 가이드", icon=ft.Icons.ATTACH_MONEY),
-        ]
-    )
-
+    
     body = ft.Container(content=contract_content, expand=True)
 
-    def on_tab_change(e):
-        idx = e.control.selected_index
-        if idx == 0:
-            body.content = contract_content
-            page.run_task(load_contracts_async)
-        elif idx == 1:
-            body.content = payroll_content
-            # No async task needed immediately for payroll, it's manual
-        elif idx == 2:
-            body.content = labor_content
-        elif idx == 3:
-            body.content = tax_content
-        page.update()
+    # Custom Tabs with Separator
+    tabs_row = ft.Row(spacing=0, alignment=ft.MainAxisAlignment.CENTER)
+    current_tab_idx = [0]
 
-    tabs.on_change = on_tab_change
+    def update_tabs_ui():
+        tabs_row.controls.clear()
+        tab_defs = [
+            ("계약 관리", ft.Icons.FOLDER_SHARED),
+            ("급여 정산", ft.Icons.MONETIZATION_ON),
+            ("노무 정보", ft.Icons.WORK),
+            ("세무 가이드", ft.Icons.ATTACH_MONEY)
+        ]
+        
+        for i, (txt, icn) in enumerate(tab_defs):
+            is_active = (current_tab_idx[0] == i)
+            color = "#1565C0" if is_active else "grey"
+            weight = "bold" if is_active else "normal"
+            
+            def on_click_tab(e, idx=i):
+                current_tab_idx[0] = idx
+                update_tabs_ui()
+                
+                if idx == 0: body.content = contract_content; page.run_task(load_contracts_async)
+                elif idx == 1: body.content = payroll_content
+                elif idx == 2: body.content = labor_content
+                elif idx == 3: body.content = tax_content
+                page.update()
+
+            tabs_row.controls.append(
+                ft.Container(
+                    content=ft.Row([ft.Icon(icn, size=16, color=color), ft.Text(txt, size=14, color=color, weight=weight)], spacing=5),
+                    padding=ft.padding.symmetric(horizontal=20, vertical=10),
+                    on_click=on_click_tab,
+                    border_radius=30,
+                    ink=True,
+                    bgcolor=ft.Colors.with_opacity(0.05, "#1565C0") if is_active else None
+                )
+            )
+            # Separator
+            if i < len(tab_defs) - 1:
+                tabs_row.controls.append(ft.Container(width=1, height=15, bgcolor="#E0E0E0", margin=ft.margin.symmetric(horizontal=5)))
+        
+    update_tabs_ui()
 
     header = ft.Container(
         content=ft.Row([
@@ -1066,7 +986,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     return [
         ft.Column([
             ft.Container(header, bgcolor="white"),
-            ft.Container(tabs, height=45),
+            ft.Container(tabs_row, height=50, bgcolor="white"),
             ft.Container(body, expand=True, padding=10)
         ], spacing=0, expand=True)
     ]

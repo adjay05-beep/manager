@@ -13,16 +13,14 @@ def get_signup_controls(page: ft.Page, navigate_to):
     }
 
     # --- Header ---
-    header = ft.Text("회원가입", size=30, weight="bold", color="white")
-    sub_header = ft.Text("The Manager에 오신 것을 환영합니다.", color="white70")
+    header = ft.Text("회원가입", size=30, weight="bold", color="#0A1929")
+    sub_header = ft.Text("The Manager에 오신 것을 환영합니다.", color="grey")
 
     # --- Form Controls ---
-    email_tf = ft.TextField(label="이메일", width=300, color="white", border_color="white70")
-    name_tf = ft.TextField(label="이름 (실명 추천)", width=300, color="white", border_color="white70")
-    pw_tf = ft.TextField(label="비밀번호 (6자 이상)", password=True, width=300, color="white", border_color="white70")
-    pw_cf_tf = ft.TextField(label="비밀번호 확인", password=True, width=300, color="white", border_color="white70")
-    
-    pw_cf_tf = ft.TextField(label="비밀번호 확인", password=True, width=300, color="white", border_color="white70")
+    email_tf = ft.TextField(label="이메일", width=300, color="black", border_color="grey")
+    name_tf = ft.TextField(label="이름 (실명 추천)", width=300, color="black", border_color="grey")
+    pw_tf = ft.TextField(label="비밀번호 (6자 이상)", password=True, width=300, color="black", border_color="grey")
+    pw_cf_tf = ft.TextField(label="비밀번호 확인", password=True, width=300, color="black", border_color="grey")
     
     # [UPDATED] Role Selection (Dropdown, No Default)
     role_dd = ft.Dropdown(
@@ -32,15 +30,15 @@ def get_signup_controls(page: ft.Page, navigate_to):
             ft.dropdown.Option("owner", "사장님 (Owner)"),
             ft.dropdown.Option("staff", "직원 (Staff)"),
         ],
-        bgcolor=ft.Colors.with_opacity(0.1, "white"),
-        color="white",
-        border_color="white70",
+        bgcolor="white",
+        color="black",
+        border_color="grey",
     )
     
     error_txt = ft.Text("", color="red", size=12)
 
     # --- Verification Controls ---
-    otp_tf = ft.TextField(label="인증코드 6자리", width=300, text_align="center", color="white", border_color="#00C73C", text_style=ft.TextStyle(letter_spacing=5))
+    otp_tf = ft.TextField(label="인증코드 6자리", width=300, text_align="center", color="black", border_color="#00C73C", text_style=ft.TextStyle(letter_spacing=5))
     verify_status = ft.Text("이메일로 전송된 코드를 입력하세요.", color="white70", size=12)
 
     def set_loading(loading):
@@ -72,18 +70,18 @@ def get_signup_controls(page: ft.Page, navigate_to):
              if "이미 가입된" in msg:
                  # [Auto-Recovery] User likely crashed before verifying.
                  try:
-                     print("DEBUG: Auto-recovering existing user...")
+
                      # Attempt login with same credentials
                      user = auth_service.sign_in(state["email"], pw_tf.value)
                      if user:
                          # Miracle: They are already verified?
-                         print("DEBUG: Auto-login success")
+
                          pass # Will fall through to session check navigation
                  except Exception as login_ex:
                      l_msg = str(login_ex)
                      if "Email not confirmed" in l_msg or "confirmed" in l_msg:
                          # Expected Limbo State -> Recover
-                         print("DEBUG: User unverified. Resending OTP.")
+
                          try:
                             auth_service.resend_otp(state["email"])
                          except: pass
@@ -107,7 +105,7 @@ def get_signup_controls(page: ft.Page, navigate_to):
             update_view()
 
     def do_signup(e):
-        print("DEBUG: do_signup called")
+
         state["email"] = email_tf.value
         if not state["email"] or not pw_tf.value:
             error_txt.value = "모든 필드를 입력해주세요."; update_view(); return
@@ -118,12 +116,12 @@ def get_signup_controls(page: ft.Page, navigate_to):
         if not role_dd.value:
             error_txt.value = "가입 유형(사장님/직원)을 선택해주세요."; update_view(); return
 
-        print("DEBUG: Setting loading=True")
+
         state["loading"] = True
         update_view() # Show spinner
-        print("DEBUG: Starting Thread")
+
         threading.Thread(target=_signup_thread, daemon=True).start()
-        print("DEBUG: Thread Start Called")
+
 
     def _verify_thread(code):
         try:
@@ -209,14 +207,20 @@ def get_signup_controls(page: ft.Page, navigate_to):
 
     return [
         ft.Stack([
-            ft.Container(expand=True, bgcolor="#0A1929"),
+            ft.Container(expand=True, bgcolor="white"),
             ft.Container(
                 content=ft.Container(
                     content=card_content,
                     padding=40,
-                    border_radius=20,
-                    border=ft.border.all(1, ft.Colors.with_opacity(0.2, "white")),
-                    bgcolor=ft.Colors.with_opacity(0.1, "white")
+                    border_radius=16,
+                    border=ft.border.all(1, "#DDDDDD"),
+                    bgcolor="white",
+                    shadow=ft.BoxShadow(
+                        spread_radius=1,
+                        blur_radius=10,
+                        color=ft.Colors.with_opacity(0.1, "black"),
+                        offset=ft.Offset(0, 4),
+                    )
                 ),
                 alignment=ft.alignment.center,
                 expand=True

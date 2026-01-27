@@ -54,10 +54,32 @@ async def handle_file_upload(page: ft.Page, file_obj: ft.FilePickerFile, status_
 
         else:
             # Native / Desktop
-            if status_callback: status_callback("서버로 전송 중 (Native)...")
+            if status_callback: status_callback("최적화(압축) 진행 중...")
+            
             if file_obj.path:
-                with open(file_obj.path, "rb") as f:
-                    upload_file_server_side(storage_name, f.read())
+                final_path = file_obj.path
+                is_temp = False
+                
+                try:
+                    # [COMPRESSION STEP]
+                    from services.compression_service import compress_file
+                    compressed_path = compress_file(file_obj.path)
+                    
+                    if compressed_path != file_obj.path:
+                        final_path = compressed_path
+                        is_temp = True
+                        if status_callback: status_callback("서버로 전송 중...")
+                    
+                    with open(final_path, "rb") as f:
+                        upload_file_server_side(storage_name, f.read())
+                        
+                finally:
+                    # Cleanup Temp
+                    if is_temp and os.path.exists(final_path):
+                        try:
+                            os.remove(final_path)
+                        except: pass
+
                 return {
                     "type": "native_url",
                     "public_url": get_public_url(storage_name),

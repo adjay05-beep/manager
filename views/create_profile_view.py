@@ -73,9 +73,9 @@ def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email)
             content=ft.Column(
                 [
                     ft.Container(height=60),
-                    ft.Icon(ft.Icons.PERSON_ADD, size=80, color="#2E7D32"),
-                    ft.Text("프로필 만들기", size=28, weight="bold", color="white"),
-                    ft.Container(height=10),
+                    ft.Icon(ft.Icons.PERSON_ADD, size=50, color="#1565C0"),
+                    ft.Text("프로필 만들기", size=28, weight="bold", color="#0A1929"),
+                    ft.Text("가입을 완료하기 위해 프로필을 설정해주세요.", color="grey"),
                     ft.Text(f"환영합니다! {user_email}", size=14, color="#BDBDBD"),
                     ft.Container(height=30),
                     
@@ -89,9 +89,10 @@ def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email)
                         on_click=create_profile,
                         width=300,
                         height=50,
+                        bgcolor="white",
+                        color="black",
+                        border_color="grey",
                         style=ft.ButtonStyle(
-                            bgcolor="#2E7D32",
-                            color="white",
                             shape=ft.RoundedRectangleBorder(radius=8)
                         )
                     ),
@@ -108,7 +109,7 @@ def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email)
                 alignment=ft.MainAxisAlignment.START
             ),
             expand=True,
-            bgcolor="#0A1929",
+            bgcolor="white",
             padding=20
         )
     ]

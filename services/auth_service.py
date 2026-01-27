@@ -146,5 +146,26 @@ class AuthService:
             "Content-Type": "application/json"
         }
 
+    def get_session(self):
+        """Return the current session object (containing tokens)"""
+        try:
+            return supabase.auth.get_session()
+        except:
+            return None
+
+    def recover_session(self, access_token, refresh_token):
+        """Recover session from stored tokens"""
+        try:
+            # Set the session manually
+            res = supabase.auth.set_session(access_token, refresh_token)
+            if res.user:
+                self.current_user = res.user
+                return res.user
+            return None
+        except Exception as e:
+            # Token expired or invalid
+            print(f"Session Recovery Failed (Likely Expired): {e}")
+            return None
+
 # Singleton Instance
 auth_service = AuthService()

@@ -1,19 +1,33 @@
 import flet as ft
 from datetime import datetime, time
 import calendar
+import re
 import urllib.parse
 import asyncio
 from services import calendar_service
 from services.chat_service import get_storage_signed_url, get_public_url, upload_file_server_side
 import os
+from utils.logger import log_debug, log_error, log_info
 
 def get_calendar_controls(page: ft.Page, navigate_to):
     now = datetime.now()
     view_state = {"year": now.year, "month": now.month, "today": now.day, "events": []}
     
+    # [FIX] Multi-Channel
+    log_debug("Entering get_calendar_controls")
+    channel_id = page.session.get("channel_id")
+    log_debug(f"Channel ID: {channel_id}")
+
+    if not channel_id:
+        log_error("No Channel ID - returning error UI")
+        return [ft.Container(content=ft.Text("매장 정보가 없습니다.", color="red"), padding=20)]
+    
     month_label = ft.Text("", size=18, weight="bold", color="#333333")
     # [Calendar V2] Sidebar & Multi-Calendar State
-    current_cal_type = "store" # store | staff
+    current_cal_type = "store" # Default to store view
+    
+    # State for UI rebuilds
+    # current_cal_type = "store" # Moved up # store | staff
     
     # [DEBUG]
     debug_text = ft.Text(value="", color="red", size=14)
@@ -23,9 +37,10 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         expand=True,
         runs_count=7,
         max_extent=150,
-        child_aspect_ratio=1.0,
+        child_aspect_ratio=1.2,  # Increased from 1.0 to make cells wider and less tall
         spacing=0,
-        run_spacing=0
+        run_spacing=0,
+        padding=0
     )
     
     # Staff Schedule Generator
@@ -40,11 +55,12 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             url = os.environ.get("SUPABASE_URL")
             client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
             
-            # 1. Fetch Contracts (Strictly filtered by user_id)
-            c_res = await asyncio.to_thread(lambda: client.from_("labor_contracts").select("*").eq("user_id", current_user_id).execute())
+            # 1. Fetch Contracts (Filtered by Channel to see ALL staff)
+            # Was: .eq("user_id", current_user_id) -> This only showed MY contract
+            c_res = await asyncio.to_thread(lambda: client.from_("labor_contracts").select("*").eq("channel_id", channel_id).execute())
             contracts = c_res.data or []
             
-            # 2. Fetch Overrides (is_work_schedule = True, Strictly filtered by user_id)
+            # 2. Fetch Overrides (is_work_schedule = True, Filtered by Channel)
             start_iso = f"{year}-{month:02d}-01T00:00:00"
             last_day = calendar.monthrange(year, month)[1]
             end_iso = f"{year}-{month:02d}-{last_day}T23:59:59"
@@ -52,9 +68,10 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             o_res = await asyncio.to_thread(lambda: client.from_("calendar_events")
                                            .select("*")
                                            .eq("is_work_schedule", True)
-                                           .eq("created_by", current_user_id)
+                                           # Remove created_by filter to see schedules made by other managers
                                            .gte("start_date", start_iso)
                                            .lte("start_date", end_iso)
+                                           .eq("channel_id", channel_id)
                                            .execute())
             overrides = o_res.data or []
         except Exception as ex: 
@@ -201,49 +218,53 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     # [RBAC] Get User from Session
     current_user_id = page.session.get("user_id")
     # For robust MVP, allow view but require login
-    if not current_user_id:
-        # navigate_to("login") # Handled by main or caller? 
-        # Actually calendar_view is called AFTER login. 
-        # But if session lost (dev reload), maybe empty.
-        pass
-
     def load():
+        log_debug("load() called - scheduling load_async")
         page.run_task(load_async)
         
     async def load_async():
-        if not current_user_id: return
+        log_debug(f"load_async start. User: {current_user_id}, Channel: {channel_id}, Type: {current_cal_type}")
+        if not current_user_id: 
+            log_debug("No current_user_id")
+            return
+            
         try:
             if current_cal_type == "store":
-                view_state["events"] = await calendar_service.get_all_events(current_user_id)
+                log_debug("Fetching store events...")
+                view_state["events"] = await calendar_service.get_all_events(current_user_id, channel_id)
+                log_debug(f"Store events fetched: {len(view_state['events'])}")
             elif current_cal_type == "staff":
+                log_debug("Fetching staff events...")
                 view_state["events"] = await generate_staff_events(view_state["year"], view_state["month"])
+                log_debug(f"Staff events fetched: {len(view_state['events'])}")
             
+            log_debug("Calling build()...")
             build()
-            build()
+            log_debug("Calling page.update() inside load_async")
+            page.update()
+            
         except Exception as e: 
             import traceback
             err = traceback.format_exc()
+            log_error(f"Calendar Load Error: {err}")
             print(f"Calendar Load Error: {err}")
             debug_text.value = f"Load Error: {e}"
-            page.update()  # Force UI update to show error
-            # page.snack_bar = ft.SnackBar(ft.Text(f"일정 로드 실패: {e}"), bgcolor="red")
-            # page.snack_bar.open = True
-            # page.update()
+            if page: page.update()
             build()
 
     def build():
         try:
+            log_debug(f"build() called for {view_state['year']}-{view_state['month']}")
             grid.controls.clear()
             y = view_state["year"]
             m = view_state["month"]
             month_label.value = f"{y}년 {m}월 ({'전체 일정' if current_cal_type=='store' else '직원 근무표'})"
             
-            # Headers
-            wd_names = ["월", "화", "수", "목", "금", "토", "일"]
-            for wd in wd_names:
-                grid.controls.append(ft.Container(content=ft.Text(wd, color="grey", size=12, text_align="center"), alignment=ft.alignment.center, height=30))
+            # Headers are now separate, don't add to grid
                 
             cal = calendar.monthcalendar(y, m)
+            log_debug(f"Calendar generated weeks: {len(cal)}")
+            
             for week in cal:
                 for day in week:
                     if day == 0:
@@ -256,6 +277,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                     day_cols.append(day_label)
                     
                     day_events = []
+                    # ... rest of the code ...
                     for ev in view_state["events"]:
                         try:
                             # Simple date string check for MVP
@@ -280,8 +302,8 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                         ft.Container(
                             content=ft.Column(day_cols, spacing=2),
                             bgcolor="white",
-                            border=ft.border.all(0.5, "#EEEEEE"),
-                            padding=4,
+                            border=ft.border.all(0.5, "#CCCCCC"),
+                            padding=5,
                             on_click=lambda e, d=day: (open_staff_day_ledger(d) if current_cal_type=="staff" else open_event_editor_dialog(d)),
                             alignment=ft.alignment.top_left
                         )
@@ -335,7 +357,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             page.open(dlg_prev)
 
         content = ft.Column([
-            ft.Text(ev['title'], size=20, weight="bold"),
+            ft.Text(ev['title'], size=18, weight="bold"),
             ft.Text(f"{ev['start_date'][:16]} ~ {ev['end_date'][:16]}", size=14),
         ], spacing=10, tight=True)
         
@@ -412,7 +434,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 existing_list.controls.append(
                     ft.Row([
                         ft.Icon(ft.Icons.CHECK_CIRCLE, color="green" if "결근" not in ev['title'] else "red", size=14),
-                        ft.Text(ev['title'], size=12, expand=True),
+                        ft.Text(ev['title'], size=14, expand=True),
                         ft.IconButton(ft.Icons.DELETE, icon_color="red", icon_size=16, on_click=lambda e, eid=ev['id']: page.run_task(delete_and_refresh, eid))
                     ])
                 )
@@ -501,7 +523,8 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 "color": color,
                 "employee_id": eid,
                 "is_work_schedule": True,
-                "created_by": page.session.get("user_id")
+                "created_by": page.session.get("user_id"),
+                "channel_id": channel_id
             }
             res = await asyncio.to_thread(lambda: client.from_("calendar_events").insert(payload).execute())
             if res.data:
@@ -712,7 +735,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
 
         participant_chips = ft.Row(wrap=True)
         async def load_part_profiles():
-            profiles = await calendar_service.load_profiles()
+            profiles = await calendar_service.load_profiles(channel_id)
             
             def toggle_part(pid):
                 if pid in evt_state["participants"]: evt_state["participants"].remove(pid)
@@ -755,7 +778,8 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 "participant_ids": evt_state["participants"],
                 "created_by": current_user_id,
                 # Legacy compatibility or extra tracking
-                "user_id": current_user_id
+                "user_id": current_user_id,
+                "channel_id": channel_id
             }
             
             async def _save_async():
@@ -804,26 +828,63 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         elif view_state["month"] < 1: view_state["month"]=12; view_state["year"]-=1
         load()
 
+    month_label = ft.Text(f"{view_state['year']}년 {view_state['month']}월", size=20, weight="bold", color="#0A1929")
+
+    def go_today():
+        now = datetime.now()
+        view_state["year"] = now.year
+        view_state["month"] = now.month
+        load()
+
+    def open_event_dialog():
+        open_event_editor_dialog(datetime.now().day)
+
+    top_bar = ft.Container(
+        padding=10,
+        bgcolor="white",
+        content=ft.Row([
+            # Back button on the left
+            ft.IconButton(ft.Icons.ARROW_BACK, icon_color="#333333", on_click=lambda _: navigate_to("home"), tooltip="돌아가기"),
+            ft.Row([
+                ft.Row([
+                    ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=lambda _: change_m(-1), icon_color="#0A1929"), 
+                    month_label, 
+                    ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=lambda _: change_m(1), icon_color="#0A1929")
+                ], alignment=ft.MainAxisAlignment.CENTER),
+            ], expand=True, alignment=ft.MainAxisAlignment.CENTER), # Center the month navigator
+            ft.Row([
+                ft.IconButton(ft.Icons.REFRESH, on_click=lambda _: load(), icon_color="#0A1929"), 
+                # ft.TextButton("나가기", icon=ft.Icons.LOGOUT, on_click=lambda _: navigate_to("home")) # Moved to Nav Bar
+            ])
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+    )
+
     header = ft.Container(
         height=100, # Increased height for SafeArea
         bgcolor="white", 
         border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE")), 
         padding=ft.padding.only(left=20, right=20, top=40), # Added top padding
-        content=ft.Row([
+        content=ft.Column([
+            top_bar,
             ft.Row([
-                ft.Row([
-                    ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=lambda _: change_m(-1)), 
-                    month_label, 
-                    ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=lambda _: change_m(1))
-                ], alignment=ft.MainAxisAlignment.CENTER),
-            ], expand=True, alignment=ft.MainAxisAlignment.CENTER), # Center the month navigator
-            ft.Row([
-                ft.IconButton(ft.Icons.REFRESH, on_click=lambda _: load()), 
-                # ft.TextButton("나가기", icon=ft.Icons.LOGOUT, on_click=lambda _: navigate_to("home")) # Moved to Nav Bar
-            ])
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                ft.ElevatedButton("오늘", on_click=lambda e: go_today(), bgcolor="#EEEEEE", color="black"),
+                ft.FloatingActionButton(icon=ft.Icons.ADD, on_click=lambda e: open_event_dialog(), bgcolor="#1565C0", mini=True)
+            ], alignment=ft.MainAxisAlignment.END) # Align to end for "Today" and "Add" buttons
+        ])
     )
-    load()
+    
+    async def initial_load_delayed():
+        try:
+            await asyncio.sleep(0.5) # Increased delay to be safe
+            await load_async()
+        except Exception as e:
+            msg = f"Init Load Error: {e}"
+            print(msg)
+            try:
+                log_error(msg)
+            except: pass
+
+    page.run_task(initial_load_delayed)
     
     # [RBAC] Sidebar
     # Only Owner sees Staff Calendar
@@ -856,9 +917,15 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             ),
         ],
         on_change=nav_change,
-        bgcolor="white"
+        bgcolor="white",
+        indicator_color="#1565C0",  # Deep blue for selected background
+        indicator_shape=ft.RoundedRectangleBorder(radius=20),
+        selected_label_text_style=ft.TextStyle(color="white", weight=ft.FontWeight.BOLD),
+        unselected_label_text_style=ft.TextStyle(color="black")
     )
 
+    log_debug("Exiting get_calendar_controls (Returning UI)")
+    
     return [
         ft.Column([
             debug_text,
@@ -866,7 +933,24 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             ft.Row([
                 rail,
                 ft.VerticalDivider(width=1, color="#EEEEEE"),
-                ft.Container(grid, expand=True, padding=10)
+                ft.Container(
+                    expand=True,
+                    padding=ft.padding.only(left=10, right=10, bottom=10, top=5),
+                    content=ft.Column([
+                        # Weekday header row
+                        ft.Row([
+                            ft.Container(content=ft.Text("월", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
+                            ft.Container(content=ft.Text("화", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
+                            ft.Container(content=ft.Text("수", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
+                            ft.Container(content=ft.Text("목", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
+                            ft.Container(content=ft.Text("금", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
+                            ft.Container(content=ft.Text("토", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
+                            ft.Container(content=ft.Text("일", color="black", size=15, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, bgcolor="white", border=ft.border.all(0.5, "#CCCCCC"), padding=5),
+                        ], spacing=0),
+                        # Grid with only date cells
+                        grid
+                    ], spacing=0, expand=True)
+                )
             ], expand=True, spacing=0)
         ], expand=True, spacing=0)
     ]

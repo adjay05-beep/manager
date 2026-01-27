@@ -29,7 +29,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             expand=True,
             content=ft.Column([
                 ft.Icon(ft.Icons.ERROR_OUTLINE, size=64, color="red"),
-                ft.Text("세션이 만료되었습니다", size=20, weight="bold", color="red"),
+                ft.Text("세션이 만료되었습니다", size=18, weight="bold", color="red"),
                 ft.Text("다시 로그인해 주세요", size=14, color="grey"),
                 ft.ElevatedButton(
                     "로그인 화면으로", 
@@ -70,25 +70,36 @@ def get_chat_controls(page: ft.Page, navigate_to):
             # [DIAGNOSTIC] Log database connection status
             log_info(f"Database URL: {service_supabase.url[:30]}...")
             
-            categories_data = chat_service.get_categories()
+            # [FIX] Multi-Channel Support
+            current_channel_id = page.session.get("channel_id")
+            if not current_channel_id:
+                log_info("Chat ERROR: No channel_id in session")
+                page.snack_bar = ft.SnackBar(ft.Text("매장 정보가 없습니다. 다시 로그인해 주세요."), bgcolor="red", open=True)
+                page.update()
+                return
+
+            log_info(f"Loading topics for user {current_user_id} in channel {current_channel_id}")
+            
+            # [FIX] Async wrappers for Blocking Service Calls
+            categories_data = await asyncio.to_thread(chat_service.get_categories, current_channel_id)
             log_info(f"Categories loaded: {len(categories_data) if categories_data else 0}")
             categories = [c['name'] for c in categories_data] if categories_data else ["공지", "일반", "중요", "개별 업무"]
 
             if show_all:
-                topics = chat_service.get_all_topics()
+                topics = await asyncio.to_thread(chat_service.get_all_topics, current_channel_id)
             else:
-                topics = chat_service.get_topics(current_user_id)
+                topics = await asyncio.to_thread(chat_service.get_topics, current_user_id, current_channel_id)
                 
             log_info(f"Topics fetched: {len(topics)} topics for user {current_user_id}")
             if len(topics) == 0:
                 log_info("WARNING: No topics returned from database - user may need to create one or check membership")
             sorted_topics = sorted(topics, key=lambda x: (x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
             
-            reading_map = chat_service.get_user_read_status(current_user_id)
+            reading_map = await asyncio.to_thread(chat_service.get_user_read_status, current_user_id)
             default_old = "1970-01-01T00:00:00Z"
             earliest_read = min(reading_map.values()) if reading_map else default_old
             
-            recent_msgs = chat_service.get_recent_messages(earliest_read)
+            recent_msgs = await asyncio.to_thread(chat_service.get_recent_messages, earliest_read)
             
             unread_counts = {}
             for m in recent_msgs:
@@ -99,10 +110,51 @@ def get_chat_controls(page: ft.Page, navigate_to):
             if state["edit_mode"]:
                 edit_list_ctrls = []
                 grouped = {}
+                orphaned = []  # Topics without category or with deleted category
+                
                 for t in sorted_topics:
-                    cat = t.get('category', '일반')
-                    if cat not in grouped: grouped[cat] = []
-                    grouped[cat].append(t)
+                    cat = t.get('category')
+                    if cat and cat in categories:
+                        if cat not in grouped: grouped[cat] = []
+                        grouped[cat].append(t)
+                    else:
+                        # Topic has no category OR category was deleted
+                        orphaned.append(t)
+                
+                # Show orphaned topics first if any exist
+                if orphaned:
+                    edit_list_ctrls.append(
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Text("• 미분류", size=12, weight="bold", color="#FF9800"),
+                                ft.Text(str(len(orphaned)), size=10, color="#BDBDBD")
+                            ], alignment="spaceBetween"),
+                            padding=ft.padding.only(left=20, right=20, top=10, bottom=5),
+                            bgcolor="#FFF3E0",
+                        )
+                    )
+                    
+                    for t in orphaned:
+                        tid = t['id']
+                        delete_btn = ft.IconButton(
+                            ft.Icons.REMOVE_CIRCLE, icon_color="red", icon_size=20,
+                            on_click=lambda e, tid=tid: confirm_delete_topic(tid)
+                        )
+                        edit_topic_btn = ft.IconButton(
+                            ft.Icons.EDIT_OUTLINED, icon_color="#757575", icon_size=20,
+                            on_click=lambda e, topic=t: open_rename_topic_dialog(topic)
+                        )
+                        
+                        item = ft.Container(
+                            content=ft.Row([
+                                ft.Text(t['name'], size=14, color="#212121"),
+                                ft.Row([edit_topic_btn, delete_btn], spacing=0)
+                            ], alignment="spaceBetween"),
+                            padding=ft.padding.symmetric(horizontal=20, vertical=12),
+                            bgcolor="white",
+                            data={"type": "topic", "id": tid}
+                        )
+                        edit_list_ctrls.append(item)
                 
                 for cat_name in [c for c in categories if c in grouped]:
                     # Find category ID for rename
@@ -264,7 +316,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
         
         def refresh_cats():
             def _refresh():
-                cats = chat_service.get_categories()
+                cid = page.session.get("channel_id")
+                cats = chat_service.get_categories(cid)
                 items = []
                 for c in cats:
                     items.append(ft.Row([
@@ -277,8 +330,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
         def add_cat(e):
             if new_cat_input.value:
+                cid = page.session.get("channel_id")
                 threading.Thread(target=lambda: (
-                    chat_service.create_category(new_cat_input.value),
+                    chat_service.create_category(new_cat_input.value, cid),
                     refresh_cats(), 
                     load_topics(True)
                 ), daemon=True).start()
@@ -306,55 +360,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
             messages = chat_service.get_messages(state["current_topic_id"])
             
             new_controls = []
+            # [REFACTOR] Use ChatBubble Component
+            from views.components.chat_bubble import ChatBubble
             for m in messages:
-                is_me = str(m['user_id']) == current_user_id
-                prof_data = m.get('profiles')
-                if isinstance(prof_data, list) and prof_data: prof_data = prof_data[0]
-                user_name = prof_data.get('full_name', '익명') if prof_data else "익명"
-                
-                try:
-                    created_dt = dt_class.fromisoformat(m['created_at'].replace("Z", "+00:00"))
-                except:
-                    created_dt = datetime.datetime.now()
-
-                ampm = "오후" if created_dt.hour >= 12 else "오전"
-                h = created_dt.hour % 12
-                if h == 0: h = 12
-                time_str = f"{ampm} {h}:{created_dt.minute:02d}"
-                
-                content_elements = []
-                img_url = m.get('image_url')
-                if img_url:
-                    content_elements.append(ft.Image(src=img_url, width=240, border_radius=8))
-                
-                if m.get('content') and m['content'] != "[이미지 파일]":
-                    content_elements.append(ft.Text(m['content'], size=14, color="black"))
-                
-                bubble_bg = "#FFFFFF" if is_me else "#E3F2FD"
-                content_box = ft.Container(
-                    content=ft.Column(content_elements, spacing=5, tight=True),
-                    bgcolor=bubble_bg, padding=12, border_radius=15, 
-                    border=ft.border.all(1, "#E0E0E0"),
-                    # Dynamic width: no fixed width, content determines size
-                )
-                
-                time_text = ft.Text(time_str, size=10, color="#999999")
-                
-                if is_me:
-                    bubble_row = ft.Row([time_text, content_box], alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.END, spacing=5)
-                else:
-                    bubble_row = ft.Row([
-                        ft.CircleAvatar(content=ft.Text(user_name[0], size=12), radius=15, bgcolor="#EEEEEE", color="black"),
-                        content_box, time_text
-                    ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.END, spacing=5)
-                
-                new_controls.append(ft.Container(
-                    content=ft.Column([
-                        ft.Text(user_name, size=11, weight="bold", color="#666666"),  # Always show name
-                        bubble_row
-                    ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.START if not is_me else ft.CrossAxisAlignment.END),
-                    padding=ft.padding.symmetric(vertical=4)
-                ))
+                new_controls.append(ChatBubble(m, current_user_id))
             
             message_list_view.controls = new_controls
             page.update()
@@ -401,7 +410,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
     
     # [FIX] Use Global Picker event handler connection
     def on_chat_file_result(e: ft.FilePickerResultEvent):
-        print(f"DEBUG: on_chat_file_result called. files={e.files}")
+
         # [REFACTOR] Use Unified Storage Service
         if e.files and state["current_topic_id"]:
             f = e.files[0]
@@ -412,7 +421,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     
                     # Update UI helper
                     def update_snack(msg):
-                        print(f"DEBUG: upload_status: {msg}")
+
                         page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
                         page.update()
 
@@ -431,10 +440,14 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         # Set pending state from result
                         if "public_url" in result:
                             state["pending_image_url"] = result["public_url"]
-                            update_pending_ui(state["pending_image_url"])
-                            update_snack("파일 준비 완료!")
-                        else:
-                            print(f"DEBUG: No public_url in result: {result}")
+                            
+                            # [FIX] For Web Uploads, wait for on_chat_upload_progress (progress=1.0)
+                            # to show the UI, otherwise the image will be broken (404)
+                            if result.get("type") == "web_upload_triggered":
+                                pass
+                            else:
+                                update_pending_ui(state["pending_image_url"])
+                                update_snack("파일 준비 완료!")
 
                     # Use page logic to run async
                     page.run_task(_async_logic)
@@ -449,8 +462,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             # Run the logic
             _run_upload()
         else:
-            print(f"DEBUG: File selection skipped or no current topic (files={e.files}, topic={state['current_topic_id']})")
-
+            pass
     def on_chat_upload_progress(e: ft.FilePickerUploadEvent):
         if e.error:
             page.snack_bar = ft.SnackBar(ft.Text(f"업로드 실패: {e.file_name}"), bgcolor="red", open=True); page.update()
@@ -534,11 +546,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
         async def _do_create():
             try:
                 log_info(f"Creating topic from modal: {modal_name_field.value}")
-                result = chat_service.create_topic(modal_name_field.value, "일반", current_user_id)
+                cid = page.session.get("channel_id")
+                result = chat_service.create_topic(modal_name_field.value, None, current_user_id, cid)  # None = no category
                 log_info(f"Topic creation success: {modal_name_field.value}")
                 
                 # Hide modal and show success
                 modal_container.visible = False
+                modal_name_field.value = ""  # Clear input for next time
                 page.snack_bar = ft.SnackBar(
                     ft.Text("스레드가 생성되었습니다!", color="white"),
                     bgcolor="green",
@@ -546,16 +560,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 )
                 page.update()
                 
-                # Reload topics - SIMPLIFIED: Call sync version directly
+                # [FIX] Reload topics immediately and await completion
                 log_info("Reloading topics after creation...")
                 try:
-                    # Get fresh data
-                    topics_raw = chat_service.get_topics(current_user_id)
-                    log_info(f"Fetched {len(topics_raw)} topics after creation")
-                    
-                    # Trigger full reload
-                    load_topics(True)
-                    log_info("load_topics() called successfully")
+                    # Directly call the async version to ensure it completes
+                    await load_topics_thread(update_ui=True, show_all=False)
+                    log_info("Topic list refreshed successfully")
                 except Exception as reload_ex:
                     log_info(f"Reload error: {reload_ex}")
             except Exception as ex:
@@ -671,12 +681,27 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
                     ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
                     ft.Row([
-                        ft.IconButton(ft.Icons.ADD, icon_color="#2E7D32", on_click=show_create_modal, tooltip="새 스레드"),
-                        ft.IconButton(ft.Icons.SETTINGS_OUTLINED, icon_color="#757575", on_click=open_manage_categories_dialog, tooltip="분류 관리"),
+                        ft.PopupMenuButton(
+                            icon=ft.Icons.ADD,
+                            icon_color="#2E7D32",
+                            tooltip="메뉴",
+                            items=[
+                                ft.PopupMenuItem(
+                                    text="새 스레드 생성",
+                                    icon=ft.Icons.ADD_COMMENT_OUTLINED,
+                                    on_click=show_create_modal
+                                ),
+                                ft.PopupMenuItem(
+                                    text="카테고리 관리",
+                                    icon=ft.Icons.CATEGORY_OUTLINED,
+                                    on_click=open_manage_categories_dialog
+                                ),
+                            ]
+                        ),
                         ft.OutlinedButton(
                             ref=edit_btn_ref, 
                             text="편집", 
-                            style=ft.ButtonStyle(color="#424242", shape=ft.RoundedRectangleBorder(radius=8), side=ft.BorderSide(1, "#E0E0E0"), padding=ft.padding.symmetric(horizontal=12, vertical=0)), 
+                            style=ft.ButtonStyle(color="#424242", shape=ft.RoundedRectangleBorder(radius=30), side=ft.BorderSide(1, "#E0E0E0"), padding=ft.padding.symmetric(horizontal=12, vertical=0)), 
                             on_click=lambda _: toggle_edit_mode()
                         )
                     ], spacing=0)

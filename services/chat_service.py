@@ -9,47 +9,37 @@ from db import supabase, service_supabase
 # Constants
 CURRENT_USER_ID = "00000000-0000-0000-0000-000000000001"
 
-def get_categories() -> List[Dict[str, Any]]:
-    """Fetch all chat categories."""
+def get_categories(channel_id: int) -> List[Dict[str, Any]]:
+    """Fetch all chat categories for a specific channel."""
     try:
-        res = service_supabase.table("chat_categories").select("*").order("display_order", desc=True).execute()
+        res = service_supabase.table("chat_categories").select("*")\
+            .eq("channel_id", channel_id)\
+            .order("display_order", desc=True).execute()
         return res.data or []
     except Exception as e:
         print(f"Service Error (get_categories): {e}")
         return []
 
-def get_topics(user_id: str) -> List[Dict[str, Any]]:
-    """Fetch chat topics visible to the user."""
+def get_topics(user_id: str, channel_id: int) -> List[Dict[str, Any]]:
+    """Fetch chat topics visible to the user within a specific channel."""
     try:
-        # [RBAC] Filter topics joined by user (use service_supabase to bypass RLS)
-        # Try nested select first
-        try:
-            res = service_supabase.table("chat_topic_members").select("topic:chat_topics(*)").eq("user_id", user_id).execute()
-            
-            # Unpack result
-            topics = []
-            if res.data:
-                for item in res.data:
-                    topic = item.get('topic')
-                    if topic:
-                        topics.append(topic)
-        except Exception as nested_err:
-            # Fallback: Fetch topic IDs first, then query topics separately
-            print(f"Nested query failed, using fallback: {nested_err}")
-            member_res = service_supabase.table("chat_topic_members").select("topic_id").eq("user_id", user_id).execute()
-            topic_ids = [m['topic_id'] for m in member_res.data] if member_res.data else []
-            
-            if topic_ids:
-                topics_res = service_supabase.table("chat_topics").select("*").in_("id", topic_ids).execute()
-                topics = topics_res.data or []
-            else:
-                topics = []
+        # [RBAC] Filter topics joined by user in this channel
+        # We need to filter topics by their channel_id as well
         
-        # [DIAGNOSTIC] If list is empty, also check if there are ANY topics at all
-        if not topics:
-            all_check = service_supabase.table("chat_topics").select("count", count="exact").limit(1).execute()
-            count = all_check.count if all_check.count is not None else 0
-            print(f"DEBUG: get_topics(user={user_id}) returned 0 topics. Global topic count = {count}")
+        # Method 1: Get topics the user is a member of
+        # But we need to check if those topics belong to channel_id
+        
+        member_res = service_supabase.table("chat_topic_members").select("topic_id").eq("user_id", user_id).execute()
+        member_topic_ids = [m['topic_id'] for m in member_res.data] if member_res.data else []
+        
+        topics = []
+        if member_topic_ids:
+            # Query topics that are in list AND belong to channel
+            topics_res = service_supabase.table("chat_topics").select("*")\
+                .in_("id", member_topic_ids)\
+                .eq("channel_id", channel_id)\
+                .execute()
+            topics = topics_res.data or []
             
         return topics
     except Exception as e:
@@ -58,10 +48,10 @@ def get_topics(user_id: str) -> List[Dict[str, Any]]:
         traceback.print_exc()
         raise e
 
-def get_all_topics() -> List[Dict[str, Any]]:
-    """Fetch ALL topics (Diagnostic Only)."""
+def get_all_topics(channel_id: int) -> List[Dict[str, Any]]:
+    """Fetch ALL topics for a channel (Diagnostic/Admin Only)."""
     try:
-        res = service_supabase.table("chat_topics").select("*").execute()
+        res = service_supabase.table("chat_topics").select("*").eq("channel_id", channel_id).execute()
         return res.data or []
     except Exception as e:
         print(f"Service Error (get_all_topics): {e}")
@@ -100,9 +90,12 @@ def toggle_topic_priority(topic_id: str, current_val: bool):
     """Toggle priority status."""
     service_supabase.table("chat_topics").update({"is_priority": not current_val}).eq("id", topic_id).execute()
 
-def create_category(name: str):
-    """Create a new category."""
-    service_supabase.table("chat_categories").insert({"name": name}).execute()
+def create_category(name: str, channel_id: int):
+    """Create a new category in a channel."""
+    service_supabase.table("chat_categories").insert({
+        "name": name, 
+        "channel_id": channel_id
+    }).execute()
 
 def delete_category(cat_id: str):
     """Delete a category."""
@@ -119,14 +112,15 @@ def rename_topic(topic_id: str, new_name: str):
     """Rename a specific topic."""
     service_supabase.table("chat_topics").update({"name": new_name}).eq("id", topic_id).execute()
 
-def create_topic(name: str, category: str, creator_id: str):
-    """Create a new topic and add creator as owner."""
+def create_topic(name: str, category: str, creator_id: str, channel_id: int):
+    """Create a new topic in a channel and add creator as owner."""
     # 1. Create Topic (use service_supabase to bypass RLS)
     t_res = service_supabase.table("chat_topics").insert({
         "name": name, 
         "category": category, 
         "display_order": 0,
-        "created_by": creator_id
+        "created_by": creator_id,
+        "channel_id": channel_id
     }).execute()
     
     if t_res.data:

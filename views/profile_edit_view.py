@@ -33,27 +33,25 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
 
     def save(e):
         try:
-            print(f"DEBUG: Updating profile for {user.id} -> Role: {role_dd.value}")
-            
             # [FIX] Use Authenticated Request via AuthService
             # This handles session retrieval and formatting centrally
             headers = auth_service.get_auth_headers()
             if not headers:
                 raise Exception("세션이 만료되었습니다. 다시 로그인해주세요.")
             
-            # 2. Direct Update using PostgREST with User Token
-            from postgrest import SyncPostgrestClient
-            url = os.environ.get("SUPABASE_URL")
-            
             # Use this client for the upsert
             user_client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
             
-            res_update = user_client.from_("profiles").upsert({
-                "id": user.id,
-                "full_name": name_tf.value,
-                "role": role_dd.value,
-                "updated_at": "now()"
-            }).execute()
+            try:
+                res_update = user_client.from_("profiles").upsert({
+                    "id": user.id,
+                    "full_name": name_tf.value,
+                    "role": role_dd.value,
+                    "updated_at": "now()"
+                }).execute()
+            finally:
+                try: user_client.session.close()
+                except: pass
             
             msg.value = f"저장 완료! (권한: {role_dd.value})"
             
@@ -63,7 +61,6 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
             res_verify = service_supabase.table("profiles").select("role").eq("id", user.id).single().execute()
             
             new_role = res_verify.data.get("role") if res_verify.data else "unknown"
-            print(f"DEBUG: Verification Read -> Role: {new_role}")
 
             if new_role != role_dd.value:
                 raise Exception(f"업데이트 실패: DB 값이 변경되지 않았습니다. ({new_role})")
@@ -83,16 +80,21 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
             page.update()
 
     return [
-        ft.Column([
-            ft.Container(height=40),
-            ft.Text("프로필 수정", size=30, weight="bold", color="white"),
-            ft.Text("잘못된 권한을 여기서 수정할 수 있습니다.", color="white70"),
-            ft.Container(height=20),
-            name_tf,
-            role_dd,
-            ft.Container(height=20),
-            ft.ElevatedButton("저장하기", on_click=save, bgcolor="#00C73C", color="white", width=300, height=45),
-            ft.TextButton("취소", on_click=lambda _: navigate_to("home")),
-            msg
-        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+        ft.Container(
+            expand=True,
+            bgcolor="white",
+            padding=20,
+            content=ft.Column([
+                ft.Container(height=40),
+                ft.Text("프로필 수정", size=30, weight="bold", color="#0A1929"),
+                ft.Text("잘못된 권한을 여기서 수정할 수 있습니다.", color="black"),
+                ft.Container(height=20),
+                name_tf,
+                role_dd,
+                ft.Container(height=20),
+                ft.ElevatedButton("저장하기", on_click=save, bgcolor="#00C73C", color="white", width=300, height=45),
+                ft.TextButton("취소", on_click=lambda _: navigate_to("home")),
+                msg
+            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+        )
     ]

@@ -1,20 +1,105 @@
 import flet as ft
 from services.auth_service import auth_service
+from services.channel_service import channel_service
+from db import service_supabase
+from utils.logger import log_debug, log_error
 
 def get_home_controls(page: ft.Page, navigate_to):
+    log_debug(f"Entering Home View. User: {page.session.get('user_id')}")
+    user_id = page.session.get("user_id")
+    channel_id = page.session.get("channel_id")
+    
+    if not user_id or not channel_id:
+        navigate_to("login")
+        return []
+
+    # Fetch user's role in current channel
+    role = channel_service.get_channel_role(channel_id, user_id)
+    
+    
+    # Fetch user display name - check session first (updated from settings), then database
+    display_name = page.session.get("display_name")
+    if not display_name:
+        try:
+            # Try to get full_name from profiles table first
+            profile_data = service_supabase.table("profiles").select("full_name").eq("id", user_id).execute()
+            if profile_data.data and len(profile_data.data) > 0 and profile_data.data[0].get("full_name"):
+                display_name = profile_data.data[0].get("full_name")
+            else:
+                # Fallback to email prefix
+                user_data = service_supabase.table("users").select("email").eq("id", user_id).execute()
+                if user_data.data and len(user_data.data) > 0:
+                    email = user_data.data[0].get("email", "")
+                    display_name = email.split('@')[0] if email else "User"
+                else:
+                    display_name = "User"
+            
+            # Store in session for future use
+            page.session.set("display_name", display_name)
+        except Exception as e:
+            log_error(f"Error fetching user name: {e}")
+            print(f"Error fetching user name: {e}")
+            display_name = "User"
+    
+    # === STORE SWITCHER ===
+    # Fetch all user's channels
+    user_channels = channel_service.get_user_channels(user_id)
+    
+    # Create dropdown options
+    store_options = [
+        ft.dropdown.Option(key=str(ch["id"]), text=ch["name"]) 
+        for ch in user_channels
+    ]
+    
+    store_selector = ft.Dropdown(
+        label="현재 매장",
+        value=str(channel_id),
+        options=store_options,
+        width=250,
+        color="#0A1929",
+        border_color="#CCCCCC",
+        label_style=ft.TextStyle(color="grey")
+    )
+    
+    def on_store_change(e):
+        new_channel_id = int(store_selector.value)
+        
+        # Find selected channel
+        selected_ch = next((ch for ch in user_channels if ch["id"] == new_channel_id), None)
+        
+        if selected_ch:
+            # Update session
+            page.session.set("channel_id", selected_ch["id"])
+            page.session.set("channel_name", selected_ch["name"])
+            page.session.set("user_role", selected_ch["role"])
+            
+            # Show snackbar
+            page.snack_bar = ft.SnackBar(
+                ft.Text(f"✅ '{selected_ch['name']}'(으)로 전환되었습니다."),
+                open=True
+            )
+            page.update()
+            
+            # Refresh home view
+            navigate_to("home")
+    
+    store_selector.on_change = on_store_change
+    
+    # === ACTION BUTTON HELPER ===
     def action_btn(label, icon_path, route):
         return ft.Container(
             content=ft.Column([
                 ft.Image(src=icon_path, width=80, height=80),
-                ft.Text(label, weight="bold", size=16, color="white"),
+                ft.Text(label, weight="bold", size=14, color="#0A1929"),
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             width=165, height=180,
-            bgcolor=ft.Colors.with_opacity(0.1, "white"),
+            bgcolor="white",
             border_radius=25,
             on_click=lambda _: navigate_to(route),
             alignment=ft.alignment.center,
             ink=True,
-            border=ft.border.all(0.5, ft.Colors.with_opacity(0.1, "white"))
+            shadow=ft.BoxShadow(blur_radius=15, color=ft.Colors.with_opacity(0.05, "black")),
+            border=ft.border.all(1, "white")
         )
 
     from db import has_service_key
@@ -29,92 +114,171 @@ def get_home_controls(page: ft.Page, navigate_to):
         border_radius=5
     )
 
-    # [DEBUG] Expose Role in UI
-    user_id = page.session.get("user_id")
-    role = "staff"
-    if user_id:
-        try:
-             role = auth_service.get_user_role(user_id)
-        except: pass
-
-    header = ft.Container(
-        padding=ft.padding.only(left=20, right=20, top=40, bottom=20),
-        content=ft.Row([
-            ft.Column([
-                ft.Text("Welcome back,", size=14, color="white70"),
-                ft.Text("The Manager", size=24, weight="bold", color="white"),
-                ft.Row([
-                    debug_badge,
-                    ft.Container(
-                        content=ft.Text(f"Role: {role}", size=10, color="yellow", weight="bold"),
-                        bgcolor=ft.Colors.with_opacity(0.1, "yellow"),
-                        padding=ft.padding.symmetric(horizontal=10, vertical=4),
-                        border_radius=5
-                    )
-                ])
-            ], spacing=2),
-            ft.IconButton(ft.Icons.LOGOUT_ROUNDED, icon_color="white", on_click=lambda _: navigate_to("login"))
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-    )
-
-
+    # === GRID LAYOUT ===
     grid = ft.Column([
         ft.Row([
-            action_btn("팀 스레드", "images/icon_chat.png", "chat"),
-            action_btn("마감 점검", "images/icon_check.png", "closing"),
+            action_btn("팀 스레드", "images/icon_chat_3d.png?v=6", "chat"),
+            action_btn("마감 점검", "images/icon_closing_3d.png?v=6", "closing"),
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=15),
         ft.Row([
-            action_btn("음성 메모", "images/icon_voice.png", "order"),
-            action_btn("근무 캘린더", "images/icon_calendar.png", "calendar"),
+            action_btn("음성 메모", "images/icon_voice_3d.png?v=6", "voice"),
+            action_btn("캘린더", "images/icon_calendar_3d.png?v=6", "calendar"),
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=15),
     ], spacing=15)
 
-    # [RBAC Logic Moved Up]
-    # user_id and role already fetched above
-    
+    # RBAC: Show "직원 관리" for owners
     if role == "owner":
         grid.controls.append(
              ft.Row([
-                action_btn("직원 관리", "images/icon_check.png", "work"),
+                action_btn("직원 관리", "images/icon_work_3d.png?v=6", "work"),
+                action_btn("설정", "images/icon_settings_3d.png?v=6", "store_info"), 
             ], alignment=ft.MainAxisAlignment.CENTER, spacing=15)
         )
-
-    grid.controls.extend([
-        ft.Container(height=10),
-        ft.Container(
-            content=ft.ElevatedButton(
-                "⚙️ 내 정보 수정 (권한 변경)",
-                on_click=lambda _: navigate_to("edit_profile"),
-                width=340,
-                height=50,
-                style=ft.ButtonStyle(
-                    bgcolor=ft.Colors.with_opacity(0.15, "#2E7D32"),
-                    color="#4CAF50",
-                    shape=ft.RoundedRectangleBorder(radius=12)
-                )
-            ),
-            alignment=ft.alignment.center
+    else:
+        grid.controls.append(
+            ft.Row([
+                 action_btn("설정", "images/icon_settings_3d.png?v=6", "store_info"), 
+            ], alignment=ft.MainAxisAlignment.CENTER)
         )
-    ])
 
-    # Remove background image if set previously
-    page.decoration_image = None
-    page.update()
+    
+    # Logout handler
+    def perform_logout(e):
+        try:
+            from services.auth_service import auth_service
+            auth_service.sign_out()
+            page.session.clear()
+            page.client_storage.remove("supa_session")
+            navigate_to("login")
+        except Exception as ex:
+            print(f"Logout error: {ex}")
+            page.session.clear()
+            navigate_to("login")
 
+    # === ACTION BUTTON HELPER ===
+    def action_btn(label, icon_path, route):
+        return ft.Container(
+            content=ft.Column([
+                ft.Image(src=icon_path, width=80, height=80),
+                ft.Text(label, weight="bold", size=14, color="#0A1929"),
+            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            height=180,
+            # Responsive Column Settings:
+            # xs=6 (2 per row on mobile)
+            # sm=4 (3 per row on tablet)
+            # md=3 (4 per row on desktop)
+            col={"xs": 6, "sm": 4, "md": 3},
+            bgcolor="white",
+            border_radius=25,
+            on_click=lambda _: navigate_to(route),
+            alignment=ft.alignment.center,
+            ink=True,
+            shadow=ft.BoxShadow(blur_radius=15, color=ft.Colors.with_opacity(0.05, "black")),
+            border=ft.border.all(1, "white")
+        )
+
+    # === GRID LAYOUT ===
+    # Collect all items
+    menu_items = [
+        action_btn("팀 스레드", "images/icon_chat_3d.png?v=6", "chat"),
+        action_btn("마감 점검", "images/icon_closing_3d.png?v=6", "closing"),
+        action_btn("음성 메모", "images/icon_voice_3d.png?v=6", "voice"),
+        action_btn("캘린더", "images/icon_calendar_3d.png?v=6", "calendar"),
+    ]
+
+    # RBAC: Show "직원 관리" for owners
+    if role == "owner":
+        menu_items.append(action_btn("직원 관리", "images/icon_work_3d.png?v=6", "work"))
+    
+    # Settings is for everyone
+    menu_items.append(action_btn("설정", "images/icon_settings_3d.png?v=6", "store_info"))
+
+    grid = ft.ResponsiveRow(
+        controls=menu_items,
+        spacing=15,
+        run_spacing=15,
+    )
+
+    # Layout
     return [
-        ft.Stack([
-            # Dark Gradient Background
-            ft.Container(
-                gradient=ft.LinearGradient(
-                    begin=ft.alignment.top_left,
-                    end=ft.alignment.bottom_right,
-                    colors=["#1A1A1A", "#2D3436"]
+        ft.Container(
+            expand=True,
+            bgcolor="#F5F5F5",
+            content=ft.Column([
+                # === HEADER WITH STORE SELECTOR ===
+                ft.Container(
+                    padding=ft.padding.only(left=20, right=20, top=20, bottom=10),
+                    content=ft.Column([
+                        # Top Row: Logo & Icons
+                        ft.Row([
+                             # Logo Area: Image
+                             ft.Image(
+                                 src="images/logo.png?v=2",
+                                 height=50, # Adjusted height for header
+                                 fit=ft.ImageFit.CONTAIN,
+                                 tooltip="OwnersKit"
+                             ),
+                             
+                             # Right Icons (Preserving existing logic)
+                             ft.Row([
+                                ft.IconButton(
+                                    ft.Icons.ADD_BUSINESS,
+                                    icon_color="#1565C0",
+                                    tooltip="새 매장 추가",
+                                    on_click=lambda _: navigate_to("onboarding"),
+                                    visible=True
+                                ) if len(user_channels) > 1 else ft.Container(),
+                                
+                                ft.Container(
+                                    content=store_selector,
+                                    visible=len(user_channels) > 1
+                                ) if len(user_channels) > 1 else ft.IconButton(
+                                    ft.Icons.ADD_BUSINESS,
+                                    icon_color="#1565C0",
+                                    tooltip="새 매장 추가",
+                                    on_click=lambda _: navigate_to("onboarding")
+                                ),
+                                
+                                ft.IconButton(
+                                    ft.Icons.LOGOUT,
+                                    icon_color="#E53935",
+                                    tooltip="로그아웃",
+                                    on_click=perform_logout
+                                )
+                             ], spacing=5, alignment=ft.MainAxisAlignment.END)
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        
+                        # Center Info (Wrapped in Row to force center alignment)
+                        ft.Row([
+                            ft.Column([
+                                ft.Text(
+                                    page.session.get("channel_name") or "매장",
+                                    size=24,
+                                    weight="bold",
+                                    color="black",
+                                    text_align=ft.TextAlign.CENTER
+                                ),
+                                ft.Text(
+                                    f"{display_name}님 반갑습니다",
+                                    size=14,
+                                    color="grey",
+                                    text_align=ft.TextAlign.CENTER
+                                )
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5)
+                        ], alignment=ft.MainAxisAlignment.CENTER)
+                    ], spacing=20)
                 ),
-                expand=True
-            ),
-            ft.Column([
-                header,
-                ft.Container(content=grid, padding=20, expand=True)
-            ], scroll=ft.ScrollMode.AUTO)
-        ], expand=True)
+                
+                ft.Divider(color="#EEEEEE", height=1),
+                
+                # === MAIN CONTENT ===
+                ft.Container(
+                    padding=20,
+                    content=grid,
+                    expand=True,
+                    # Ensure grid can scroll if needed, though home screen usually fits
+                    # But responsive row needs width context.
+                )
+            ])
+        )
     ]
