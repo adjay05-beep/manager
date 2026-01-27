@@ -206,8 +206,19 @@ def get_chat_controls(page: ft.Page, navigate_to):
                             content=ft.Column([
                                 ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE, size=80, color="#BDBDBD"),
                                 ft.Text("아직 스레드가 없습니다", size=18, weight="bold", color="#757575"),
-                                ft.Text("우측 상단 + 버튼을 눌러", size=14, color="#BDBDBD"),
                                 ft.Text("새 스레드를 만들어보세요", size=14, color="#BDBDBD"),
+                                ft.Container(height=20),
+                                ft.ElevatedButton(
+                                    "새 스레드 만들기",
+                                    icon=ft.Icons.ADD_CIRCLE_OUTLINE,
+                                    on_click=open_create_topic_dialog,
+                                    bgcolor="#2E7D32",
+                                    color="white",
+                                    style=ft.ButtonStyle(
+                                        shape=ft.RoundedRectangleBorder(radius=10),
+                                        padding=ft.padding.symmetric(horizontal=30, vertical=15)
+                                    )
+                                )
                             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
                             alignment=ft.alignment.center,
                             padding=40
@@ -681,43 +692,30 @@ def get_chat_controls(page: ft.Page, navigate_to):
         ]
     )
 
-    list_page = ft.Stack([
-        ft.Container(
-            expand=True, bgcolor="white",
-            content=ft.Column([
-                ft.Container(
-                    content=ft.Row([
-                        ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
-                        ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
-                        ft.Row([
-                            ft.IconButton(ft.Icons.SETTINGS_OUTLINED, icon_color="#757575", on_click=open_manage_categories_dialog, tooltip="분류 관리"),
-                            ft.OutlinedButton(
-                                ref=edit_btn_ref, 
-                                text="편집", 
-                                style=ft.ButtonStyle(color="#424242", shape=ft.RoundedRectangleBorder(radius=8), side=ft.BorderSide(1, "#E0E0E0"), padding=ft.padding.symmetric(horizontal=12, vertical=0)), 
-                                on_click=lambda _: toggle_edit_mode()
-                            )
-                        ], spacing=0)
-                    ], alignment="spaceBetween"),
-                    padding=ft.padding.only(left=10, right=10, top=40, bottom=0),
-                    border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
-                ),
-                ft.Container(content=topic_list_container, expand=True, padding=0)
-                # debug_panel (Hidden for production)
-            ], spacing=0)
-        ),
-        # FAB positioned at bottom-right
-        ft.Container(
-            content=ft.FloatingActionButton(
-                icon=ft.Icons.ADD,
-                bgcolor="#2E7D32",
-                on_click=open_create_topic_dialog,
-                tooltip="새 스레드"
+    list_page = ft.Container(
+        expand=True, bgcolor="white",
+        content=ft.Column([
+            ft.Container(
+                content=ft.Row([
+                    ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
+                    ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
+                    ft.Row([
+                        ft.IconButton(ft.Icons.SETTINGS_OUTLINED, icon_color="#757575", on_click=open_manage_categories_dialog, tooltip="분류 관리"),
+                        ft.OutlinedButton(
+                            ref=edit_btn_ref, 
+                            text="편집", 
+                            style=ft.ButtonStyle(color="#424242", shape=ft.RoundedRectangleBorder(radius=8), side=ft.BorderSide(1, "#E0E0E0"), padding=ft.padding.symmetric(horizontal=12, vertical=0)), 
+                            on_click=lambda _: toggle_edit_mode()
+                        )
+                    ], spacing=0)
+                ], alignment="spaceBetween"),
+                padding=ft.padding.only(left=10, right=10, top=40, bottom=0),
+                border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
-            right=20,
-            bottom=20
-        )
-    ], expand=True)
+            ft.Container(content=topic_list_container, expand=True, padding=0)
+            # debug_panel (Hidden for production)
+        ], spacing=0)
+    )
 
     chat_page = ft.Container(
         expand=True, bgcolor="white",
