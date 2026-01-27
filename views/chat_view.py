@@ -695,8 +695,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                             text="편집", 
                             style=ft.ButtonStyle(color="#424242", shape=ft.RoundedRectangleBorder(radius=8), side=ft.BorderSide(1, "#E0E0E0"), padding=ft.padding.symmetric(horizontal=12, vertical=0)), 
                             on_click=lambda _: toggle_edit_mode()
-                        ),
-                        ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE, icon_color="#2E7D32", on_click=open_create_topic_dialog)
+                        )
                     ], spacing=0)
                 ], alignment="spaceBetween"),
                 padding=ft.padding.only(left=10, right=10, top=40, bottom=0),
@@ -704,7 +703,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
             ),
             ft.Container(content=topic_list_container, expand=True, padding=0)
             # debug_panel (Hidden for production)
-        ], spacing=0) 
+        ], spacing=0),
+        floating_action_button=ft.FloatingActionButton(
+            icon=ft.Icons.ADD,
+            bgcolor="#2E7D32",
+            on_click=open_create_topic_dialog,
+            tooltip="새 스레드"
+        )
     )
 
     chat_page = ft.Container(
