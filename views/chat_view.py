@@ -495,19 +495,20 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.open(dlg)
 
     # Custom modal overlay (instead of AlertDialog/BottomSheet which don't work on mobile)
-    modal_visible = ft.Ref[ft.Container]()
-    modal_name_field = ft.TextField(label="새 스레드 이름", autofocus=True, width=300)
+    modal_container = ft.Container()  # Will be defined below
     
     def show_create_modal(e):
         log_info("Showing custom modal overlay")
-        modal_visible.current.visible = True
+        modal_container.visible = True
         modal_name_field.value = ""
         page.update()
     
     def hide_create_modal(e):
         log_info("Hiding custom modal overlay")
-        modal_visible.current.visible = False
+        modal_container.visible = False
         page.update()
+    
+    modal_name_field = ft.TextField(label="새 스레드 이름", autofocus=True, width=300)
     
     def create_from_modal(e):
         # [CRITICAL DEBUG] Immediate feedback to verify click detection
@@ -536,7 +537,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 log_info(f"Topic creation success: {modal_name_field.value}")
                 
                 # Hide modal
-                modal_visible.current.visible = False
+                modal_container.visible = False
                 
                 page.snack_bar = ft.SnackBar(
                     ft.Text("스레드가 생성되었습니다!", color="white"),
@@ -674,8 +675,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
     )
     
     # Custom modal overlay (replaces AlertDialog/BottomSheet)
-    custom_modal = ft.Container(
-        ref=modal_visible,
+    modal_container = ft.Container(
         visible=False,
         expand=True,
         content=ft.Stack([
@@ -713,7 +713,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
     
     list_page = ft.Stack([
         list_page_content,
-        custom_modal
+        modal_container
     ], expand=True)
 
     chat_page = ft.Container(
