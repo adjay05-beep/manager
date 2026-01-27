@@ -1,7 +1,7 @@
 import flet as ft
 from services.channel_service import channel_service
 from services.auth_service import auth_service
-from db import has_service_key, app_logs
+from db import has_service_key, app_logs, service_key
 
 def get_onboarding_controls(page: ft.Page, navigate_to):
     current_user_id = page.session.get("user_id")
@@ -94,6 +94,7 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
                     ft.Divider(),
                     ft.Text(f"System Check (Temporary)", size=12, weight="bold", color="grey"),
                     ft.Text(f"Has Service Key: {has_service_key}", size=12, color="blue" if has_service_key else "red"),
+                    ft.Text(f"Key Hint (Last 5): ...{service_key[-5:] if service_key else 'N/A'}", size=12, color="grey"),
                     ft.Text(f"Recent Log: {app_logs[-1] if app_logs else 'No logs'}", size=10, color="grey"),
                     ft.Text(f"User ID: {current_user_id}", size=10, color="grey")
                     
