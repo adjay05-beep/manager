@@ -66,7 +66,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
             
         try:
             log_info(f"Loading topics (Mode: {'ALL' if show_all else 'Members Only'}) for {current_user_id}")
+            
+            # [DIAGNOSTIC] Log database connection status
+            log_info(f"Database URL: {service_supabase.url[:30]}...")
+            
             categories_data = chat_service.get_categories()
+            log_info(f"Categories loaded: {len(categories_data) if categories_data else 0}")
             categories = [c['name'] for c in categories_data] if categories_data else ["공지", "일반", "중요", "개별 업무"]
 
             if show_all:
@@ -74,7 +79,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
             else:
                 topics = chat_service.get_topics(current_user_id)
                 
-            log_info(f"Topics fetched: {len(topics)}")
+            log_info(f"Topics fetched: {len(topics)} topics for user {current_user_id}")
+            if len(topics) == 0:
+                log_info("WARNING: No topics returned from database - user may need to create one or check membership")
             sorted_topics = sorted(topics, key=lambda x: (x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
             
             reading_map = chat_service.get_user_read_status(current_user_id)
@@ -189,6 +196,24 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                 on_click=lambda e, topic=t: select_topic(topic)
                             )
                         )
+                
+                # [FIX] Show empty state UI if no topics exist
+                if len(list_view_ctrls) == 0:
+                    log_info("No topics found - showing empty state UI")
+                    list_view_ctrls.append(
+                        ft.Container(
+                            expand=True,
+                            content=ft.Column([
+                                ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE, size=80, color="#BDBDBD"),
+                                ft.Text("아직 스레드가 없습니다", size=18, weight="bold", color="#757575"),
+                                ft.Text("우측 상단 + 버튼을 눌러", size=14, color="#BDBDBD"),
+                                ft.Text("새 스레드를 만들어보세요", size=14, color="#BDBDBD"),
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
+                            alignment=ft.alignment.center,
+                            padding=40
+                        )
+                    )
+                
                 list_view = ft.ListView(expand=True, spacing=0, padding=0, controls=list_view_ctrls)
                 new_controls = [list_view]
             
