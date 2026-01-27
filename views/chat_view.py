@@ -199,27 +199,68 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 
                 # [FIX] Show empty state UI if no topics exist
                 if len(list_view_ctrls) == 0:
-                    log_info("No topics found - showing empty state UI")
+                    log_info("No topics found - showing empty state UI with inline form")
+                    
+                    # Inline form controls
+                    inline_name = ft.TextField(
+                        label="새 스레드 이름",
+                        hint_text="스레드 이름을 입력하세요",
+                        width=300,
+                        autofocus=True
+                    )
+                    
+                    def inline_create(e):
+                        if not inline_name.value:
+                            page.snack_bar = ft.SnackBar(
+                                ft.Text("스레드 이름을 입력해주세요", color="white"),
+                                bgcolor="orange",
+                                open=True
+                            )
+                            page.update()
+                            return
+                        
+                        def _do_create():
+                            try:
+                                log_info(f"Creating topic inline: {inline_name.value}")
+                                result = chat_service.create_topic(inline_name.value, "일반", current_user_id)
+                                log_info(f"Topic creation success: {inline_name.value}")
+                                
+                                page.snack_bar = ft.SnackBar(
+                                    ft.Text("스레드가 생성되었습니다!", color="white"),
+                                    bgcolor="green",
+                                    open=True
+                                )
+                                page.update()
+                                load_topics(True)
+                            except Exception as ex:
+                                log_info(f"Creation ERROR: {ex}")
+                                page.snack_bar = ft.SnackBar(
+                                    ft.Text(f"생성 실패: {ex}", color="white"),
+                                    bgcolor="red",
+                                    open=True
+                                )
+                                page.update()
+                        threading.Thread(target=_do_create, daemon=True).start()
+                    
                     list_view_ctrls.append(
                         ft.Container(
                             expand=True,
                             content=ft.Column([
                                 ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE, size=80, color="#BDBDBD"),
                                 ft.Text("아직 스레드가 없습니다", size=18, weight="bold", color="#757575"),
-                                ft.Text("새 스레드를 만들어보세요", size=14, color="#BDBDBD"),
-                                ft.Container(height=20),
+                                ft.Text("아래에서 새 스레드를 만드세요", size=14, color="#BDBDBD"),
+                                ft.Container(height=30),
+                                inline_name,
+                                ft.Container(height=10),
                                 ft.ElevatedButton(
-                                    "새 스레드 만들기",
-                                    icon=ft.Icons.ADD_CIRCLE_OUTLINE,
-                                    on_click=open_create_topic_dialog,
+                                    "스레드 만들기",
+                                    icon=ft.Icons.ADD,
+                                    on_click=inline_create,
                                     bgcolor="#2E7D32",
                                     color="white",
-                                    style=ft.ButtonStyle(
-                                        shape=ft.RoundedRectangleBorder(radius=10),
-                                        padding=ft.padding.symmetric(horizontal=30, vertical=15)
-                                    )
+                                    width=300
                                 )
-                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
                             alignment=ft.alignment.center,
                             padding=40
                         )
