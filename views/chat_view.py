@@ -507,16 +507,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.open(dlg)
 
     def open_create_topic_dialog(e):
-        # [DEBUG] Immediate feedback to confirm button click works
-        page.snack_bar = ft.SnackBar(
-            ft.Text("+ 버튼 클릭됨 - 다이얼로그 열기 시도 중...", color="white"),
-            bgcolor="blue",
-            open=True,
-            duration=2000
-        )
-        page.update()
+        log_info("Opening create topic bottom sheet")
         
-        log_info("Opening create topic dialog")
         new_name = ft.TextField(label="새 스레드 이름", autofocus=True)
         cat_dropdown = ft.Dropdown(label="주제 분류", value="일반", options=[ft.dropdown.Option("일반")])
         
@@ -546,22 +538,24 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         result = chat_service.create_topic(new_name.value, cat_dropdown.value, current_user_id)
                         log_info(f"Topic creation success: {new_name.value}")
                         
-                        # [FIX] Proper Flet dialog close
-                        page.dialog.open = False
+                        # Close bottom sheet
+                        page.close(bottom_sheet)
+                        page.snack_bar = ft.SnackBar(
+                            ft.Text("스레드가 생성되었습니다!", color="white"),
+                            bgcolor="green",
+                            open=True
+                        )
                         page.update()
                         load_topics(True)
                     except Exception as ex:
                         error_msg = str(ex)
                         log_info(f"Creation ERROR: {ex}")
                         
-                        # Give user-friendly error message with technical detail for debugging
-                        user_msg = f"토픽 생성 실패: {error_msg}"
-                        
                         page.snack_bar = ft.SnackBar(
-                            ft.Text(user_msg, color="white"),
+                            ft.Text(f"토픽 생성 실패: {error_msg}", color="white"),
                             bgcolor="red",
                             open=True,
-                            duration=10000 # Longer duration for debug
+                            duration=10000
                         )
                         page.update()
                 page.run_task(_do_create)
@@ -569,26 +563,38 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 log_info("Create button clicked but no name provided")
         
         def close_it(e):
-            log_info("Dialog close button clicked")
-            page.dialog.open = False
-            page.update()
-
-        # [CRITICAL FIX] Create dialog first, THEN set page.dialog, THEN open
-        dlg = ft.AlertDialog(
-            title=ft.Text("새 스레드 만들기"),
-            content=ft.Column([new_name, cat_dropdown], tight=True, spacing=15),
-            actions=[ft.TextButton("취소", on_click=close_it), ft.TextButton("만들기", on_click=create_it)]
+            log_info("Bottom sheet close button clicked")
+            page.close(bottom_sheet)
+        
+        # Create BottomSheet (mobile-friendly)
+        bottom_sheet = ft.BottomSheet(
+            content=ft.Container(
+                padding=30,
+                content=ft.Column([
+                    ft.Row(
+                        [
+                            ft.Text("새 스레드 만들기", size=20, weight="bold"),
+                            ft.IconButton(icon=ft.Icons.CLOSE, on_click=close_it)
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN
+                    ),
+                    ft.Divider(),
+                    new_name,
+                    cat_dropdown,
+                    ft.Container(height=20),
+                    ft.Row([
+                        ft.TextButton("취소", on_click=close_it),
+                        ft.ElevatedButton("만들기", on_click=create_it, bgcolor="blue", color="white")
+                    ], alignment=ft.MainAxisAlignment.END, spacing=10)
+                ], tight=True, spacing=15)
+            ),
+            open=True
         )
         
-        # Set dialog to page FIRST
-        page.dialog = dlg
-        # THEN open it
-        dlg.open = True
-        # THEN update page
-        page.update()
-        log_info("Dialog opened successfully")
+        page.open(bottom_sheet)
+        log_info("Bottom sheet opened successfully")
         
-        # Load categories asynchronously AFTER dialog is visible
+        # Load categories asynchronously AFTER bottom sheet is visible
         def _load_cats_for_dlg():
             try:
                 cats = chat_service.get_categories()
