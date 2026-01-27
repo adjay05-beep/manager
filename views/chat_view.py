@@ -496,6 +496,15 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.open(dlg)
 
     def open_create_topic_dialog(e):
+        # [DEBUG] Immediate feedback to confirm button click works
+        page.snack_bar = ft.SnackBar(
+            ft.Text("+ 버튼 클릭됨 - 다이얼로그 열기 시도 중...", color="white"),
+            bgcolor="blue",
+            open=True,
+            duration=2000
+        )
+        page.update()
+        
         log_info("Opening create topic dialog")
         new_name = ft.TextField(label="새 스레드 이름", autofocus=True)
         cat_dropdown = ft.Dropdown(label="주제 분류", value="일반", options=[ft.dropdown.Option("일반")])
