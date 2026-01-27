@@ -1,8 +1,9 @@
 from typing import List, Dict, Any
+import os
 from db import service_supabase, log_info, has_service_key, url
 
 class ChannelService:
-    def get_user_channels(self, user_id: str) -> List[Dict[str, Any]]:
+    def get_user_channels(self, user_id: str, access_token: str = None) -> List[Dict[str, Any]]:
         """
         Fetch all channels a user belongs to.
         Returns list of dicts: {id, name, role, channel_code, ...}
@@ -14,9 +15,18 @@ class ChannelService:
             
             client = service_supabase
             if not has_service_key:
-                from services.auth_service import auth_service
-                headers = auth_service.get_auth_headers()
-                # Ensure we have a token, otherwise fallback to anon (which might fail, but correct)
+                headers = {}
+                if access_token:
+                     headers = {
+                        "Authorization": f"Bearer {access_token}",
+                        "apikey": os.environ.get("SUPABASE_KEY"),
+                        "Content-Type": "application/json"
+                     }
+                else:
+                    from services.auth_service import auth_service
+                    headers = auth_service.get_auth_headers()
+                
+                # Ensure we have a token
                 if "Authorization" in headers:
                     from postgrest import SyncPostgrestClient
                     client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public")

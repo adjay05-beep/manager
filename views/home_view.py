@@ -43,7 +43,10 @@ def get_home_controls(page: ft.Page, navigate_to):
     
     # === STORE SWITCHER ===
     # Fetch all user's channels
-    user_channels = channel_service.get_user_channels(user_id)
+    # [FIX] Pass token for RLS
+    from services.auth_service import auth_service
+    token = auth_service.get_access_token()
+    user_channels = channel_service.get_user_channels(user_id, token)
     
     # Create dropdown options
     store_options = [

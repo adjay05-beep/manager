@@ -20,7 +20,10 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         return [ft.Text("매장 정보가 없습니다.")]
 
     # 2. Fetch Store Data
-    channels = channel_service.get_user_channels(user_id)
+    # [FIX] Pass token for RLS
+    from services.auth_service import auth_service
+    token = auth_service.get_access_token()
+    channels = channel_service.get_user_channels(user_id, token)
     current_ch = next((c for c in channels if c["id"] == channel_id), None)
     
     if not current_ch:

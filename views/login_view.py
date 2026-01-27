@@ -17,14 +17,11 @@ def handle_successful_login(page: ft.Page, user, navigate_to):
         # We need the session object. 
         # auth_service.sign_in returns User, but we need Session.
         # Let's get it from auth_service
+        access_token = None
         session = auth_service.get_session() 
         if session:
+            access_token = session.access_token
             # Serialize
-            # Supabase Session object might not be directly serializable?
-            # It usually has access_token, refresh_token.
-            # Let's verify what `get_session()` returns.
-            # It returns a Session object.
-            # We'll rely on client_storage accepting simple dicts.
             sess_data = {
                 "access_token": session.access_token,
                 "refresh_token": session.refresh_token,
@@ -34,7 +31,8 @@ def handle_successful_login(page: ft.Page, user, navigate_to):
             }
             page.client_storage.set("supa_session", json.dumps(sess_data))
 
-        channels = channel_service.get_user_channels(user.id)
+        # Explicitly pass token to ensure RLS works on Mobile/Web
+        channels = channel_service.get_user_channels(user.id, access_token)
         page.splash = None
         
         if len(channels) == 1:
