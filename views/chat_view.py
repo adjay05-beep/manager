@@ -545,10 +545,14 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 )
                 page.update()
                 
-                # Reload topics
-                load_topics(True)
+                # Reload topics - call the thread function directly
+                log_info("Reloading topics after creation...")
+                await load_topics_thread(update_ui=True, show_all=False)
+                log_info("Topics reloaded successfully")
             except Exception as ex:
                 log_info(f"Creation ERROR: {ex}")
+                import traceback
+                traceback.print_exc()
                 page.snack_bar = ft.SnackBar(
                     ft.Text(f"생성 실패: {ex}", color="white"),
                     bgcolor="red",
