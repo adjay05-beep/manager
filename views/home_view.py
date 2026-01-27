@@ -234,9 +234,9 @@ def get_home_controls(page: ft.Page, navigate_to):
                             ft.IconButton(
                                 ft.Icons.ADD_BUSINESS,
                                 icon_color="#1565C0",
-                                symbol=False, 
+                                # symbol=False,  # [FIX] Removed invalid arg
                                 tooltip="새 매장 추가",
-                                icons_size=35, # [FIX] 130% larger (approx)
+                                icon_size=35, # [FIX] Typo fixed
                                 on_click=lambda _: navigate_to("onboarding"),
                                 visible=True
                             ) if len(user_channels) > 1 else ft.Container(),
