@@ -218,8 +218,9 @@ def get_login_controls(page: ft.Page, navigate_to):
     # Layout (Light Theme)
     login_card = ft.Container(
         content=ft.Column([
-            ft.Text("THE MANAGER", size=32, weight="bold", color="#0A1929", style=ft.TextStyle(letter_spacing=2)),
-            ft.Text("Restaurant Management OS", size=14, color="grey"),
+            # ft.Text("THE MANAGER", size=32, weight="bold", color="#0A1929", style=ft.TextStyle(letter_spacing=2)),
+            # ft.Text("Restaurant Management OS", size=14, color="grey"),
+            ft.Image(src="images/logo.png", width=220, fit=ft.ImageFit.CONTAIN),
             ft.Container(height=30),
             email_tf,
             pw_tf,

@@ -254,7 +254,8 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         ft.Container(
             expand=True,
             bgcolor="white",
-            padding=20,
+            # [FIX] Mobile Safe Area (Top 50)
+            padding=ft.padding.only(left=20, right=20, top=50, bottom=20),
             content=ft.Column([
                 # Header
                 ft.Row([

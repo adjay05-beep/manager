@@ -182,20 +182,20 @@ def get_home_controls(page: ft.Page, navigate_to):
 
     # === GRID LAYOUT ===
     # Collect all items
-    # [FIX] Use absolute paths for Mobile Web compatibility
+    # [FIX] Revert to simple relative paths, REMOVE query string
     menu_items = [
-        action_btn("팀 스레드", "/images/icon_chat_3d.png?v=6", "chat"),
-        action_btn("마감 점검", "/images/icon_closing_3d.png?v=6", "closing"),
-        action_btn("음성 메모", "/images/icon_voice_3d.png?v=6", "voice"),
-        action_btn("캘린더", "/images/icon_calendar_3d.png?v=6", "calendar"),
+        action_btn("팀 스레드", "images/icon_chat_3d.png", "chat"),
+        action_btn("마감 점검", "images/icon_closing_3d.png", "closing"),
+        action_btn("음성 메모", "images/icon_voice_3d.png", "voice"),
+        action_btn("캘린더", "images/icon_calendar_3d.png", "calendar"),
     ]
 
     # RBAC: Show "직원 관리" for owners
     if role == "owner":
-        menu_items.append(action_btn("직원 관리", "/images/icon_work_3d.png?v=6", "work"))
+        menu_items.append(action_btn("직원 관리", "images/icon_work_3d.png", "work"))
     
     # Settings is for everyone
-    menu_items.append(action_btn("설정", "/images/icon_settings_3d.png?v=6", "store_info"))
+    menu_items.append(action_btn("설정", "images/icon_settings_3d.png", "store_info"))
 
     grid = ft.ResponsiveRow(
         controls=menu_items,
@@ -211,33 +211,23 @@ def get_home_controls(page: ft.Page, navigate_to):
             content=ft.Column([
                 # === HEADER WITH STORE SELECTOR ===
                 ft.Container(
-                    # [FIX] Move up (top=5) as requested
-                    padding=ft.padding.only(left=15, right=15, top=5, bottom=10),
+                    # [FIX] Top padding 50 for Safe Area
+                    padding=ft.padding.only(left=20, right=20, top=50, bottom=10),
                     content=ft.Row([
-                        # Left: Logo
-                        ft.Image(
-                             src="/images/logo.png?v=2",
-                             height=40, # [FIX] Resized for Mobile
-                             fit=ft.ImageFit.CONTAIN,
-                             tooltip="OwnersKit"
-                         ),
-
-                        # Center: Store Info
+                        # Left: Store Info (Moved from Center to Start since Logo is gone)
                         ft.Column([
                             ft.Text(
                                 page.session.get("channel_name") or "매장",
-                                size=20, # Slightly smaller for mobile safe fit
+                                size=22, 
                                 weight="bold",
                                 color="black",
-                                text_align=ft.TextAlign.CENTER
                             ),
                             ft.Text(
                                 f"{display_name}님",
                                 size=12,
                                 color="grey",
-                                text_align=ft.TextAlign.CENTER
                             )
-                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=2),
+                        ], spacing=2),
 
                         # Right: Actions
                         ft.Row([
