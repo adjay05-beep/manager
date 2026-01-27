@@ -522,6 +522,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
         
         log_info(f"Create from modal clicked, name='{modal_name_field.value}'")
         if not modal_name_field.value:
+            log_info("ERROR: Name field is empty!")
             page.snack_bar = ft.SnackBar(
                 ft.Text("스레드 이름을 입력해주세요", color="white"),
                 bgcolor="orange",
@@ -545,10 +546,18 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 )
                 page.update()
                 
-                # Reload topics - use run_task since load_topics_thread is not async
+                # Reload topics - SIMPLIFIED: Call sync version directly
                 log_info("Reloading topics after creation...")
-                page.run_task(load_topics_thread, update_ui=True, show_all=False)
-                log_info("Topics reload triggered")
+                try:
+                    # Get fresh data
+                    topics_raw = chat_service.get_topics(current_user_id)
+                    log_info(f"Fetched {len(topics_raw)} topics after creation")
+                    
+                    # Trigger full reload
+                    load_topics(True)
+                    log_info("load_topics() called successfully")
+                except Exception as reload_ex:
+                    log_info(f"Reload error: {reload_ex}")
             except Exception as ex:
                 log_info(f"Creation ERROR: {ex}")
                 import traceback
