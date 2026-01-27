@@ -681,36 +681,43 @@ def get_chat_controls(page: ft.Page, navigate_to):
         ]
     )
 
-    list_page = ft.Container(
-        expand=True, bgcolor="white",
-        content=ft.Column([
-            ft.Container(
-                content=ft.Row([
-                    ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
-                    ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
-                    ft.Row([
-                        ft.IconButton(ft.Icons.SETTINGS_OUTLINED, icon_color="#757575", on_click=open_manage_categories_dialog, tooltip="분류 관리"),
-                        ft.OutlinedButton(
-                            ref=edit_btn_ref, 
-                            text="편집", 
-                            style=ft.ButtonStyle(color="#424242", shape=ft.RoundedRectangleBorder(radius=8), side=ft.BorderSide(1, "#E0E0E0"), padding=ft.padding.symmetric(horizontal=12, vertical=0)), 
-                            on_click=lambda _: toggle_edit_mode()
-                        )
-                    ], spacing=0)
-                ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=40, bottom=0),
-                border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
+    list_page = ft.Stack([
+        ft.Container(
+            expand=True, bgcolor="white",
+            content=ft.Column([
+                ft.Container(
+                    content=ft.Row([
+                        ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
+                        ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
+                        ft.Row([
+                            ft.IconButton(ft.Icons.SETTINGS_OUTLINED, icon_color="#757575", on_click=open_manage_categories_dialog, tooltip="분류 관리"),
+                            ft.OutlinedButton(
+                                ref=edit_btn_ref, 
+                                text="편집", 
+                                style=ft.ButtonStyle(color="#424242", shape=ft.RoundedRectangleBorder(radius=8), side=ft.BorderSide(1, "#E0E0E0"), padding=ft.padding.symmetric(horizontal=12, vertical=0)), 
+                                on_click=lambda _: toggle_edit_mode()
+                            )
+                        ], spacing=0)
+                    ], alignment="spaceBetween"),
+                    padding=ft.padding.only(left=10, right=10, top=40, bottom=0),
+                    border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
+                ),
+                ft.Container(content=topic_list_container, expand=True, padding=0)
+                # debug_panel (Hidden for production)
+            ], spacing=0)
+        ),
+        # FAB positioned at bottom-right
+        ft.Container(
+            content=ft.FloatingActionButton(
+                icon=ft.Icons.ADD,
+                bgcolor="#2E7D32",
+                on_click=open_create_topic_dialog,
+                tooltip="새 스레드"
             ),
-            ft.Container(content=topic_list_container, expand=True, padding=0)
-            # debug_panel (Hidden for production)
-        ], spacing=0),
-        floating_action_button=ft.FloatingActionButton(
-            icon=ft.Icons.ADD,
-            bgcolor="#2E7D32",
-            on_click=open_create_topic_dialog,
-            tooltip="새 스레드"
+            right=20,
+            bottom=20
         )
-    )
+    ], expand=True)
 
     chat_page = ft.Container(
         expand=True, bgcolor="white",
