@@ -515,7 +515,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
         def create_it(e):
             log_info(f"Create button clicked, name='{new_name.value}', category='{cat_dropdown.value}'")
             if new_name.value:
-                async def _do_create():
+                def _do_create():
                     try:
                         log_info(f"Creating topic: {new_name.value} ({cat_dropdown.value})")
                         
@@ -558,7 +558,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                             duration=10000
                         )
                         page.update()
-                page.run_task(_do_create)
+                threading.Thread(target=_do_create, daemon=True).start()
             else:
                 log_info("Create button clicked but no name provided")
         
