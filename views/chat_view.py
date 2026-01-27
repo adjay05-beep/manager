@@ -678,28 +678,37 @@ def get_chat_controls(page: ft.Page, navigate_to):
         ref=modal_visible,
         visible=False,
         expand=True,
-        bgcolor="rgba(0,0,0,0.5)",  # Semi-transparent overlay
-        alignment=ft.alignment.center,
-        content=ft.Container(
-            width=350,
-            bgcolor="white",
-            border_radius=15,
-            padding=30,
-            content=ft.Column([
-                ft.Row([
-                    ft.Text("새 스레드 만들기", size=20, weight="bold", color="#212121"),
-                    ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#757575", on_click=hide_create_modal)
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                ft.Divider(),
-                modal_name_field,
-                ft.Container(height=20),
-                ft.Row([
-                    ft.OutlinedButton("취소", on_click=hide_create_modal, expand=1),
-                    ft.ElevatedButton("만들기", on_click=create_from_modal, bgcolor="#2E7D32", color="white", expand=1)
-                ], spacing=10)
-            ], tight=True, spacing=15)
-        ),
-        on_click=hide_create_modal  # Click outside to close
+        content=ft.Stack([
+            # Background overlay - click to close
+            ft.Container(
+                expand=True,
+                bgcolor="rgba(0,0,0,0.5)",
+                on_click=hide_create_modal  # Only background closes modal
+            ),
+            # Modal content - positioned center
+            ft.Container(
+                alignment=ft.alignment.center,
+                content=ft.Container(
+                    width=350,
+                    bgcolor="white",
+                    border_radius=15,
+                    padding=30,
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Text("새 스레드 만들기", size=20, weight="bold", color="#212121"),
+                            ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#757575", on_click=hide_create_modal)
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        ft.Divider(),
+                        modal_name_field,
+                        ft.Container(height=20),
+                        ft.Row([
+                            ft.OutlinedButton("취소", on_click=hide_create_modal, expand=1),
+                            ft.ElevatedButton("만들기", on_click=create_from_modal, bgcolor="#2E7D32", color="white", expand=1)
+                        ], spacing=10)
+                    ], tight=True, spacing=15)
+                )
+            )
+        ])
     )
     
     list_page = ft.Stack([
