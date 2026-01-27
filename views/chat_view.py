@@ -510,6 +510,15 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.update()
     
     def create_from_modal(e):
+        # [CRITICAL DEBUG] Immediate feedback to verify click detection
+        page.snack_bar = ft.SnackBar(
+            ft.Text(f"🔍 버튼 클릭 감지됨! 값: '{modal_name_field.value}'", color="white"),
+            bgcolor="purple",
+            open=True,
+            duration=5000
+        )
+        page.update()
+        
         log_info(f"Create from modal clicked, name='{modal_name_field.value}'")
         if not modal_name_field.value:
             page.snack_bar = ft.SnackBar(
