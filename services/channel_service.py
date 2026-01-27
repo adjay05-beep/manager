@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-from db import service_supabase, log_info
+from db import service_supabase, log_info, has_service_key, url
 
 class ChannelService:
     def get_user_channels(self, user_id: str) -> List[Dict[str, Any]]:
@@ -8,13 +8,20 @@ class ChannelService:
         Returns list of dicts: {id, name, role, channel_code, ...}
         """
         try:
-            # Join channel_members with channels table
-            # Supabase-py join syntax: table(col, foreign_table(*)) or simple select using RLS?
-            # Let's use service_supabase to bypass RLS for now to ensure we get data,
-            # or use rpc if complex join.
-            # Sticking to standard select with nested resource syntax.
+            # [FIX] Render/Mobile RLS Issue
+            # If we don't have a Service Key (Admin), we MUST use the User's Auth Token
+            # otherwise the Anon client will be blocked by RLS policies on 'channel_members'.
             
-            res = service_supabase.table("channel_members")\
+            client = service_supabase
+            if not has_service_key:
+                from services.auth_service import auth_service
+                headers = auth_service.get_auth_headers()
+                # Ensure we have a token, otherwise fallback to anon (which might fail, but correct)
+                if "Authorization" in headers:
+                    from postgrest import SyncPostgrestClient
+                    client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public")
+            
+            res = client.table("channel_members")\
                 .select("role, joined_at, channel:channels(*)")\
                 .eq("user_id", user_id)\
                 .execute()
