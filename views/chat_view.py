@@ -496,20 +496,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.open(dlg)
 
     def open_create_topic_dialog(e):
+        log_info("Opening create topic dialog")
         new_name = ft.TextField(label="새 스레드 이름", autofocus=True)
-        cat_dropdown = ft.Dropdown(label="주제 분류", value="일반", options=[])
+        cat_dropdown = ft.Dropdown(label="주제 분류", value="일반", options=[ft.dropdown.Option("일반")])
         
-        def _load_cats_for_dlg():
-            cats = chat_service.get_categories()
-            cat_dropdown.options = [ft.dropdown.Option(c['name']) for c in cats or [{"name": "일반"}]]
-            if not cat_dropdown.options: cat_dropdown.options = [ft.dropdown.Option("일반")]
-            cat_dropdown.value = cat_dropdown.options[0].key
-            page.update()
-        
-        threading.Thread(target=_load_cats_for_dlg, daemon=True).start()
-
         def create_it(e):
-            print(f"DEBUG: create_it called, name='{new_name.value}', category='{cat_dropdown.value}'")
+            log_info(f"Create button clicked, name='{new_name.value}', category='{cat_dropdown.value}'")
             if new_name.value:
                 async def _do_create():
                     try:
@@ -535,7 +527,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         log_info(f"Topic creation success: {new_name.value}")
                         
                         # [FIX] Proper Flet dialog close
-                        dlg.open = False
+                        page.dialog.open = False
                         page.update()
                         load_topics(True)
                     except Exception as ex:
@@ -554,21 +546,42 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         page.update()
                 page.run_task(_do_create)
             else:
-                print("DEBUG: create_it - no name provided")
+                log_info("Create button clicked but no name provided")
         
         def close_it(e):
-            dlg.open = False
+            log_info("Dialog close button clicked")
+            page.dialog.open = False
             page.update()
 
+        # [CRITICAL FIX] Create dialog first, THEN set page.dialog, THEN open
         dlg = ft.AlertDialog(
             title=ft.Text("새 스레드 만들기"),
             content=ft.Column([new_name, cat_dropdown], tight=True, spacing=15),
             actions=[ft.TextButton("취소", on_click=close_it), ft.TextButton("만들기", on_click=create_it)]
         )
-        # [FIX] Proper Flet dialog open
+        
+        # Set dialog to page FIRST
         page.dialog = dlg
+        # THEN open it
         dlg.open = True
+        # THEN update page
         page.update()
+        log_info("Dialog opened successfully")
+        
+        # Load categories asynchronously AFTER dialog is visible
+        def _load_cats_for_dlg():
+            try:
+                cats = chat_service.get_categories()
+                cat_dropdown.options = [ft.dropdown.Option(c['name']) for c in cats or [{"name": "일반"}]]
+                if not cat_dropdown.options: 
+                    cat_dropdown.options = [ft.dropdown.Option("일반")]
+                cat_dropdown.value = cat_dropdown.options[0].key
+                page.update()
+                log_info(f"Categories loaded: {len(cat_dropdown.options)}")
+            except Exception as e:
+                log_info(f"Category loading error: {e}")
+        
+        threading.Thread(target=_load_cats_for_dlg, daemon=True).start()
 
     def open_rename_topic_dialog(topic):
         topic_id = topic['id']
