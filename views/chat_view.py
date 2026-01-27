@@ -21,13 +21,29 @@ def get_chat_controls(page: ft.Page, navigate_to):
     }
     # [RBAC] Get User from Session
     current_user_id = page.session.get("user_id")
+    
+    # [CRITICAL FIX] If no user session, show error UI instead of silently failing
     if not current_user_id:
-        # Fallback for dev or error
-        print("CRITICAL: No User Session in Chat View!")
-        # Ideally redirect: navigate_to("login")
-        # But for now, we let it fail or use a dummy if strict mode off? No, request was Strict.
-        # We must assume login happened.
-        pass
+        log_info("CRITICAL: No User Session in Chat View - Showing Error UI")
+        error_view = ft.Container(
+            expand=True,
+            content=ft.Column([
+                ft.Icon(ft.Icons.ERROR_OUTLINE, size=64, color="red"),
+                ft.Text("세션이 만료되었습니다", size=20, weight="bold", color="red"),
+                ft.Text("다시 로그인해 주세요", size=14, color="grey"),
+                ft.ElevatedButton(
+                    "로그인 화면으로", 
+                    on_click=lambda _: navigate_to("login"),
+                    bgcolor="blue",
+                    color="white"
+                )
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=20),
+            alignment=ft.alignment.center,
+            padding=40
+        )
+        return [error_view]
+    
+    log_info(f"Chat View initialized for user: {current_user_id}")
     
     # Initialize UI Controls
     topic_list_container = ft.Column(expand=True, spacing=0)
@@ -39,7 +55,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
     async def load_topics_thread(update_ui=True, show_all=False):
         if not state["is_active"]: return
         if not current_user_id:
-            log_info("Chat ERROR: No user session found")
+            log_info("Chat ERROR: No user session found - cannot load topics")
+            page.snack_bar = ft.SnackBar(
+                ft.Text("세션이 만료되었습니다. 다시 로그인해 주세요.", color="white"),
+                bgcolor="red",
+                open=True
+            )
+            page.update()
             return
             
         try:
