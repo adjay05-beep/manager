@@ -129,12 +129,17 @@ class AuthService:
 
     def get_auth_headers(self):
         """Get headers for authenticated requests."""
-        token = self.get_access_token()
-        if not token:
-            return None
-        
         import os
         key = os.environ.get("SUPABASE_KEY")
+        
+        token = self.get_access_token()
+        if not token:
+            # Return at least the API key so clients don't crash
+            return {
+                "apikey": key,
+                "Content-Type": "application/json"
+            }
+        
         return {
             "Authorization": f"Bearer {token}",
             "apikey": key,

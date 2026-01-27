@@ -30,58 +30,170 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     
     # Staff Schedule Generator
     async def generate_staff_events(year, month):
-        # 1. Fetch Contracts (Authenticated)
         try:
-            # [FIX] Use Authenticated Request to bypass RLS/Server Key issues
             from postgrest import SyncPostgrestClient
             import os
-            from services.auth_service import auth_service # Import instance
+            from services.auth_service import auth_service
             
             headers = auth_service.get_auth_headers()
-            contracts = []
+            if not headers: return []
+            url = os.environ.get("SUPABASE_URL")
+            client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
             
-            if headers:
-                # Use User Token
-                url = os.environ.get("SUPABASE_URL")
-                
-                def _fetch():
-                    cl = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
-                    return cl.from_("labor_contracts").select("*").execute()
-                
-                res = await asyncio.to_thread(_fetch)
-                contracts = res.data or []
-            else:
-                # Fallback to Service Key (likely to fail on Render if Anon)
-                res = await asyncio.to_thread(lambda: calendar_service.service_supabase.table("labor_contracts").select("*").execute())
-                contracts = res.data or []
+            # 1. Fetch Contracts (Strictly filtered by user_id)
+            c_res = await asyncio.to_thread(lambda: client.from_("labor_contracts").select("*").eq("user_id", current_user_id).execute())
+            contracts = c_res.data or []
+            
+            # 2. Fetch Overrides (is_work_schedule = True, Strictly filtered by user_id)
+            start_iso = f"{year}-{month:02d}-01T00:00:00"
+            last_day = calendar.monthrange(year, month)[1]
+            end_iso = f"{year}-{month:02d}-{last_day}T23:59:59"
+            
+            o_res = await asyncio.to_thread(lambda: client.from_("calendar_events")
+                                           .select("*")
+                                           .eq("is_work_schedule", True)
+                                           .eq("created_by", current_user_id)
+                                           .gte("start_date", start_iso)
+                                           .lte("start_date", end_iso)
+                                           .execute())
+            overrides = o_res.data or []
         except Exception as ex: 
             print(f"Calendar Staff Fetch Error: {ex}")
             return []
 
+        # Map overrides by [employee_id][day]
+        override_map = {}
+        for o in overrides:
+            eid = o.get('employee_id')
+            if not eid: continue
+            try:
+                # Handle ISO string from DB (might be with or without Z/TZ)
+                d_str = o['start_date'].split('T')[0]
+                day = int(d_str.split('-')[-1])
+                if eid not in override_map: override_map[eid] = {}
+                override_map[eid][day] = o
+            except: pass
+
         events = []
         days_in_month = calendar.monthrange(year, month)[1]
         
-        for day in range(1, days_in_month + 1):
-            date_obj = datetime(year, month, day)
-            weekday = date_obj.weekday() # 0=Mon, 6=Sun
+        # 1. Map contracts by name -> list of contracts (history)
+        name_to_history = {}
+        eid_to_name = {}
+        for c in contracts:
+            name = c.get('employee_name', 'Unknown').strip()
+            eid_to_name[c['id']] = name
+            if name not in name_to_history: name_to_history[name] = []
+            name_to_history[name].append(c)
+
+        for name in name_to_history:
+            name_to_history[name].sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+        # 2. Map overrides by name -> day -> override
+        # Use name as the key to consolidate overrides from different contract IDs of the same person
+        name_day_overrides = {}
+        for o in overrides:
+            eid = o.get('employee_id')
+            name = eid_to_name.get(eid)
+            if not name:
+                # Fallback: parse name from title if orphaned
+                title = o.get('title', '')
+                # Strictly require an ledger emoji for orphaned entries
+                if '⭐' in title: name = title.split('(')[0].replace('⭐', '').strip()
+                elif '❌' in title: name = title.replace('❌', '').replace('결근', '').strip()
+                elif '🟢' in title: name = title.split('(')[0].replace('🟢', '').strip()
+                elif '🔥' in title: name = title.split('(')[0].replace('🔥', '').strip()
+                else: continue # SKIP Ghost/Legacy data
             
-            for c in contracts:
-                # Check if this contract works today
-                work_days = c.get('work_days', []) # e.g. [0, 2, 4]
-                if weekday in work_days:
-                    # Calculate Daily Pay
-                    pay = c['hourly_wage'] * c['daily_work_hours']
-                    start_str = date_obj.replace(hour=9, minute=0).strftime("%Y-%m-%d %H:%M:%S")
+            name = name.strip()
+            if name not in name_day_overrides: name_day_overrides[name] = {}
+            try:
+                day = int(o['start_date'].split('T')[0].split('-')[-1])
+                # If multiple overrides for same name/day, keep latest created? 
+                # (usually there's only one, but let's be safe)
+                old_o = name_day_overrides[name].get(day)
+                if not old_o or (o.get('created_at', '') > old_o.get('created_at', '')):
+                    name_day_overrides[name][day] = o
+            except: pass
+
+        events = []
+        days_in_month = calendar.monthrange(year, month)[1]
+        all_names = set(name_to_history.keys()) | set(name_day_overrides.keys())
+
+        for name in all_names:
+            history = name_to_history.get(name, [])
+            
+            for day in range(1, days_in_month + 1):
+                date_obj = datetime(year, month, day)
+                weekday = date_obj.weekday()
+                
+                # A. Check for Override (Actual)
+                o = name_day_overrides.get(name, {}).get(day)
+                if o:
+                    try:
+                        st = o['start_date'].split('T')[1][:5]
+                        et = o['end_date'].split('T')[1][:5]
+                    except: st, et = "??", "??"
                     
-                    # Virtual Event Object
+                    is_absence = (st == et == "00:00")
+                    
+                    # Determine color based on contract presence
+                    valid_c_for_day = None
+                    for h in history:
+                        sd = h.get('contract_start_date')
+                        ed = h.get('contract_end_date')
+                        if sd and datetime.strptime(sd, "%Y-%m-%d") > date_obj: continue
+                        if ed and datetime.strptime(ed, "%Y-%m-%d") < date_obj: continue
+                        # Check if this weekday is in contract schedule
+                        if str(weekday) in h.get('work_schedule', {}):
+                            valid_c_for_day = h
+                            break
+                    
+                    final_color = o.get('color')
+                    if not final_color:
+                        final_color = "green"
+                        if is_absence: final_color = "red"
+                        elif not valid_c_for_day: final_color = "blue"
+
                     events.append({
-                        "id": f"virtual_{c['id']}_{day}",
-                        "title": f"{c['employee_name']} ({int(pay):,}원)",
-                        "start_date": start_str,
-                        "color": "orange", # Orange for Staff
-                        "is_virtual": True,
-                        "employee_id": c['id']
+                        "id": o['id'],
+                        "title": o.get('title', f"⭐ {name} ({st}~{et})"),
+                        "start_date": o['start_date'],
+                        "end_date": o['end_date'],
+                        "color": final_color,
+                        "is_virtual": False,
+                        "employee_id": o['employee_id'], # Keep original eid link
+                        "employee_name": name,
+                        "memo": o.get('memo')
                     })
+
+                # B. Check for Contract Default (Baseline)
+                # Only show baseline if it's currently valid for the date
+                valid_c = None
+                for h in history:
+                    sd = h.get('contract_start_date')
+                    ed = h.get('contract_end_date')
+                    if sd and datetime.strptime(sd, "%Y-%m-%d") > date_obj: continue
+                    if ed and datetime.strptime(ed, "%Y-%m-%d") < date_obj: continue
+                    valid_c = h
+                    break
+                
+                if valid_c:
+                    ws = valid_c.get('work_schedule', {})
+                    if str(weekday) in ws:
+                        times = ws[str(weekday)]
+                        start_t = times.get('start', '09:00')
+                        end_t = times.get('end', '18:00')
+                        events.append({
+                            "id": f"virtual_{valid_c['id']}_{day}",
+                            "title": f"{name} ({start_t}~{end_t})",
+                            "start_date": f"{year}-{month:02d}-{day:02d}T{start_t}:00",
+                            "end_date": f"{year}-{month:02d}-{day:02d}T{end_t}:00",
+                            "color": "orange",
+                            "is_virtual": True,
+                            "employee_id": valid_c['id'],
+                            "employee_name": name
+                        })
         return events
 
     grid = ft.GridView(expand=True, runs_count=7, spacing=0, run_spacing=0)
@@ -152,23 +264,25 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                         except: pass
                     
                     # Event chips
-                    for ev in day_events[:3]:
+                    for ev in day_events[:4]: # Increased limit for staff view
+                        is_staff = current_cal_type == "staff"
+                        is_virtual = ev.get('is_virtual', False)
                         day_cols.append(
                              ft.Container(
                                  content=ft.Text(ev['title'], size=10, color="white", no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS),
                                  bgcolor=ev.get('color', 'blue'), border_radius=4, padding=ft.padding.symmetric(horizontal=4, vertical=1),
-                                 on_click=lambda e, ev=ev: open_event_detail_dialog(ev, day),
-                                 height=16
+                                 on_click=None if (is_staff and is_virtual) else lambda e, ev=ev, d=day: (open_staff_day_ledger(d) if is_staff else open_event_detail_dialog(ev, d)),
+                                 height=18
                              )
                         )
 
                     grid.controls.append(
                         ft.Container(
                             content=ft.Column(day_cols, spacing=2),
-                            bgcolor="white", # Current month is white
+                            bgcolor="white",
                             border=ft.border.all(0.5, "#EEEEEE"),
                             padding=4,
-                            on_click=lambda e, d=day: open_event_editor_dialog(d),
+                            on_click=lambda e, d=day: (open_staff_day_ledger(d) if current_cal_type=="staff" else open_event_editor_dialog(d)),
                             alignment=ft.alignment.top_left
                         )
                     )
@@ -246,6 +360,206 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             actions=actions
         )
         page.open(dlg_det)
+
+    async def delete_staff_event(ev_id):
+        from services.auth_service import auth_service
+        from postgrest import SyncPostgrestClient
+        headers = auth_service.get_auth_headers()
+        if not headers: return
+        if "apikey" not in headers: headers["apikey"] = os.environ.get("SUPABASE_KEY")
+        url = os.environ.get("SUPABASE_URL")
+        client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
+        await asyncio.to_thread(lambda: client.from_("calendar_events").delete().eq("id", ev_id).execute())
+
+    def open_staff_day_ledger(day):
+        y, m = view_state["year"], view_state["month"]
+        current_day_evs = [ev for ev in view_state["events"] if not ev.get('is_virtual') and str(ev.get('start_date', '')).startswith(f"{y}-{m:02d}-{day:02d}")]
+        
+        # 1. Controls
+        staff_dd = ft.Dropdown(label="직원 선택", width=160)
+        substitute_tf = ft.TextField(label="기타 성함 (대타)", width=150, hint_text="이름 직접 입력")
+        
+        type_dd = ft.Dropdown(
+            label="유형", width=120,
+            options=[
+                ft.dropdown.Option("absence", "결근"),
+                ft.dropdown.Option("overtime", "연장"),
+                ft.dropdown.Option("additional", "추가")
+            ], value="absence"
+        )
+        
+        # Time controls for 'Additional'
+        tf_start = ft.TextField(label="시작", value="09:00", width=80, visible=False)
+        tf_end = ft.TextField(label="종료", value="18:00", width=80, visible=False)
+        
+        # Duration for 'Overtime'
+        ext_options = [ft.dropdown.Option(str(x/2), f"{x/2}시간") for x in range(1, 21)]
+        extension_dd = ft.Dropdown(label="연장 시간", width=100, options=ext_options, visible=False, value="1.0")
+
+        def on_type_change(e):
+            val = type_dd.value
+            tf_start.visible = (val == "additional")
+            tf_end.visible = (val == "additional")
+            extension_dd.visible = (val == "overtime")
+            page.update()
+        type_dd.on_change = on_type_change
+
+        # 2. Existing Records List
+        existing_list = ft.Column(spacing=5)
+        def refresh_existing():
+            existing_list.controls.clear()
+            for ev in current_day_evs:
+                existing_list.controls.append(
+                    ft.Row([
+                        ft.Icon(ft.Icons.CHECK_CIRCLE, color="green" if "결근" not in ev['title'] else "red", size=14),
+                        ft.Text(ev['title'], size=12, expand=True),
+                        ft.IconButton(ft.Icons.DELETE, icon_color="red", icon_size=16, on_click=lambda e, eid=ev['id']: page.run_task(delete_and_refresh, eid))
+                    ])
+                )
+            if not current_day_evs:
+                existing_list.controls.append(ft.Text("확정된 기록 없음", size=12, color="grey"))
+            page.update()
+
+        async def delete_and_refresh(eid):
+            await delete_staff_event(eid)
+            nonlocal current_day_evs
+            current_day_evs = [ev for ev in current_day_evs if ev['id'] != eid]
+            refresh_existing()
+            load()
+
+        async def add_record():
+            name = ""
+            eid = None
+            if staff_dd.value:
+                eid = staff_dd.value
+                name = next((opt.text for opt in staff_dd.options if opt.key == eid), "Unknown")
+            elif substitute_tf.value:
+                name = substitute_tf.value.strip()
+                # eid stays None for substitutes
+            else:
+                page.open(ft.SnackBar(ft.Text("직원을 선택하거나 이름을 입력하세요."), bgcolor="red"))
+                return
+
+            t_val = type_dd.value
+            st_time, et_time = "09:00", "18:00"
+            prefix, color = "🟢", "green"
+            title_suffix = ""
+
+            if t_val == "absence":
+                st_time, et_time = "00:00", "00:00"
+                prefix, color = "❌", "red"
+                title_suffix = "결근"
+            elif t_val == "additional":
+                st_time, et_time = tf_start.value, tf_end.value
+                prefix, color = "⭐", "blue"
+                title_suffix = f"({st_time}~{et_time})"
+            elif t_val == "overtime":
+                prefix, color = "🔥", "green"
+                # Find baseline for eid on this day
+                if not eid:
+                    page.open(ft.SnackBar(ft.Text("연장은 기존 직원에 대해서만 가능합니다."), bgcolor="red"))
+                    return
+                # Look for virtual event in state
+                baseline = None
+                for ev in view_state["events"]:
+                    if ev.get('is_virtual') and ev.get('employee_id') == eid and ev.get('start_date', '').startswith(f"{y}-{m:02d}-{day:02d}"):
+                        baseline = ev; break
+                
+                if not baseline:
+                    page.open(ft.SnackBar(ft.Text("해당 직원의 기본 스케줄을 찾을 수 없습니다."), bgcolor="red"))
+                    return
+                
+                try:
+                    st_time = baseline['start_date'].split('T')[1][:5]
+                    et_base = baseline['end_date'].split('T')[1][:5]
+                    ext_h = float(extension_dd.value)
+                    bh, bm = map(int, et_base.split(':'))
+                    # Calculate new end
+                    total_m = bh * 60 + bm + int(ext_h * 60)
+                    nh, nm = divmod(total_m, 60)
+                    if nh >= 24: nh -= 24 # Simplified wrap around
+                    et_time = f"{nh:02d}:{nm:02d}"
+                    title_suffix = f"({ext_h}h 연장 / {st_time}~{et_time})"
+                except:
+                    page.open(ft.SnackBar(ft.Text("연장 시간 계산 오류"), bgcolor="red"))
+                    return
+
+            title = f"{prefix} {name} {title_suffix}".strip()
+
+            from services.auth_service import auth_service
+            from postgrest import SyncPostgrestClient
+            headers = auth_service.get_auth_headers()
+            if not headers: return
+            if "apikey" not in headers: headers["apikey"] = os.environ.get("SUPABASE_KEY")
+            url = os.environ.get("SUPABASE_URL")
+            client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
+
+            payload = {
+                "title": title,
+                "start_date": f"{y}-{m:02d}-{day:02d}T{st_time}:00",
+                "end_date": f"{y}-{m:02d}-{day:02d}T{et_time}:00",
+                "color": color,
+                "employee_id": eid,
+                "is_work_schedule": True,
+                "created_by": page.session.get("user_id")
+            }
+            res = await asyncio.to_thread(lambda: client.from_("calendar_events").insert(payload).execute())
+            if res.data:
+                current_day_evs.append(res.data[0])
+                refresh_existing()
+                load()
+                page.open(ft.SnackBar(ft.Text("기록되었습니다."), bgcolor="green"))
+
+        async def fetch_staff():
+            from services.auth_service import auth_service
+            from postgrest import SyncPostgrestClient
+            headers = auth_service.get_auth_headers()
+            if not headers: return
+            url = os.environ.get("SUPABASE_URL")
+            client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
+            res = await asyncio.to_thread(lambda: client.from_("labor_contracts").select("id, employee_name, contract_end_date").eq("user_id", current_user_id).order("created_at", desc=True).execute())
+            data = res.data or []
+            unique_staff = {}
+            for d in data:
+                nm = d['employee_name'].strip()
+                if nm in unique_staff: continue
+                ed = d.get('contract_end_date')
+                if ed:
+                    try:
+                        if datetime.strptime(ed, "%Y-%m-%d").date() < datetime.now().date(): continue
+                    except: pass
+                unique_staff[nm] = d['id']
+            staff_dd.options = [ft.dropdown.Option(eid, nm) for nm, eid in unique_staff.items()]
+            page.update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"{y}/{m}/{day} 일일 근무 장부"),
+            content=ft.Container(
+                content=ft.Column([
+                    ft.Text("확정된 기록 (수정/삭제)", size=12, weight="bold"),
+                    existing_list,
+                    ft.Divider(),
+                    ft.Text("기록 추가", size=12, weight="bold"),
+                    ft.Row([staff_dd, ft.Text("또는"), substitute_tf], vertical_alignment="center"),
+                    ft.Row([type_dd, extension_dd, tf_start, ft.Text("~", visible=False), tf_end], vertical_alignment="center"),
+                    ft.Row([ft.ElevatedButton("기록하기", on_click=lambda e: page.run_task(add_record), expand=True)], alignment="center"),
+                ], tight=True, scroll=ft.ScrollMode.AUTO, spacing=10),
+                width=450, height=500
+            ),
+            actions=[ft.TextButton("닫기", on_click=lambda _: page.close(dlg))]
+        )
+        
+        # Link start/end visibility to tilde
+        tilde_txt = dlg.content.content.controls[5].controls[3]
+        def on_type_change_sync(e):
+            on_type_change(e)
+            tilde_txt.visible = tf_start.visible
+            page.update()
+        type_dd.on_change = on_type_change_sync
+
+        page.open(dlg)
+        refresh_existing()
+        page.run_task(fetch_staff)
 
     def open_event_editor_dialog(day, init=""):
         try:
@@ -536,8 +850,8 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 label="전체 일정"
             ),
             ft.NavigationRailDestination(
-                icon_content=ft.Icon(ft.Icons.PEOPLE_OUTLINE),
-                selected_icon_content=ft.Icon(ft.Icons.PEOPLE),
+                icon=ft.Icons.PEOPLE_OUTLINE,
+                selected_icon=ft.Icons.PEOPLE,
                 label="직원 근무"
             ),
         ],

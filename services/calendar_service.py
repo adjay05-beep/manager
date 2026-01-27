@@ -22,7 +22,11 @@ async def get_all_events(user_id: str) -> List[Dict[str, Any]]:
     
     # query 1: Events Created by Me
     # Use client.from_(...) instead of service_supabase.table(...)
-    t1 = asyncio.to_thread(lambda: client.from_("calendar_events").select("*, profiles!calendar_events_created_by_fkey(full_name)").eq("created_by", user_id).execute())
+    t1 = asyncio.to_thread(lambda: client.from_("calendar_events")
+                           .select("*, profiles!calendar_events_created_by_fkey(full_name)")
+                           .eq("created_by", user_id)
+                           .eq("is_work_schedule", False)
+                           .execute())
     
     # query 2: Events with Me as Participant (JSONB Containment)
     # [FIX] Temporarily disabled due to Postgrest JSON serialization issues (22P02)
