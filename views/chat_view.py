@@ -545,10 +545,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 )
                 page.update()
                 
-                # Reload topics - call the thread function directly
+                # Reload topics - use run_task since load_topics_thread is not async
                 log_info("Reloading topics after creation...")
-                await load_topics_thread(update_ui=True, show_all=False)
-                log_info("Topics reloaded successfully")
+                page.run_task(load_topics_thread, update_ui=True, show_all=False)
+                log_info("Topics reload triggered")
             except Exception as ex:
                 log_info(f"Creation ERROR: {ex}")
                 import traceback
