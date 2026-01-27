@@ -859,7 +859,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         page.close_drawer()
 
     def build_drawer():
-        u_name = page.session.get("display_name", "User")
+        u_name = page.session.get("display_name") or "User"
         
         # Fetch Channels
         from services.auth_service import auth_service
