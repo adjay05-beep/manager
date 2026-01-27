@@ -22,15 +22,28 @@ def get_topics(user_id: str) -> List[Dict[str, Any]]:
     """Fetch chat topics visible to the user."""
     try:
         # [RBAC] Filter topics joined by user (use service_supabase to bypass RLS)
-        res = service_supabase.table("chat_topic_members").select("topic:chat_topics(*)").eq("user_id", user_id).execute()
-        
-        # Unpack result
-        topics = []
-        if res.data:
-            for item in res.data:
-                topic = item.get('topic')
-                if topic:
-                    topics.append(topic)
+        # Try nested select first
+        try:
+            res = service_supabase.table("chat_topic_members").select("topic:chat_topics(*)").eq("user_id", user_id).execute()
+            
+            # Unpack result
+            topics = []
+            if res.data:
+                for item in res.data:
+                    topic = item.get('topic')
+                    if topic:
+                        topics.append(topic)
+        except Exception as nested_err:
+            # Fallback: Fetch topic IDs first, then query topics separately
+            print(f"Nested query failed, using fallback: {nested_err}")
+            member_res = service_supabase.table("chat_topic_members").select("topic_id").eq("user_id", user_id).execute()
+            topic_ids = [m['topic_id'] for m in member_res.data] if member_res.data else []
+            
+            if topic_ids:
+                topics_res = service_supabase.table("chat_topics").select("*").in_("id", topic_ids).execute()
+                topics = topics_res.data or []
+            else:
+                topics = []
         
         # [DIAGNOSTIC] If list is empty, also check if there are ANY topics at all
         if not topics:
