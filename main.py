@@ -68,6 +68,9 @@ def main(page: ft.Page):
         page.clean()
         
         # Hide Nav Bar on Auth Pages
+        # [FIX] Clear any existing drawer to preventing lingering/conflict
+        page.drawer = None
+        
         if route in ["login", "signup", "create_profile", "edit_profile"]:
             page.navigation_bar.visible = False
         else:

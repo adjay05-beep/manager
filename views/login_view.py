@@ -71,7 +71,7 @@ def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_
                         content=ft.Row([
                             ft.Icon(ft.Icons.STORE, color="white"),
                             ft.Column([
-                                ft.Text(ch["name"], weight="bold", size=16),
+                                ft.Text(ch["name"], weight="bold", size=16, color="white"),
                                 ft.Text(f"{ch['role']} • {ch.get('channel_code','Unknown')}", size=12, color="white70")
                             ], spacing=2)
                         ]),

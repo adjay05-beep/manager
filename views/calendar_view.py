@@ -934,6 +934,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
 
     # Apply Drawer
     page.drawer = build_drawer()
+    page.update() # [FIX] Ensure drawer is attached immediately
 
     top_bar = ft.Container(
         padding=10,
