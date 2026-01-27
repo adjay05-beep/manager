@@ -513,6 +513,15 @@ def get_chat_controls(page: ft.Page, navigate_to):
         cat_dropdown = ft.Dropdown(label="주제 분류", value="일반", options=[ft.dropdown.Option("일반")])
         
         def create_it(e):
+            # [DEBUG] Immediate feedback
+            page.snack_bar = ft.SnackBar(
+                ft.Text(f"만들기 클릭됨! 이름: '{new_name.value}'", color="white"),
+                bgcolor="orange",
+                open=True,
+                duration=3000
+            )
+            page.update()
+            
             log_info(f"Create button clicked, name='{new_name.value}', category='{cat_dropdown.value}'")
             if new_name.value:
                 def _do_create():
