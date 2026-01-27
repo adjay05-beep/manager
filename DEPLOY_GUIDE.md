@@ -12,6 +12,9 @@ Render 사이트에서 해당 프로젝트의 **Environment Variables** (환경 
     *   **Value**: (사용 중인 Supabase URL)
 *   **Key**: `SUPABASE_KEY`
     *   **Value**: (사용 중인 Supabase Anon Key)
+*   **Key**: `SUPABASE_SERVICE_KEY` (중요!)
+    *   **Value**: (사용 중인 Supabase Service Role Key - 로컬 .env 확인)
+    *   *이 키가 있어야 db 권한 문제를 우회하여 모든 데이터를 정상적으로 불러올 수 있습니다.*
 
 ## 2. 배포 확인
 1. 코드를 Push 하면 Render에서 자동으로 빌드 및 배포가 시작됩니다.
