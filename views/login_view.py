@@ -136,7 +136,9 @@ def get_login_controls(page: ft.Page, navigate_to):
                 if user:
                     print("Auto-Login Successful")
                     user_data = {"id": user.id, "email": user.email}
-                    handle_successful_login(page, user_data, navigate_to)
+                    # [FIX] Pass cached token explicitly for RLS
+                    cached_token = data.get("access_token") 
+                    handle_successful_login(page, user_data, navigate_to, cached_token)
                     return [] # Redirecting
         except Exception as e:
             print(f"Auto-Login Failed: {e}")
