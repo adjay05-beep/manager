@@ -31,7 +31,7 @@ class AuthService:
                     print(f"WARNING: Failed to auto-create profile during login: {profile_err}")
                     # Don't fail the login if profile creation fails
                 
-                return res.user
+                return res
             return None
         except Exception as e:
             print(f"Auth Error: {e}")
