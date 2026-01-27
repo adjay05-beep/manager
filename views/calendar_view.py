@@ -863,6 +863,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         
         # Fetch Channels
         from services.auth_service import auth_service
+        from services.channel_service import channel_service
         token = auth_service.get_access_token()
         channels = channel_service.get_user_channels(current_user_id, token)
         
