@@ -205,19 +205,20 @@ def get_home_controls(page: ft.Page, navigate_to):
 
     # Layout
     return [
-        ft.Container(
-            expand=True,
-            bgcolor="#F5F5F5",
-            content=ft.Column([
-                # === HEADER WITH STORE SELECTOR ===
-                ft.Container(
-                    # [FIX] Top padding 50 for Safe Area
-                    padding=ft.padding.only(left=20, right=20, top=50, bottom=10),
-                    content=ft.Row([
-                        # Left: Store Info (Moved from Center to Start since Logo is gone)
-                        ft.Column([
-                            ft.Text(
-                                page.session.get("channel_name") or "매장",
+        ft.SafeArea(
+            ft.Container(
+                expand=True,
+                bgcolor="#F5F5F5",
+                content=ft.Column([
+                    # === HEADER WITH STORE SELECTOR ===
+                    ft.Container(
+                        # [FIX] Safer top padding with SafeArea
+                        padding=ft.padding.only(left=20, right=20, top=10, bottom=10),
+                        content=ft.Row([
+                            # Left: Store Info (Moved from Center to Start since Logo is gone)
+                            ft.Column([
+                                ft.Text(
+                                    page.session.get("channel_name") or "매장",
                                 size=22, 
                                 weight="bold",
                                 color="black",
@@ -275,6 +276,6 @@ def get_home_controls(page: ft.Page, navigate_to):
                     # Ensure grid can scroll if needed, though home screen usually fits
                     # But responsive row needs width context.
                 )
-            ])
-        )
+            ], scroll=ft.ScrollMode.AUTO)
+        ))
     ]

@@ -251,12 +251,13 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
 
     # === LAYOUT ===
     return [
-        ft.Container(
-            expand=True,
-            bgcolor="white",
-            # [FIX] Mobile Safe Area (Top 50)
-            padding=ft.padding.only(left=20, right=20, top=50, bottom=20),
-            content=ft.Column([
+        ft.SafeArea(
+            ft.Container(
+                expand=True,
+                bgcolor="white",
+                # [FIX] Mobile Safe Area handled by SafeArea, keeping 10 for margin
+                padding=ft.padding.only(left=20, right=20, top=10, bottom=20),
+                content=ft.Column([
                 # Header
                 ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK, icon_color="black", on_click=lambda _: navigate_to("home")),
@@ -351,5 +352,5 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                 )
 
             ], scroll=ft.ScrollMode.AUTO)
-        )
+        ))
     ]

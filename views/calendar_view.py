@@ -961,7 +961,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         height=100, # Increased height for SafeArea
         bgcolor="white", 
         border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE")), 
-        padding=ft.padding.only(left=10, right=10, top=40),
+        padding=ft.padding.only(left=10, right=10, top=10),
         content=ft.Column([
             top_bar,
             ft.Row([
@@ -985,26 +985,28 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     
     # [FIX] Return layout without NavigationRail
     return [
-        ft.Column([
-            debug_text,
-            header,
-            ft.Container(
-                expand=True,
-                padding=ft.padding.only(left=5, right=5, bottom=0, top=0),
-                content=ft.Column([
-                    # Weekday header row
-                    ft.Row([
-                        ft.Container(content=ft.Text("월", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                        ft.Container(content=ft.Text("화", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                        ft.Container(content=ft.Text("수", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                        ft.Container(content=ft.Text("목", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                        ft.Container(content=ft.Text("금", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                        ft.Container(content=ft.Text("토", color="blue", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                        ft.Container(content=ft.Text("일", color="red", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                    ], spacing=0),
-                    # Grid
-                    grid
-                ], spacing=0, expand=True)
-            )
-        ], expand=True, spacing=0)
+        ft.SafeArea(
+            ft.Column([
+                debug_text,
+                header,
+                ft.Container(
+                    expand=True,
+                    padding=ft.padding.only(left=5, right=5, bottom=0, top=0),
+                    content=ft.Column([
+                        # Weekday header row
+                        ft.Row([
+                            ft.Container(content=ft.Text("월", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                            ft.Container(content=ft.Text("화", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                            ft.Container(content=ft.Text("수", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                            ft.Container(content=ft.Text("목", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                            ft.Container(content=ft.Text("금", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                            ft.Container(content=ft.Text("토", color="blue", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                            ft.Container(content=ft.Text("일", color="red", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                        ], spacing=0),
+                        # Grid
+                        grid
+                    ], spacing=0, expand=True)
+                )
+            ], expand=True, spacing=0),
+        expand=True)
     ]

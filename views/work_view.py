@@ -977,7 +977,7 @@ def get_work_controls(page: ft.Page, navigate_to):
             ]), 
         ], alignment="spaceBetween"), 
         # [FIX] Match Mobile Top Padding (Safe Area)
-        padding=ft.padding.only(left=10, right=10, top=50, bottom=10),
+        padding=ft.padding.only(left=10, right=10, top=10, bottom=10),
         border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE"))
     )
 
@@ -985,9 +985,11 @@ def get_work_controls(page: ft.Page, navigate_to):
     page.run_task(load_contracts_async)
 
     return [
-        ft.Column([
-            ft.Container(header, bgcolor="white"),
-            ft.Container(tabs_row, height=50, bgcolor="white"),
-            ft.Container(body, expand=True, padding=10)
-        ], spacing=0, expand=True)
+        ft.SafeArea(
+            ft.Column([
+                ft.Container(header, bgcolor="white"),
+                ft.Container(tabs_row, height=50, bgcolor="white"),
+                ft.Container(body, expand=True, padding=10)
+            ], spacing=0, expand=True),
+        expand=True)
     ]

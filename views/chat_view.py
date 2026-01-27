@@ -706,7 +706,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         )
                     ], spacing=0)
                 ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=40, bottom=0),
+                padding=ft.padding.only(left=10, right=10, top=10, bottom=0),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
             ft.Container(content=topic_list_container, expand=True, padding=0)
@@ -766,7 +766,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     chat_header_title,
                     ft.IconButton(ft.Icons.REFRESH_ROUNDED, icon_color="#BDBDBD", on_click=lambda _: load_messages())
                 ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=50, bottom=5),
+                padding=ft.padding.only(left=10, right=10, top=10, bottom=5),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
             ft.Container(content=message_list_view, expand=True, bgcolor="#F5F5F5"),
@@ -845,4 +845,4 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     init_chat()
     
-    return [root_view]
+    return [ft.SafeArea(root_view, expand=True)]
