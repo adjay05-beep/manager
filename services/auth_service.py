@@ -8,7 +8,7 @@ class AuthService:
         self.current_user = None
 
     def sign_in(self, email, password):
-        """Sign in with email and password via Supabase."""
+        """Sign in with email and password via Supabase. Returns Response (with .user and .session)."""
         try:
             res = supabase.auth.sign_in_with_password({"email": email, "password": password})
             if res.user:

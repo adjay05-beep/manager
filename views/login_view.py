@@ -4,7 +4,7 @@ from services.channel_service import channel_service
 import json
 from utils.logger import log_debug, log_info, log_error
 
-def handle_successful_login(page: ft.Page, user, navigate_to):
+def handle_successful_login(page: ft.Page, user, navigate_to, explicit_session=None):
     log_info(f"User logged in: {user.email} ({user.id})")
     """
     Common logic for processing a logged-in user:
@@ -14,11 +14,9 @@ def handle_successful_login(page: ft.Page, user, navigate_to):
     """
     try:
         # Save session for Auto-Login
-        # We need the session object. 
-        # auth_service.sign_in returns User, but we need Session.
-        # Let's get it from auth_service
+        # [FIX] Use explicit session from login response if available (Render Fix)
         access_token = None
-        session = auth_service.get_session() 
+        session = explicit_session or auth_service.get_session() 
         if session:
             access_token = session.access_token
             # Serialize
@@ -194,7 +192,7 @@ def get_login_controls(page: ft.Page, navigate_to):
         page.update()
         
         try:
-            user = auth_service.sign_in(email_tf.value, pw_tf.value)
+            res = auth_service.sign_in(email_tf.value, pw_tf.value)
             
             # Save or clear credentials based on checkbox
             if remember_checkbox.value:
@@ -205,7 +203,7 @@ def get_login_controls(page: ft.Page, navigate_to):
                 page.client_storage.remove("saved_password")
             
             # handle_successful_login will clear splash
-            handle_successful_login(page, user, navigate_to)
+            handle_successful_login(page, res.user, navigate_to, res.session)
 
         except Exception as e:
             page.splash = None
