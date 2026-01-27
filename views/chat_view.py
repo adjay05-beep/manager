@@ -530,21 +530,22 @@ def get_chat_controls(page: ft.Page, navigate_to):
             page.update()
             return
         
-        def _do_create():
+        async def _do_create():
             try:
                 log_info(f"Creating topic from modal: {modal_name_field.value}")
                 result = chat_service.create_topic(modal_name_field.value, "일반", current_user_id)
                 log_info(f"Topic creation success: {modal_name_field.value}")
                 
-                # Hide modal
+                # Hide modal and show success
                 modal_container.visible = False
-                
                 page.snack_bar = ft.SnackBar(
                     ft.Text("스레드가 생성되었습니다!", color="white"),
                     bgcolor="green",
                     open=True
                 )
                 page.update()
+                
+                # Reload topics
                 load_topics(True)
             except Exception as ex:
                 log_info(f"Creation ERROR: {ex}")
@@ -554,7 +555,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     open=True
                 )
                 page.update()
-        threading.Thread(target=_do_create, daemon=True).start()
+        
+        page.run_task(_do_create)
 
     def open_create_topic_dialog(e):
         show_create_modal(e)
