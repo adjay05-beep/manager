@@ -199,68 +199,15 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 
                 # [FIX] Show empty state UI if no topics exist
                 if len(list_view_ctrls) == 0:
-                    log_info("No topics found - showing empty state UI with inline form")
-                    
-                    # Inline form controls
-                    inline_name = ft.TextField(
-                        label="새 스레드 이름",
-                        hint_text="스레드 이름을 입력하세요",
-                        width=300,
-                        autofocus=True
-                    )
-                    
-                    def inline_create(e):
-                        if not inline_name.value:
-                            page.snack_bar = ft.SnackBar(
-                                ft.Text("스레드 이름을 입력해주세요", color="white"),
-                                bgcolor="orange",
-                                open=True
-                            )
-                            page.update()
-                            return
-                        
-                        def _do_create():
-                            try:
-                                log_info(f"Creating topic inline: {inline_name.value}")
-                                result = chat_service.create_topic(inline_name.value, "일반", current_user_id)
-                                log_info(f"Topic creation success: {inline_name.value}")
-                                
-                                page.snack_bar = ft.SnackBar(
-                                    ft.Text("스레드가 생성되었습니다!", color="white"),
-                                    bgcolor="green",
-                                    open=True
-                                )
-                                page.update()
-                                load_topics(True)
-                            except Exception as ex:
-                                log_info(f"Creation ERROR: {ex}")
-                                page.snack_bar = ft.SnackBar(
-                                    ft.Text(f"생성 실패: {ex}", color="white"),
-                                    bgcolor="red",
-                                    open=True
-                                )
-                                page.update()
-                        threading.Thread(target=_do_create, daemon=True).start()
-                    
+                    log_info("No topics found - showing empty state UI")
                     list_view_ctrls.append(
                         ft.Container(
                             expand=True,
                             content=ft.Column([
                                 ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE, size=80, color="#BDBDBD"),
                                 ft.Text("아직 스레드가 없습니다", size=18, weight="bold", color="#757575"),
-                                ft.Text("아래에서 새 스레드를 만드세요", size=14, color="#BDBDBD"),
-                                ft.Container(height=30),
-                                inline_name,
-                                ft.Container(height=10),
-                                ft.ElevatedButton(
-                                    "스레드 만들기",
-                                    icon=ft.Icons.ADD,
-                                    on_click=inline_create,
-                                    bgcolor="#2E7D32",
-                                    color="white",
-                                    width=300
-                                )
-                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+                                ft.Text("우측 상단 + 버튼을 눌러 만들어보세요", size=14, color="#BDBDBD"),
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
                             alignment=ft.alignment.center,
                             padding=40
                         )
@@ -547,117 +494,60 @@ def get_chat_controls(page: ft.Page, navigate_to):
         )
         page.open(dlg)
 
-    def open_create_topic_dialog(e):
-        log_info("Opening create topic bottom sheet")
-        
-        new_name = ft.TextField(label="새 스레드 이름", autofocus=True)
-        cat_dropdown = ft.Dropdown(label="주제 분류", value="일반", options=[ft.dropdown.Option("일반")])
-        
-        def create_it(e):
-            # [DEBUG] Immediate feedback
+    # Custom modal overlay (instead of AlertDialog/BottomSheet which don't work on mobile)
+    modal_visible = ft.Ref[ft.Container]()
+    modal_name_field = ft.TextField(label="새 스레드 이름", autofocus=True, width=300)
+    
+    def show_create_modal(e):
+        log_info("Showing custom modal overlay")
+        modal_visible.current.visible = True
+        modal_name_field.value = ""
+        page.update()
+    
+    def hide_create_modal(e):
+        log_info("Hiding custom modal overlay")
+        modal_visible.current.visible = False
+        page.update()
+    
+    def create_from_modal(e):
+        log_info(f"Create from modal clicked, name='{modal_name_field.value}'")
+        if not modal_name_field.value:
             page.snack_bar = ft.SnackBar(
-                ft.Text(f"만들기 클릭됨! 이름: '{new_name.value}'", color="white"),
+                ft.Text("스레드 이름을 입력해주세요", color="white"),
                 bgcolor="orange",
-                open=True,
-                duration=3000
+                open=True
             )
             page.update()
-            
-            log_info(f"Create button clicked, name='{new_name.value}', category='{cat_dropdown.value}'")
-            if new_name.value:
-                def _do_create():
-                    try:
-                        log_info(f"Creating topic: {new_name.value} ({cat_dropdown.value})")
-                        
-                        # [EMERGENCY FIX] Ensure profile exists before creating topic
-                        try:
-                            profile_check = service_supabase.table("profiles").select("id").eq("id", current_user_id).execute()
-                            if not profile_check.data:
-                                # Create profile on the spot
-                                user_email = page.session.get("user_email")
-                                full_name = user_email.split("@")[0] if user_email else "Unknown"
-                                service_supabase.table("profiles").insert({
-                                    "id": current_user_id,
-                                    "full_name": full_name,
-                                    "role": "staff"
-                                }).execute()
-                                log_info(f"Auto-created profile for {current_user_id}")
-                        except Exception as profile_err:
-                            log_info(f"Profile check failed: {profile_err}")
-                        
-                        result = chat_service.create_topic(new_name.value, cat_dropdown.value, current_user_id)
-                        log_info(f"Topic creation success: {new_name.value}")
-                        
-                        # Close bottom sheet
-                        page.close(bottom_sheet)
-                        page.snack_bar = ft.SnackBar(
-                            ft.Text("스레드가 생성되었습니다!", color="white"),
-                            bgcolor="green",
-                            open=True
-                        )
-                        page.update()
-                        load_topics(True)
-                    except Exception as ex:
-                        error_msg = str(ex)
-                        log_info(f"Creation ERROR: {ex}")
-                        
-                        page.snack_bar = ft.SnackBar(
-                            ft.Text(f"토픽 생성 실패: {error_msg}", color="white"),
-                            bgcolor="red",
-                            open=True,
-                            duration=10000
-                        )
-                        page.update()
-                threading.Thread(target=_do_create, daemon=True).start()
-            else:
-                log_info("Create button clicked but no name provided")
+            return
         
-        def close_it(e):
-            log_info("Bottom sheet close button clicked")
-            page.close(bottom_sheet)
-        
-        # Create BottomSheet (mobile-friendly)
-        bottom_sheet = ft.BottomSheet(
-            content=ft.Container(
-                padding=30,
-                content=ft.Column([
-                    ft.Row(
-                        [
-                            ft.Text("새 스레드 만들기", size=20, weight="bold"),
-                            ft.IconButton(icon=ft.Icons.CLOSE, on_click=close_it)
-                        ],
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN
-                    ),
-                    ft.Divider(),
-                    new_name,
-                    cat_dropdown,
-                    ft.Container(height=20),
-                    ft.Row([
-                        ft.TextButton("취소", on_click=close_it),
-                        ft.ElevatedButton("만들기", on_click=create_it, bgcolor="blue", color="white")
-                    ], alignment=ft.MainAxisAlignment.END, spacing=10)
-                ], tight=True, spacing=15)
-            ),
-            open=True
-        )
-        
-        page.open(bottom_sheet)
-        log_info("Bottom sheet opened successfully")
-        
-        # Load categories asynchronously AFTER bottom sheet is visible
-        def _load_cats_for_dlg():
+        def _do_create():
             try:
-                cats = chat_service.get_categories()
-                cat_dropdown.options = [ft.dropdown.Option(c['name']) for c in cats or [{"name": "일반"}]]
-                if not cat_dropdown.options: 
-                    cat_dropdown.options = [ft.dropdown.Option("일반")]
-                cat_dropdown.value = cat_dropdown.options[0].key
+                log_info(f"Creating topic from modal: {modal_name_field.value}")
+                result = chat_service.create_topic(modal_name_field.value, "일반", current_user_id)
+                log_info(f"Topic creation success: {modal_name_field.value}")
+                
+                # Hide modal
+                modal_visible.current.visible = False
+                
+                page.snack_bar = ft.SnackBar(
+                    ft.Text("스레드가 생성되었습니다!", color="white"),
+                    bgcolor="green",
+                    open=True
+                )
                 page.update()
-                log_info(f"Categories loaded: {len(cat_dropdown.options)}")
-            except Exception as e:
-                log_info(f"Category loading error: {e}")
-        
-        threading.Thread(target=_load_cats_for_dlg, daemon=True).start()
+                load_topics(True)
+            except Exception as ex:
+                log_info(f"Creation ERROR: {ex}")
+                page.snack_bar = ft.SnackBar(
+                    ft.Text(f"생성 실패: {ex}", color="white"),
+                    bgcolor="red",
+                    open=True
+                )
+                page.update()
+        threading.Thread(target=_do_create, daemon=True).start()
+
+    def open_create_topic_dialog(e):
+        show_create_modal(e)
 
     def open_rename_topic_dialog(topic):
         topic_id = topic['id']
@@ -748,7 +638,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
         ]
     )
 
-    list_page = ft.Container(
+    list_page_content = ft.Container(
         expand=True, bgcolor="white",
         content=ft.Column([
             ft.Container(
@@ -756,6 +646,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
                     ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
                     ft.Row([
+                        ft.IconButton(ft.Icons.ADD, icon_color="#2E7D32", on_click=show_create_modal, tooltip="새 스레드"),
                         ft.IconButton(ft.Icons.SETTINGS_OUTLINED, icon_color="#757575", on_click=open_manage_categories_dialog, tooltip="분류 관리"),
                         ft.OutlinedButton(
                             ref=edit_btn_ref, 
@@ -772,6 +663,40 @@ def get_chat_controls(page: ft.Page, navigate_to):
             # debug_panel (Hidden for production)
         ], spacing=0)
     )
+    
+    # Custom modal overlay (replaces AlertDialog/BottomSheet)
+    custom_modal = ft.Container(
+        ref=modal_visible,
+        visible=False,
+        expand=True,
+        bgcolor="rgba(0,0,0,0.5)",  # Semi-transparent overlay
+        alignment=ft.alignment.center,
+        content=ft.Container(
+            width=350,
+            bgcolor="white",
+            border_radius=15,
+            padding=30,
+            content=ft.Column([
+                ft.Row([
+                    ft.Text("새 스레드 만들기", size=20, weight="bold", color="#212121"),
+                    ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#757575", on_click=hide_create_modal)
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Divider(),
+                modal_name_field,
+                ft.Container(height=20),
+                ft.Row([
+                    ft.OutlinedButton("취소", on_click=hide_create_modal, expand=1),
+                    ft.ElevatedButton("만들기", on_click=create_from_modal, bgcolor="#2E7D32", color="white", expand=1)
+                ], spacing=10)
+            ], tight=True, spacing=15)
+        ),
+        on_click=hide_create_modal  # Click outside to close
+    )
+    
+    list_page = ft.Stack([
+        list_page_content,
+        custom_modal
+    ], expand=True)
 
     chat_page = ft.Container(
         expand=True, bgcolor="white",
