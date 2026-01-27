@@ -103,6 +103,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             
             unread_counts = {}
             for m in recent_msgs:
+                if m['user_id'] == current_user_id: continue # Skip own messages
                 tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
                 if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
 
@@ -214,10 +215,35 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 list_view_ctrls = []
                 grouped = {}
                 for t in sorted_topics:
-                    cat = t.get('category', '일반')
+                    cat = t.get('category') # Default to None (Uncategorized)
                     if cat not in grouped: grouped[cat] = []
                     grouped[cat].append(t)
                 
+                # 1. Show Uncategorized First
+                if None in grouped and grouped[None]:
+                    list_view_ctrls.append(
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Text("• 미분류", size=12, weight="bold", color="#FF9800"),
+                                ft.Text(str(len(grouped[None])), size=10, color="#BDBDBD")
+                            ], alignment="spaceBetween"),
+                            padding=ft.padding.only(left=20, right=20, top=10, bottom=5),
+                            bgcolor="#FFF3E0"
+                        )
+                    )
+                    for t in grouped[None]:
+                        tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
+                        badge = ft.Container(content=ft.Text(str(unread_count), size=10, color="white", weight="bold"), bgcolor="#FF5252", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=10) if unread_count > 0 else ft.Container()
+                        prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=20, color="#FF5252") if is_priority else ft.Container()
+                        list_view_ctrls.append(
+                            ft.Container(
+                                content=ft.Row([ ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=10), ft.Row([badge, ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")], spacing=5) ], alignment="spaceBetween"),
+                                padding=ft.padding.symmetric(horizontal=20, vertical=12), bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
+                                on_click=lambda e, topic=t: select_topic(topic)
+                            )
+                        )
+
+                # 2. Show Categories
                 for cat_name in [c for c in categories if c in grouped]:
                     list_view_ctrls.append(
                         ft.Container(
@@ -586,16 +612,40 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     def open_rename_topic_dialog(topic):
         topic_id = topic['id']
-        name_input = ft.TextField(value=topic['name'], label="스레드 이름", expand=True)
+        current_cat = topic.get('category')
         
-        async def do_rename(e):
+        name_input = ft.TextField(value=topic['name'], label="스레드 이름", expand=True)
+        cat_dropdown = ft.Dropdown(
+            label="카테고리 이동",
+            options=[],
+            value=current_cat,
+            expand=True
+        )
+
+        def load_cats_for_dialog():
+             cid = page.session.get("channel_id")
+             cats = chat_service.get_categories(cid)
+             opts = [ft.dropdown.Option(c['name']) for c in cats]
+             # Add Option for "Uncategorized"
+             opts.insert(0, ft.dropdown.Option(key="none_val", text="미분류")) # We'll handle "none_val" -> None
+             cat_dropdown.options = opts
+             cat_dropdown.value = current_cat if current_cat else "none_val"
+             page.update()
+
+        threading.Thread(target=load_cats_for_dialog, daemon=True).start()
+        
+        async def do_update(e):
             if name_input.value:
                 try:
-                    chat_service.rename_topic(topic_id, name_input.value)
+                    new_cat = cat_dropdown.value
+                    if new_cat == "none_val": new_cat = None
+                    
+                    chat_service.update_topic(topic_id, name_input.value, new_cat)
                     page.close(dlg)
                     load_topics(True)
                 except Exception as ex:
-                    log_info(f"Rename Topic Error: {ex}")
+                    log_info(f"Update Topic Error: {ex}")
+                    page.snack_bar = ft.SnackBar(ft.Text(f"수정 실패: {ex}"), bgcolor="red", open=True); page.update()
         
         dlg = ft.AlertDialog(
             title=ft.Text("스레드 이름 수정"),

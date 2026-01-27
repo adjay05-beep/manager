@@ -933,15 +933,16 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         return drawer
 
     # Apply Drawer
-    page.drawer = build_drawer()
-    page.update() # [FIX] Ensure drawer is attached immediately
+    drawer = build_drawer()
+    page.drawer = drawer
+    page.update()
 
     top_bar = ft.Container(
         padding=10,
         bgcolor="white",
         content=ft.Row([
-            # Left: Menu (Drawer Trigger)
-            ft.IconButton(ft.Icons.MENU, icon_color="#333333", icon_size=28, on_click=lambda _: page.open_drawer(page.drawer), tooltip="메뉴"),
+            # Left: Menu (Drawer Trigger) - Explicitly open local drawer instance
+            ft.IconButton(ft.Icons.MENU, icon_color="#333333", icon_size=28, on_click=lambda _: page.open(drawer), tooltip="메뉴"),
             
             # Center: Month Nav
             ft.Row([

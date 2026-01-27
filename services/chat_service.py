@@ -112,6 +112,14 @@ def rename_topic(topic_id: str, new_name: str):
     """Rename a specific topic."""
     service_supabase.table("chat_topics").update({"name": new_name}).eq("id", topic_id).execute()
 
+def update_topic(topic_id: str, name: str, category: str):
+    """Update topic name and category."""
+    data = {"name": name}
+    if category: data["category"] = category
+    else: data["category"] = None # Handle Uncategorized
+    
+    service_supabase.table("chat_topics").update(data).eq("id", topic_id).execute()
+
 def create_topic(name: str, category: str, creator_id: str, channel_id: int):
     """Create a new topic in a channel and add creator as owner."""
     # 1. Create Topic (use service_supabase to bypass RLS)
