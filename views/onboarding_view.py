@@ -1,3 +1,4 @@
+import flet as ft
 from services.channel_service import channel_service
 from services.auth_service import auth_service
 from db import has_service_key, app_logs, service_key
