@@ -368,7 +368,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                      bgcolor="grey", padding=ft.padding.symmetric(horizontal=8, vertical=2), border_radius=10
                  ),
             ], spacing=5),
-            ft.Spacer(),
+            ft.Container(expand=True),
             # Edit Button (Can toggle visibility of edit fields below)
             ft.IconButton(ft.Icons.EDIT, icon_color="grey", tooltip="프로필 편집") 
         ])
@@ -384,7 +384,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                     content=ft.Row([
                         ft.Icon(ft.Icons.STORE, color="#1565C0" if is_current else "grey"),
                         ft.Text(ch['name'], weight="bold" if is_current else "normal"),
-                        ft.Spacer(),
+                        ft.Container(expand=True),
                          ft.Text("현재 접속 중" if is_current else "", size=12, color="#1565C0")
                     ]),
                     padding=10,
