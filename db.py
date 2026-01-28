@@ -158,9 +158,14 @@ class ManualBucket:
             resp.raise_for_status()
             data = resp.json()
             
-            s_url = data.get("signedURL")
+            # [FIX] Check all possible keys (API variations)
+            s_url = data.get("signedURL") or data.get("signedUrl") or data.get("url")
+            
             if s_url and s_url.startswith("/"):
                  s_url = f"{base_storage_url}{s_url}"
+            
+            if not s_url:
+                 print(f"Signed URL Warning: No URL in response: {data}")
                  
             return {"signedURL": s_url}
         except Exception as e:
