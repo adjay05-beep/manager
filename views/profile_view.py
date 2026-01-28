@@ -80,7 +80,7 @@ def get_profile_controls(page: ft.Page, navigate_to):
                      bgcolor="grey", padding=ft.padding.symmetric(horizontal=8, vertical=2), border_radius=10
                  ),
             ], spacing=5),
-            ft.Spacer(),
+            ft.Container(expand=True),
             ft.IconButton(ft.Icons.EDIT, icon_color="grey", tooltip="이름 수정", on_click=lambda _: page.open(edit_profile_dialog)) 
         ])
     )
@@ -103,7 +103,7 @@ def get_profile_controls(page: ft.Page, navigate_to):
                     content=ft.Row([
                         ft.Icon(ft.Icons.STORE, color="#1565C0" if is_current else "grey"),
                         ft.Text(ch['name'], weight="bold" if is_current else "normal", color="black"),
-                        ft.Spacer(),
+                        ft.Container(expand=True),
                          ft.Text("현재 접속 중" if is_current else "", size=12, color="#1565C0")
                     ]),
                     padding=10,

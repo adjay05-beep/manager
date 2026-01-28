@@ -263,11 +263,22 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         )
 
                 # 2. Show Categories
-                # Prioritize 'categories' order, then any remaining keys
+                # Handle "None" (Uncategorized) as "일반"
+                if None in grouped:
+                    general_items = grouped.pop(None)
+                    if "일반" in grouped:
+                        grouped["일반"].extend(general_items)
+                    else:
+                        grouped["일반"] = general_items
+                        if "일반" not in categories:
+                            categories.insert(0, "일반") # Add to front if missing
+
+                # Prioritize 'categories' order
                 known_cats = [c for c in categories if c in grouped]
-                unknown_cats = [k for k in grouped.keys() if k is not None and k not in known_cats]
+                unknown_cats = [k for k in grouped.keys() if k not in known_cats] # Keys are strings now
                 
                 for cat_name in known_cats + unknown_cats:
+                    # Render Header
                     list_view_ctrls.append(
                         ft.Container(
                             content=ft.Row([
@@ -278,6 +289,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                             bgcolor="#FAFAFA"
                         )
                     )
+                    # Render Items
                     for t in grouped[cat_name]:
                         tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
                         badge = ft.Container(
