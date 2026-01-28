@@ -286,7 +286,7 @@ def get_home_controls(page: ft.Page, navigate_to):
                             )
                         ], spacing=0, alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.START)
 
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.START) # [FIX] Align Tops
+                    ])
                 ),
                 
                 ft.Divider(color="#EEEEEE", height=1),
