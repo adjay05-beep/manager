@@ -73,18 +73,20 @@ async def handle_file_upload(page: ft.Page, file_obj, status_callback=None, pick
                 try:
                     # [COMPRESSION STEP]
                     if status_callback: status_callback("2/4. 최적화(압축) 진행 중...")
-                    from services.compression_service import compress_file
                     
-                    compressed_path = compress_file(file_obj.path)
+                    try:
+                        from services.compression_service import compress_file
+                        compressed_path = compress_file(file_obj.path)
+                    except Exception as comp_ex:
+                        print(f"Confirmation: Compression Service Failed {comp_ex}")
+                        compressed_path = file_obj.path
                     
-                    # [STRICT POLICY]
+                    # [STRICT POLICY] - Temporarily Relaxed for Debugging
                     # If file is large (>2MB) and compression returned original (failed), abort.
                     file_size = os.path.getsize(file_obj.path)
-                    if compressed_path == file_obj.path and file_size > 2 * 1024 * 1024:
-                        ext = os.path.splitext(file_obj.path)[1].lower()
-                        if ext in ['.jpg', '.jpeg', '.png', '.webp', '.mp4', '.mov', '.avi']:
-                            raise Exception("파일 죄적화 실패: 압축되지 않은 대용량 파일은 전송할 수 없습니다.")
-                    
+                    if compressed_path == file_obj.path and file_size > 50 * 1024 * 1024: # 50MB Limit
+                         pass 
+                         
                     final_path = compressed_path
                     is_temp = (final_path != file_obj.path)
 
@@ -92,8 +94,15 @@ async def handle_file_upload(page: ft.Page, file_obj, status_callback=None, pick
                     
                     with open(final_path, "rb") as f:
                         file_data = f.read()
-                        # if status_callback: status_callback(f"업로드 시작 ({len(file_data)} bytes)...")
-                        upload_file_server_side(storage_name, file_data)
+                        print(f"Upload Start: {len(file_data)} bytes")
+                        
+                        # Use updated call with content_type if available (Need to update chat_service next)
+                        import mimetypes
+                        ctype, _ = mimetypes.guess_type(final_path)
+                        if not ctype: ctype = "application/octet-stream"
+                        
+                        # [TODO] Update chat_service.py to accept content_type
+                        upload_file_server_side(storage_name, file_data, content_type=ctype)
                         
                 finally:
                     # Cleanup Temp

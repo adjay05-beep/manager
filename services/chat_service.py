@@ -182,9 +182,10 @@ def get_storage_signed_url(filename: str, bucket: str = "uploads") -> str:
         print(f"Service Error (get_storage_signed_url): {e}")
         raise e
 
-def upload_file_server_side(filename: str, file_content: bytes, bucket: str = "uploads"):
+def upload_file_server_side(filename: str, file_content: bytes, bucket: str = "uploads", content_type: str = None):
     """Upload file directly from server side (Desktop mode)."""
-    service_supabase.storage.from_(bucket).upload(filename, file_content)
+    options = {"content-type": content_type} if content_type else None
+    service_supabase.storage.from_(bucket).upload(filename, file_content, file_options=options)
 
 def get_public_url(filename: str, bucket: str = "uploads") -> str:
     """Construct public URL."""
