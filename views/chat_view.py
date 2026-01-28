@@ -63,7 +63,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
         # [DEBUG] Start
         try:
             chat_header_title.controls[1].value = "Debug: Starting..."
-            if update_ui: page.update()
+            # [FIX] Remove instant update to prevent race with Main Thread init
         except: pass
 
         if not state["is_active"]: return
@@ -738,7 +738,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
     if page.chat_file_picker not in page.overlay:
         log_info("DEBUG: Re-adding chat_file_picker to overlay")
         page.overlay.append(page.chat_file_picker)
-        page.update()
+        # [FIX] Removed conflicting update. Main.py handles the page refresh.
 
     page.chat_file_picker.on_result = on_chat_file_result
     page.chat_file_picker.on_upload = on_chat_upload_progress
