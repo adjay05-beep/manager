@@ -102,28 +102,27 @@ def DebugUploadView(page: ft.Page):
         # [FIX] Do not call page.update() here. Let main.py do it.
         
         return [
+            ft.Text("디버그 업로드 도구", size=24, weight="bold"),
+            ft.Text("강력한 로그 추적 기능이 포함되어 있습니다.", size=12, color="grey"),
+            ft.Divider(),
+            ft.Row([
+                ft.ElevatedButton("파일 선택 및 테스트 업로드", on_click=lambda _: picker.pick_files(), bgcolor="blue", color="white"),
+                ft.ElevatedButton("서버 디스크 쓰기 테스트", on_click=check_disk_write),
+                ft.ElevatedButton("Supabase 연결 테스트", on_click=check_supabase_connect),
+            ], wrap=True),
+            ft.Row([
+                ft.ElevatedButton("📜 서버 로그 불러오기", on_click=load_server_logs, bgcolor="#424242", color="white"),
+                ft.ElevatedButton("📂 업로드 폴더 목록 확인", on_click=list_upload_folder, bgcolor="#424242", color="white"),
+            ], wrap=True),
+            ft.Container(height=20),
+            ft.Text("실시간 로그:", weight="bold"),
             ft.Container(
-                content=ft.Column([
-                    ft.Row([
-                        ft.Icon(ft.Icons.BUG_REPORT, color="red"),
-                        ft.Text("Upload Diagnostic", size=20, weight="bold", color="red")
-                    ]),
-                    ft.ElevatedButton("Select File to Test", on_click=lambda _: picker.pick_files()),
-                    ft.Row([
-                        ft.ElevatedButton("Server Disk Write Test", on_click=check_disk_write, bgcolor="blue", color="white"),
-                        ft.ElevatedButton("Supabase Connection Test", on_click=check_supabase_connect, bgcolor="green", color="white"),
-                    ], spacing=10),
-                    ft.Container(
-                        content=log_control,
-                        border=ft.border.all(1, "grey"),
-                        padding=10,
-                        expand=True,
-                        height=400 # Explicit height
-                    )
-                ]),
-                expand=True,
-                padding=20,
-                bgcolor="white"
+                content=log_control,
+                bgcolor="#FAFAFA",
+                border=ft.border.all(1, "#E0E0E0"),
+                padding=10,
+                border_radius=5,
+                height=400
             )
         ]
     except Exception as e:
