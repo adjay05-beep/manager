@@ -390,14 +390,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                 bgcolor="white",
                 content=ft.Column([
                     # Header
-                    ft.Container(
-                        padding=ft.padding.symmetric(horizontal=10, vertical=10),
-                        content=ft.Row([
-                            ft.IconButton(ft.Icons.ARROW_BACK, icon_color="black", on_click=lambda _: navigate_to("home")),
-                            ft.Text("매장 설정", size=20, weight="bold", expand=True, color="black"),
-                        ])
-                    ),
-                    ft.Divider(color="#EEEEEE", height=1),
+                    header,
                     
                     ft.Container(
                         content=current_store_settings,

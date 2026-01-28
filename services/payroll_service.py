@@ -229,6 +229,7 @@ class PayrollService:
                 "h_wage": final_h_wage,
                 "is_incomplete": (final_act_pay is None and act_hours > 0),
                 "wage_type": wage_type, # [NEW] Pass wage type for UI logic
+                "is_registered": bool(latest), # [NEW] Flag for UI
                 "events": events # Passed for context if needed
             })
 

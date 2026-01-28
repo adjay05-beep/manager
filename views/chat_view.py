@@ -588,6 +588,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
             threading.Thread(target=_thread_target, daemon=True).start()
         else:
             pass
+            
+    # [CRITICAL FIX] Bind global picker to local handler
+    page.chat_file_picker.on_result = on_chat_file_result
+    
     def on_chat_upload_progress(e: ft.FilePickerUploadEvent):
         if e.error:
             page.snack_bar = ft.SnackBar(ft.Text(f"업로드 실패: {e.file_name}"), bgcolor="red", open=True); page.update()
