@@ -97,6 +97,30 @@ def DebugUploadView(page: ft.Page):
                 log(f"NETWORK ERROR: {ex}")
                 log(traceback.format_exc())
 
+        def load_server_logs(e):
+            from utils.logger import get_logs
+            logs = get_logs()
+            log("--- SERVER LOGS START ---")
+            for l in logs:
+                log_control.controls.append(ft.Text(str(l), size=12, font_family="Consolas", color="green"))
+            log("--- SERVER LOGS END ---")
+            page.update()
+
+        def list_upload_folder(e):
+            import os
+            log("--- LISTING 'uploads/' ---")
+            if os.path.exists("uploads"):
+                files = os.listdir("uploads")
+                for f in files:
+                    try:
+                        size = os.path.getsize(os.path.join("uploads", f))
+                        log(f"- {f} ({size} bytes)")
+                    except:
+                        log(f"- {f} (Error reading size)")
+                if not files: log("(Empty)")
+            else:
+                log("ERROR: 'uploads/' directory does not exist!")
+
         picker = ft.FilePicker(on_result=on_upload_result)
         page.overlay.append(picker)
         # [FIX] Do not call page.update() here. Let main.py do it.
