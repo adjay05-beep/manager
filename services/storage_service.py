@@ -34,6 +34,12 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
             try:
                 upload_url = picker_ref.page.get_upload_url(storage_name, 600)
                 print(f"DEBUG: Generated Upload URL: {upload_url}")
+                
+                # [FIX] Force HTTPS for Web App (Render terminates SSL, so Internal is HTTP, but External must be HTTPS)
+                if is_web and upload_url and upload_url.startswith("http://"):
+                    upload_url = upload_url.replace("http://", "https://")
+                    print(f"DEBUG: Enforced HTTPS: {upload_url}")
+                    
             except Exception as e:
                 print(f"Proxy URL Error: {e}")
                 # Fallback to direct upload attempt if proxy fails (unlikely)
