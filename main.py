@@ -123,7 +123,7 @@ def main(page: ft.Page):
                 controls = get_profile_controls(page, navigate_to)
             elif route == "debug_upload":
                 from views.debug_upload_view import DebugUploadView
-                controls = [DebugUploadView(page)]
+                controls = DebugUploadView(page)
             else:
                 controls = [ft.Text("Not Found")]
             
