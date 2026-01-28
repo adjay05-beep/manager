@@ -547,7 +547,6 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
         def _thread_target():
             # [FIX] Use Synchronous Threading (No Asyncio needed for Native Upload)
-            # This fixes the "First attempt hangs" issue caused by Windows Event Loop conflicts
             def update_snack(msg):
                 print(f"[{f.name}] {msg}")
                 try:
@@ -558,9 +557,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
             update_snack(f"1/4. '{f.name}' 준비 중...")
 
             try:
-                # Use local_file_picker via closure
-                # No await needed now (handle_file_upload is synchronous)
-                result = storage_service.handle_file_upload(is_web_mode, f, update_snack, picker_ref=local_file_picker)
+                # Use Global Chat Picker
+                result = storage_service.handle_file_upload(is_web_mode, f, update_snack, picker_ref=page.chat_file_picker)
                 
                 if result and "public_url" in result:
                     state["pending_image_url"] = result["public_url"]
@@ -589,15 +587,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
             page.open(ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green", open=True))
             page.update()
 
-    # [FIX] Instantiate Local Picker and Cleanup
-    local_file_picker = ft.FilePicker(on_result=on_chat_file_result, on_upload=on_chat_upload_progress)
-    local_file_picker.data = "chat_local_picker"
+    # [FIX] Use Global Picker from main.py
+    # This prevents multiple pickers in overlay and ensures correct callback wiring
+    page.chat_file_picker.on_result = on_chat_file_result
+    page.chat_file_picker.on_upload = on_chat_upload_progress
     
-    for c in list(page.overlay):
-        if hasattr(c, "data") and c.data == "chat_local_picker":
-            try: page.overlay.remove(c)
-            except: pass
-    page.overlay.append(local_file_picker)
+    # Alias for any UI controls needing it (if any) - effectively replacing local instance
+    local_file_picker = page.chat_file_picker
 
     def update_pending_ui(public_url):
         if not public_url: return
