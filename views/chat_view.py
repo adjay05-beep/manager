@@ -690,6 +690,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                  traceback.print_exc()
                                  show_error_ui(f"시스템 오류: {thread_ex}")
                          
+                         # [CRITICAL FIX] Execute the watcher!
+                         watch_server_file()
+                         
                     elif result.get("type") == "web_upload_triggered":
                          # Legacy / Fallback (Should not be hit if is_web=True uses proxy)
                          pass
