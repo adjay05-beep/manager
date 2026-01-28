@@ -559,8 +559,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
             update_snack(f"1/4. '{f.name}' 준비 중...")
 
             try:
+                # [RACE CONDITION FIX] Wait for Browser to stabilize after file selection dialog
+                # Sometimes triggering upload() too fast acts like a missed click.
+                time.sleep(1.0)
+
                 # Use Global Chat Picker
-                print(f"DEBUG: Calling handle_file_upload. Web={is_web_mode}")
+                log_info(f"DEBUG: Calling handle_file_upload. Web={is_web_mode}")
                 # Use Global Picker explicitly
                 result = storage_service.handle_file_upload(is_web_mode, f, update_snack, picker_ref=page.chat_file_picker)
                 print(f"DEBUG: Result: {result}")
