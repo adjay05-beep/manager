@@ -36,7 +36,8 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
                 # 10 years expiration
                 res = service_supabase.storage.from_("uploads").create_signed_url(storage_name, 60*60*24*365*10)
                 public_url = res['signedURL']
-            except:
+            except Exception as e:
+                print(f"Signed URL Gen Error (Web): {e} - Fallback to Public")
                 public_url = get_public_url(storage_name)
             
             if picker_ref:
