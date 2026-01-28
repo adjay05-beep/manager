@@ -11,18 +11,23 @@ headers = {
     "Authorization": f"Bearer {key}"
 }
 
+tables = ["chat_messages", "voice_memos", "order_memos", "calendars", "calendar_members", "orders", "channel_members", "channels", "calendar_events"]
+
 def diag():
-    # Fetch 1 message and print all keys
-    res = httpx.get(f"{url}/rest/v1/chat_messages?limit=1", headers=headers)
-    if res.status_code == 200:
-        data = res.json()
-        if data:
-            print("\n--- ACTUAL COLUMN NAMES ---")
-            for k in data[0].keys():
-                print(f"- {k}")
-            print(f"\nFull Row: {data[0]}")
-    else:
-        print(f"FAILED: {res.status_code} {res.text}")
+    for t in tables:
+        print(f"\n--- TABLE: {t} ---")
+        try:
+            res = httpx.get(f"{url}/rest/v1/{t}?limit=1", headers=headers)
+            if res.status_code == 200:
+                data = res.json()
+                if data:
+                    print(f"Columns: {list(data[0].keys())}")
+                else:
+                    print("Empty table (Columns unknown via REST)")
+            else:
+                print(f"Error: {res.status_code} {res.text}")
+        except Exception as e:
+            print(f"Exception: {e}")
 
 if __name__ == "__main__":
     diag()

@@ -25,9 +25,13 @@ async def delete_all_memos(user_id: str):
     """Delete all memos for a user."""
     await asyncio.to_thread(lambda: service_supabase.table("order_memos").delete().eq("user_id", user_id).execute())
 
-async def save_transcription(text: str, user_id: str):
+async def save_transcription(text: str, user_id: str, channel_id: int = None):
     """Save transcribed text as a new memo."""
-    await asyncio.to_thread(lambda: service_supabase.table("order_memos").insert({"content": text, "user_id": user_id}).execute())
+    data = {"content": text, "user_id": user_id}
+    if channel_id:
+        data["channel_id"] = channel_id
+        
+    await asyncio.to_thread(lambda: service_supabase.table("order_memos").insert(data).execute())
 
 async def get_voice_prompts() -> List[Dict[str, Any]]:
     """Fetch voice prompts dictionary."""
