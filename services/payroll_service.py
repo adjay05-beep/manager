@@ -228,6 +228,7 @@ class PayrollService:
                 "diff": (final_act_pay - std_pay) if final_act_pay is not None else 0,
                 "h_wage": final_h_wage,
                 "is_incomplete": (final_act_pay is None and act_hours > 0),
+                "wage_type": wage_type, # [NEW] Pass wage type for UI logic
                 "events": events # Passed for context if needed
             })
 

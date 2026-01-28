@@ -62,16 +62,26 @@ async def handle_file_upload(page: ft.Page, file_obj: ft.FilePickerFile, status_
                 
                 try:
                     # [COMPRESSION STEP]
-                    from services.compression_service import compress_file
-                    compressed_path = compress_file(file_obj.path)
-                    
-                    if compressed_path != file_obj.path:
-                        final_path = compressed_path
-                        is_temp = True
-                        if status_callback: status_callback("서버로 전송 중...")
+                    try:
+                        if status_callback: status_callback("최적화(압축) 진행 중...")
+                        from services.compression_service import compress_file
+                        # Add timeout or check file size?
+                        # For now, just try compress
+                        compressed_path = compress_file(file_obj.path)
+                        
+                        if compressed_path and compressed_path != file_obj.path:
+                            final_path = compressed_path
+                            is_temp = True
+                    except Exception as comp_err:
+                        print(f"Compression Warning (Using Original): {comp_err}")
+                        if status_callback: status_callback("압축 건너뜀 (원본 전송)...")
+
+                    if status_callback: status_callback("서버로 전송 중...")
                     
                     with open(final_path, "rb") as f:
-                        upload_file_server_side(storage_name, f.read())
+                        file_data = f.read()
+                        if status_callback: status_callback(f"업로드 시작 ({len(file_data)} bytes)...")
+                        upload_file_server_side(storage_name, file_data)
                         
                 finally:
                     # Cleanup Temp

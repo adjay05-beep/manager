@@ -840,7 +840,8 @@ def get_work_controls(page: ft.Page, navigate_to):
                                                 bgcolor=diff_color, padding=ft.padding.symmetric(horizontal=5, vertical=2),
                                                 border_radius=4, visible=(diff_val!=0 and act_pay is not None)
                                             ),
-                                            ft.Row([wage_input, save_btn], spacing=5) 
+                                            # [FIX] Only show input for hourly/non-registered
+                                            ft.Row([wage_input, save_btn], spacing=5) if emp.get('wage_type') != 'monthly' else ft.Container() 
                                         ], spacing=5, vertical_alignment="center"),
                                         ft.Text(f"실제 근무 ({emp['act_days']}일, {emp['act_hours']:.1f}시간)", size=10, color="grey")
                                     ], spacing=2, expand=True),
