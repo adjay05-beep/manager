@@ -481,46 +481,34 @@ def get_chat_controls(page: ft.Page, navigate_to):
         # [REFACTOR] Use Unified Storage Service
         if e.files and state["current_topic_id"]:
             f = e.files[0]
-            def _run_upload():
-                def _thread_target():
-                    try:
-                        import asyncio
-                        from services import storage_service
-                        
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
+            def _thread_target():
+                try:
+                    import asyncio
+                    from services import storage_service
+                    
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
 
-                        def update_snack(msg):
-                            # Ensure UI updates happen on main thread? Flet is thread-safe mostly for updates.
-                            page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
-                            page.update()
-
-                        update_snack(f"'{f.name}' 준비 중... (Threaded)")
-
-                        async def _async_logic():
-                            result = await storage_service.handle_file_upload(page, f, update_snack, picker_ref=page.chat_file_picker)
-                            
-                            if "public_url" in result:
-                                state["pending_image_url"] = result["public_url"]
-                                if result.get("type") == "web_upload_triggered":
-                                    pass
-                                else:
-                                    update_pending_ui(state["pending_image_url"])
-                                    update_snack("파일 준비 완료!")
-                        
-                        loop.run_until_complete(_async_logic())
-                        loop.close()
-                        
-                    except Exception as ex:
-                        print(f"ERROR in file upload: {ex}")
-                        import traceback
-                        traceback.print_exc()
-                        page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red", open=True)
+                    def update_snack(msg):
+                        page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
                         page.update()
-            
-            # Run the logic
-            threading.Thread(target=_run_upload, daemon=True).start()
 
+                    update_snack(f"'{f.name}' 준비 중...")
+
+                    async def _async_logic():
+                        result = await storage_service.handle_file_upload(page, f, update_snack, picker_ref=page.chat_file_picker)
+                        
+                        if "public_url" in result:
+                            state["pending_image_url"] = result["public_url"]
+                            if result.get("type") == "web_upload_triggered":
+                                pass
+                            else:
+                                update_pending_ui(state["pending_image_url"])
+                                update_snack("파일 준비 완료!")
+                    
+                    loop.run_until_complete(_async_logic())
+                    loop.close()
+                    
                 except Exception as ex:
                     print(f"ERROR in file upload: {ex}")
                     import traceback
@@ -528,8 +516,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red", open=True)
                     page.update()
             
-            # Run the logic
-            _run_upload()
+            # Start Thread
+            threading.Thread(target=_thread_target, daemon=True).start()
         else:
             pass
     def on_chat_upload_progress(e: ft.FilePickerUploadEvent):
