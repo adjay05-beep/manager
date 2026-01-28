@@ -170,7 +170,19 @@ def upload_proxy_file_to_supabase(storage_name: str) -> str:
         # 2. Upload to Supabase (Server-Side)
         import mimetypes
         ctype, _ = mimetypes.guess_type(local_path)
-        if not ctype: ctype = "application/octet-stream"
+        
+        # [FIX] Robust MIME detection for Windows
+        if not ctype:
+            ext_lower = os.path.splitext(local_path)[1].lower()
+            if ext_lower == ".mov": ctype = "video/quicktime"
+            elif ext_lower == ".mp4": ctype = "video/mp4"
+            else: ctype = "application/octet-stream"
+            
+        # Fallback for known issue where guess_type returns video/quicktime but Supabase prefers video/mp4 for some reason?
+        # Actually video/quicktime is standard for MOV.
+        
+        from utils.logger import log_info
+        log_info(f"DEBUG: Proxy Uploading {storage_name}, Size: {len(file_data)} bytes, Type: {ctype}")
         
         upload_file_server_side(storage_name, file_data, content_type=ctype)
         
