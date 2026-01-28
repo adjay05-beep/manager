@@ -545,7 +545,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
         def _thread_target():
             try:
                 import asyncio
+                import importlib
                 from services import storage_service
+                importlib.reload(storage_service) # [DEBUG] Force reload to apply fixes
                 
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -564,11 +566,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         if result.get("type") != "web_upload_triggered":
                             update_pending_ui(state["pending_image_url"])
                             update_snack("파일 준비 완료!")
-                        else:
-                            # Handle silent failure
-                            err = result.get('error', 'URL 응답 없음')
-                            print(f"Upload Missing URL: {result}")
-                            update_snack(f"업로드 실패: {err}")
+                    else:
+                        # Handle silent failure
+                        err = result.get('error', 'URL 응답 없음')
+                        print(f"Upload Missing URL: {result}")
+                        update_snack(f"업로드 실패: {err} [DEBUG: {str(result)[:100]}]")
                 
                 loop.run_until_complete(_async_logic())
                 loop.close()
