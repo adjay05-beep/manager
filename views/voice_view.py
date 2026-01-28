@@ -281,7 +281,14 @@ def get_voice_controls(page: ft.Page, navigate_to):
                 # Upload
                 # [FIX] Ensure picker_ref is passed for Web Upload
                 # [FIX] Pass page.web boolean, not page object
-                res = await storage_service.handle_file_upload(page.web, f, progress, picker_ref=page.chat_file_picker)
+                # [FIX] Run sync upload in thread to avoid blocking/TypeError
+                res = await asyncio.to_thread(
+                    storage_service.handle_file_upload, 
+                    page.web, 
+                    f, 
+                    progress, 
+                    picker_ref=page.chat_file_picker
+                )
                 public_url = res.get("public_url")
                 
                 if public_url:
