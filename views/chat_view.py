@@ -693,8 +693,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                  log_info(traceback.format_exc())
                                  show_error_ui(f"시스템 오류: {thread_ex}")
                          
-                         # [CRITICAL FIX] Execute the watcher!
-                         watch_server_file()
+                         # [CRITICAL FIX] Execute the watcher in a THREAD to avoid blocking Main UI Loop
+                         # Blocking the main thread prevents picker.upload() command from reaching the browser!
+                         threading.Thread(target=watch_server_file, daemon=True).start()
                          
                     elif result.get("type") == "web_upload_triggered":
                          # Legacy / Fallback (Should not be hit if is_web=True uses proxy)
