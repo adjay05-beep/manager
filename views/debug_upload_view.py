@@ -4,69 +4,74 @@ import traceback
 from services import storage_service
 
 def DebugUploadView(page: ft.Page):
-    log_control = ft.Column(scroll=ft.ScrollMode.ALWAYS, height=400)
-    
-    def log(msg):
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        line = f"[{timestamp}] {msg}"
-        print(line)
-        log_control.controls.append(ft.Text(line, size=12, font_family="Consolas"))
-        page.update()
-
-    def on_upload_result(e: ft.FilePickerResultEvent):
-        if not e.files: return
-        f = e.files[0]
-        log(f"File selected: {f.name} ({f.path})")
+    try:
+        log_control = ft.Column(scroll=ft.ScrollMode.ALWAYS, height=400)
         
-        # Determine Web Mode (Safe Capture)
-        is_web = page.web
-        log(f"Environment: Web={is_web}")
-
-        def status_callback(msg):
-            log(f"STATUS: {msg}")
-
-        # Run in Thread to emulate real scenario
-        import threading
-        def _target():
-            log("Thread started.")
+        def log(msg):
             try:
-                log("Calling storage_service.handle_file_upload...")
-                result = storage_service.handle_file_upload(
-                    is_web=is_web,
-                    file_obj=f,
-                    status_callback=status_callback
-                )
-                log(f"Result: {result}")
-            except Exception as ex:
-                log(f"CRITICAL ERROR: {ex}")
-                log(traceback.format_exc())
-            finally:
-                log("Thread finished.")
+                timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+                line = f"[{timestamp}] {msg}"
+                print(line)
+                log_control.controls.append(ft.Text(line, size=12, font_family="Consolas"))
+                page.update()
+            except: pass
 
-        threading.Thread(target=_target, daemon=True).start()
+        def on_upload_result(e: ft.FilePickerResultEvent):
+            if not e.files: return
+            f = e.files[0]
+            log(f"File selected: {f.name} ({f.path})")
+            
+            # Determine Web Mode (Safe Capture)
+            is_web = page.web
+            log(f"Environment: Web={is_web}")
 
-    picker = ft.FilePicker(on_result=on_upload_result)
-    page.overlay.append(picker)
-    page.update()
+            def status_callback(msg):
+                log(f"STATUS: {msg}")
 
-    return [
-        ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    ft.Icon(ft.Icons.BUG_REPORT, color="red"),
-                    ft.Text("Upload Diagnostic", size=20, weight="bold", color="red")
+            # Run in Thread to emulate real scenario
+            import threading
+            def _target():
+                log("Thread started.")
+                try:
+                    log("Calling storage_service.handle_file_upload...")
+                    result = storage_service.handle_file_upload(
+                        is_web=is_web,
+                        file_obj=f,
+                        status_callback=status_callback
+                    )
+                    log(f"Result: {result}")
+                except Exception as ex:
+                    log(f"CRITICAL ERROR: {ex}")
+                    log(traceback.format_exc())
+                finally:
+                    log("Thread finished.")
+
+            threading.Thread(target=_target, daemon=True).start()
+
+        picker = ft.FilePicker(on_result=on_upload_result)
+        page.overlay.append(picker)
+        # [FIX] Do not call page.update() here. Let main.py do it.
+        
+        return [
+            ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Icon(ft.Icons.BUG_REPORT, color="red"),
+                        ft.Text("Upload Diagnostic", size=20, weight="bold", color="red")
+                    ]),
+                    ft.ElevatedButton("Select File to Test", on_click=lambda _: picker.pick_files()),
+                    ft.Container(
+                        content=log_control,
+                        border=ft.border.all(1, "grey"),
+                        padding=10,
+                        expand=True,
+                        height=400 # Explicit height
+                    )
                 ]),
-                ft.ElevatedButton("Select File to Test", on_click=lambda _: picker.pick_files()),
-                ft.Container(
-                    content=log_control,
-                    border=ft.border.all(1, "grey"),
-                    padding=10,
-                    expand=True,
-                    height=400 # Explicit height
-                )
-            ]),
-            expand=True,
-            padding=20,
-            bgcolor="white"
-        )
-    ]
+                expand=True,
+                padding=20,
+                bgcolor="white"
+            )
+        ]
+    except Exception as e:
+        return [ft.Text(f"Error loading debug view: {e}", color="red")]
