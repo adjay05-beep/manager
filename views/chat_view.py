@@ -306,8 +306,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
             
             topic_list_container.controls = new_controls
             
-            # [DEBUG] Show count
-            chat_header_title.controls[1].value = f"Debug: {len(topics)} topics loaded (Raw)"
+            # [DEBUG] Show detailed count
+            ctrl_count = len(list_view_ctrls) if 'list_view_ctrls' in locals() else "N/A"
+            chat_header_title.controls[1].value = f"Debug: {len(topics)} topics, {ctrl_count} items. Mode: {state.get('view_mode')}"
             if update_ui: page.update()
         except Exception as ex:
             log_info(f"Load Topics Critical Error: {ex}")
@@ -772,7 +773,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 padding=ft.padding.only(left=10, right=10, top=10, bottom=0),
                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
             ),
-            ft.Container(content=topic_list_container, expand=True, padding=0)
+            ft.Container(
+                content=topic_list_container, 
+                expand=True, 
+                padding=0, 
+                bgcolor="white" # Ensure background is white
+            )
             # debug_panel (Hidden for production)
         ], spacing=0)
     )

@@ -67,7 +67,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
     )
     
     profile_role_tf = ft.TextField(
-        label="내 권한",
+        label="등급",
         value=user_profile.get("role", "staff") if user_profile else "staff",
         read_only=True,
         color="black",
@@ -297,7 +297,24 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                         bgcolor="white"
                     )
                 )
-            member_mgmt_col.controls = items
+            # Check if only owner is present
+            if len(items) <= 1:
+                member_mgmt_col.controls = [
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Icon(ft.Icons.PEOPLE_OUTLINE, size=40, color="grey"),
+                            ft.Text("아직 매장에 합류한 멤버가 없습니다.", size=14, weight="bold", color="grey"),
+                            ft.Text("초대 코드를 공유하여 동료를 초대해보세요!", size=12, color="grey")
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                        padding=30,
+                        alignment=ft.alignment.center,
+                        bgcolor="#F5F5F5",
+                        border_radius=10
+                    )
+                ]
+            else:
+                member_mgmt_col.controls = items
+            
             page.update()
         except Exception as ex:
             log_error(f"Load Members Error: {ex}")
