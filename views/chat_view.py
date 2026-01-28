@@ -544,47 +544,37 @@ def get_chat_controls(page: ft.Page, navigate_to):
             
         f = e.files[0]
         def _thread_target():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
+            # [FIX] Use Synchronous Threading (No Asyncio needed for Native Upload)
+            # This fixes the "First attempt hangs" issue caused by Windows Event Loop conflicts
             def update_snack(msg):
                 print(f"[{f.name}] {msg}")
                 try:
                     page.open(ft.SnackBar(ft.Text(msg, size=12), open=True))
                     page.update()
-                except: pass # Ignore UI update errors if page is closed
+                except: pass
 
             update_snack(f"1/4. '{f.name}' 준비 중...")
 
-            async def _async_logic():
-                try:
-                    # Use local_file_picker via closure
-                    result = await storage_service.handle_file_upload(page, f, update_snack, picker_ref=local_file_picker)
-                    
-                    if result and "public_url" in result:
-                        state["pending_image_url"] = result["public_url"]
-                        print(f"Upload Success URL: {result['public_url']}")
-                        
-                        if result.get("type") != "web_upload_triggered":
-                            update_pending_ui(state["pending_image_url"])
-                            update_snack("4/4. 이미지 준비 완료")
-                    else:
-                        # Handle silent failure
-                        err = result.get('error', 'URL 응답 없음') if result else "데이터 없음"
-                        print(f"Upload Missing URL: {result}")
-                        update_snack(f"업로드 실패: {err}")
-                except Exception as logic_ex:
-                    print(f"Async Logic Error: {logic_ex}")
-                    update_snack(f"처리 중 오류: {logic_ex}")
-
             try:
-                loop.run_until_complete(_async_logic())
-            except Exception as loop_ex:
-                print(f"Loop Error: {loop_ex}")
-                update_snack(f"시스템 오류: {loop_ex}")
-            finally:
-                try: loop.close()
-                except: pass
+                # Use local_file_picker via closure
+                # No await needed now (handle_file_upload is synchronous)
+                result = storage_service.handle_file_upload(page, f, update_snack, picker_ref=local_file_picker)
+                
+                if result and "public_url" in result:
+                    state["pending_image_url"] = result["public_url"]
+                    print(f"Upload Success URL: {result['public_url']}")
+                    
+                    if result.get("type") != "web_upload_triggered":
+                        update_pending_ui(state["pending_image_url"])
+                        update_snack("4/4. 이미지 준비 완료")
+                else:
+                    # Handle silent failure
+                    err = result.get('error', 'URL 응답 없음') if result else "데이터 없음"
+                    print(f"Upload Missing URL: {result}")
+                    update_snack(f"업로드 실패: {err}")
+            except Exception as logic_ex:
+                print(f"Sync Logic Error: {logic_ex}")
+                update_snack(f"처리 중 오류: {logic_ex}")
 
         threading.Thread(target=_thread_target, daemon=True).start()
 
