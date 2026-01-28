@@ -70,7 +70,7 @@ async def handle_file_upload(page: ft.Page, file_obj, status_callback=None, pick
                 
                 try:
                     # [COMPRESSION STEP]
-                    if status_callback: status_callback("최적화(압축) 진행 중 (필수)...")
+                    if status_callback: status_callback("2/4. 최적화(압축) 진행 중...")
                     from services.compression_service import compress_file
                     
                     compressed_path = compress_file(file_obj.path)
@@ -86,11 +86,11 @@ async def handle_file_upload(page: ft.Page, file_obj, status_callback=None, pick
                     final_path = compressed_path
                     is_temp = (final_path != file_obj.path)
 
-                    if status_callback: status_callback("서버로 전송 중...")
+                    if status_callback: status_callback("3/4. 보안 서버로 전송 중...")
                     
                     with open(final_path, "rb") as f:
                         file_data = f.read()
-                        if status_callback: status_callback(f"업로드 시작 ({len(file_data)} bytes)...")
+                        # if status_callback: status_callback(f"업로드 시작 ({len(file_data)} bytes)...")
                         upload_file_server_side(storage_name, file_data)
                         
                 finally:

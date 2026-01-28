@@ -545,27 +545,28 @@ def get_chat_controls(page: ft.Page, navigate_to):
         def _thread_target():
             try:
                 import asyncio
-                import importlib
                 from services import storage_service
-                importlib.reload(storage_service) # [DEBUG] Force reload to apply fixes
                 
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
                 def update_snack(msg):
-                    page.open(ft.SnackBar(ft.Text(msg), open=True))
+                    print(f"[{f.name}] {msg}")
+                    page.open(ft.SnackBar(ft.Text(msg, size=12), open=True))
                     page.update()
 
-                update_snack(f"'{f.name}' 업로드 준비...")
+                update_snack(f"1/4. '{f.name}' 준비 중...")
 
                 async def _async_logic():
                     # Use local_file_picker via closure
                     result = await storage_service.handle_file_upload(page, f, update_snack, picker_ref=local_file_picker)
                     if "public_url" in result:
                         state["pending_image_url"] = result["public_url"]
+                        print(f"Upload Success URL: {result['public_url']}")
+                        
                         if result.get("type") != "web_upload_triggered":
                             update_pending_ui(state["pending_image_url"])
-                            update_snack("파일 준비 완료!")
+                            update_snack("4/4. 이미지 준비 완료")
                     else:
                         # Handle silent failure
                         err = result.get('error', 'URL 응답 없음')
