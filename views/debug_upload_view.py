@@ -89,11 +89,13 @@ def DebugUploadView(page: ft.Page):
             log("--- Checking Supabase Network ---")
             try:
                 from db import service_supabase
-                log("Calling list_buckets()...")
-                res = service_supabase.storage.list_buckets()
-                log(f"SUCCESS: Connected. Buckets Found: {len(res) if res else 0}")
+                log("Calling storage.from_('uploads').list()...")
+                # Try listing files in 'uploads' bucket to verify connection
+                res = service_supabase.storage.from_("uploads").list()
+                log(f"SUCCESS: Connected. Files found: {len(res)}")
             except Exception as ex:
                 log(f"NETWORK ERROR: {ex}")
+                log(traceback.format_exc())
 
         picker = ft.FilePicker(on_result=on_upload_result)
         page.overlay.append(picker)

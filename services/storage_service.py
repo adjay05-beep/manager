@@ -33,6 +33,7 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
             # This bypasses Client-Side CORS/Signature issues.
             try:
                 upload_url = picker_ref.page.get_upload_url(storage_name, 600)
+                print(f"DEBUG: Generated Upload URL: {upload_url}")
             except Exception as e:
                 print(f"Proxy URL Error: {e}")
                 # Fallback to direct upload attempt if proxy fails (unlikely)
