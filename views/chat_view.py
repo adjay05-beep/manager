@@ -770,7 +770,6 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     # [SAFETY] Ensure picker is in overlay (Handling page.clean side-effects)
     if page.chat_file_picker not in page.overlay:
-        from utils.logger import log_info
         log_info("DEBUG: Re-adding chat_file_picker to overlay")
         page.overlay.append(page.chat_file_picker)
         page.update()
