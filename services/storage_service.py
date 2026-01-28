@@ -184,7 +184,24 @@ def upload_proxy_file_to_supabase(storage_name: str) -> str:
         from utils.logger import log_info
         log_info(f"DEBUG: Proxy Uploading {storage_name}, Size: {len(file_data)} bytes, Type: {ctype}")
         
-        upload_file_server_side(storage_name, file_data, content_type=ctype)
+        try:
+            upload_file_server_side(storage_name, file_data, content_type=ctype)
+        except Exception as up_ex:
+            # Check for 400 or size issues
+            err_str = str(up_ex)
+            log_info(f"Upload Failure Detail: {err_str}")
+            
+            if "400" in err_str or "Bad Request" in err_str:
+                 if len(file_data) > 40 * 1024 * 1024:
+                      raise Exception("파일이 너무 큽니다. (현재 제한: 40MB)")
+                 else:
+                      # If 400 but small, maybe metadata issue? Recover with default stream type?
+                      log_info("Retrying with octet-stream...")
+                      try:
+                           upload_file_server_side(storage_name, file_data, content_type="application/octet-stream")
+                      except:
+                           raise Exception(f"업로드 거부 (400): 파일 형식 문제 또는 네트워크 오류입니다.")
+            raise up_ex
         
         # 3. Generate Signed URL
         # 10 years expiration

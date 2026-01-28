@@ -164,8 +164,15 @@ def send_message(topic_id: str, content: str = None, image_url: str = None, user
     
     final_content = content
     # If we have an image but no content, use default label
+    # If we have an image but no content, use default label
     if image_url and not final_content:
-        final_content = "[이미지 파일]"
+        clean_url = image_url.split("?")[0].lower()
+        if any(clean_url.endswith(ext) for ext in [".mp4", ".mov", ".avi", ".wmv", ".mkv", ".webm"]):
+             final_content = "[동영상]"
+        elif any(clean_url.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]):
+             final_content = "[이미지]"
+        else:
+             final_content = "[파일 첨부]"
 
     service_supabase.table("chat_messages").insert({
         "topic_id": topic_id,
