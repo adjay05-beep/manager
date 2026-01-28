@@ -49,8 +49,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
     topic_list_container = ft.Column(expand=True, spacing=0)
     message_list_view = ft.ListView(expand=True, spacing=5, padding=10)
     chat_header_title = ft.Column([
-        ft.Text("", weight="bold", size=18),
-        ft.Text(" ", size=10, color="red") # Debug Text
+        ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
+        ft.Text("Init...", size=10, color="red") # Debug Text
     ], spacing=0)
 
     # ... inside load topics ...
@@ -737,13 +737,30 @@ def get_chat_controls(page: ft.Page, navigate_to):
         ]
     )
 
+    # [DEBUG] Log Viewer
+    def show_debug_logs(e):
+        from utils.logger import get_logs
+        logs = get_logs()
+        log_text_col = ft.Column(
+            [ft.Text(l, size=10, color="green" if "[INFO]" in l else "red" if "[ERROR]" in l else "black") for l in logs],
+            scroll=ft.ScrollMode.ALWAYS,
+            height=300
+        )
+        
+        dlg = ft.AlertDialog(
+            title=ft.Text("시스템 로그"),
+            content=ft.Container(log_text_col, width=300),
+            actions=[ft.TextButton("닫기", on_click=lambda _: page.close(dlg))]
+        )
+        page.open(dlg)
+
     list_page_content = ft.Container(
         expand=True, bgcolor="white",
         content=ft.Column([
             ft.Container(
                 content=ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
-                    ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
+                    chat_header_title, # Dynamic Title with Debug Info
                     ft.Row([
                         ft.PopupMenuButton(
                             icon=ft.Icons.ADD,
@@ -759,6 +776,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                     text="카테고리 관리",
                                     icon=ft.Icons.CATEGORY_OUTLINED,
                                     on_click=open_manage_categories_dialog
+                                ),
+                                ft.PopupMenuItem(
+                                    text="로그 보기 (Debug)",
+                                    icon=ft.Icons.BUG_REPORT,
+                                    on_click=show_debug_logs
                                 ),
                             ]
                         ),

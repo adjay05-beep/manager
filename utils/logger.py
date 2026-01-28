@@ -26,14 +26,34 @@ if not logger.handlers:
     except Exception as e:
         print(f"Failed to setup logger: {e}")
 
+# In-memory log buffer for on-screen debugging
+LOG_BUFFER = []
+MAX_LOG_SIZE = 100
+
+def _append_log(msg):
+    try:
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        entry = f"[{timestamp}] {msg}"
+        LOG_BUFFER.append(entry)
+        if len(LOG_BUFFER) > MAX_LOG_SIZE:
+            LOG_BUFFER.pop(0)
+    except: pass
+
 def log_debug(msg):
     logger.debug(msg)
+    _append_log(f"[DEBUG] {msg}")
 
 def log_info(msg):
     logger.info(msg)
+    _append_log(f"[INFO] {msg}")
 
 def log_error(msg):
     logger.error(msg)
+    _append_log(f"[ERROR] {msg}")
 
 def log_warning(msg):
     logger.warning(msg)
+    _append_log(f"[WARN] {msg}")
+
+def get_logs():
+    return list(reversed(LOG_BUFFER))
