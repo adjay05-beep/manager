@@ -898,29 +898,10 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                     selected_icon=ft.Icons.PEOPLE
                 ),
                 ft.Divider(thickness=1, color="#EEEEEE"),
-                ft.Container(
-                    padding=ft.padding.only(left=20, top=10, bottom=10),
-                    content=ft.Text("내 매장 리스트", color="grey", weight="bold", size=12)
-                ),
             ]
         )
         
-        # Add Store List Tiles
-        for ch in channels:
-            is_cur = (str(ch['id']) == str(channel_id))
-            drawer.controls.append(
-                ft.Container(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.STORE, color="#1565C0" if is_cur else "grey", size=20),
-                        ft.Text(ch['name'], color="#1565C0" if is_cur else "black", weight="bold" if is_cur else "normal", size=14, expand=True),
-                        ft.Icon(ft.Icons.CHECK, color="#1565C0", size=18) if is_cur else ft.Container()
-                    ]),
-                    padding=ft.padding.symmetric(horizontal=20, vertical=12),
-                    on_click=lambda e, c=ch: switch_channel(c),
-                    ink=True,
-                    border_radius=0
-                )
-            )
+        # [REMOVED] Store List as per request
             
         drawer.controls.append(ft.Divider(thickness=1, color="#EEEEEE"))
         drawer.controls.append(
@@ -959,17 +940,13 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     )
 
     header = ft.Container(
-        height=100, # Increased height for SafeArea
+        # Reduced height since buttons are removed
         bgcolor="white", 
         border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE")), 
         padding=ft.padding.only(left=10, right=10, top=10),
         content=ft.Column([
-            top_bar,
-            ft.Row([
-                ft.ElevatedButton("오늘", on_click=lambda e: go_today(), bgcolor="#EEEEEE", color="black", height=30, style=ft.ButtonStyle(padding=10)),
-                ft.FloatingActionButton(icon=ft.Icons.ADD, on_click=lambda e: open_event_dialog(), bgcolor="#1565C0", mini=True)
-            ], alignment=ft.MainAxisAlignment.END, spacing=10) 
-        ])
+            top_bar
+        ], tight=True) # Use tight to fit content
     )
     
     async def initial_load_delayed():

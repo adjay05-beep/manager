@@ -244,7 +244,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         )
 
                 # 2. Show Categories
-                for cat_name in [c for c in categories if c in grouped]:
+                # Prioritize 'categories' order, then any remaining keys
+                known_cats = [c for c in categories if c in grouped]
+                unknown_cats = [k for k in grouped.keys() if k is not None and k not in known_cats]
+                
+                for cat_name in known_cats + unknown_cats:
                     list_view_ctrls.append(
                         ft.Container(
                             content=ft.Row([
