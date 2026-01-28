@@ -561,8 +561,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try:
                 # Use Global Chat Picker
                 print(f"DEBUG: Calling handle_file_upload. Web={is_web_mode}")
-                # Use local_file_picker explicitly
-                result = storage_service.handle_file_upload(is_web_mode, f, update_snack, picker_ref=local_file_picker)
+                # Use Global Picker explicitly
+                result = storage_service.handle_file_upload(is_web_mode, f, update_snack, picker_ref=page.chat_file_picker)
                 print(f"DEBUG: Result: {result}")
                 
                 if result and "public_url" in result:
@@ -764,22 +764,14 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     page.open(ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green", open=True))
                     page.update()
 
-    # [FIX] Use Local FilePicker (Global one is unreliable after page.clean)
-    # Replicates the successful pattern from DebugUploadView
-    local_file_picker = ft.FilePicker(
-        on_result=on_chat_file_result,
-        on_upload=on_chat_upload_progress
-    )
-    # Must append to overlay to work!
-    page.overlay.append(local_file_picker)
+    # [FIX] Reverting to Global Picker (page.chat_file_picker)
+    # The previous failure was due to Thread Blocking, which is now fixed.
+    # Using Global Picker prevents Overlay pollution.
+    page.chat_file_picker.on_result = on_chat_file_result
+    page.chat_file_picker.on_upload = on_chat_upload_progress
     
-    # Update Page Reference just in case, but we will use 'local_file_picker' directly
-    page.chat_file_picker = local_file_picker
-    
-    # Bind Helper handlers only when needed (idempotent?)
-    # Flet Event Handlers are multicast, but rewriting them is okay.
-    # page.chat_file_picker.on_result = on_chat_file_result
-    # page.chat_file_picker.on_upload = on_chat_upload_progress
+    # Alias for compatibility with rest of the function
+    local_file_picker = page.chat_file_picker
 
     def update_pending_ui(public_url):
         if not public_url: return
