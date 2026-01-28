@@ -207,6 +207,14 @@ def get_home_controls(page: ft.Page, navigate_to):
         run_spacing=15,
     )
 
+    # [DEBUG] Set FAB for Diagnostics
+    page.floating_action_button = ft.FloatingActionButton(
+        icon=ft.Icons.BUG_REPORT, 
+        bgcolor="red", 
+        on_click=lambda _: navigate_to("debug_upload"),
+        tooltip="업로드 진단 (개발용)"
+    )
+
     # Layout
     return [
         ft.SafeArea(
@@ -245,7 +253,6 @@ def get_home_controls(page: ft.Page, navigate_to):
 
                         # Right: Actions
                         ft.Row([
-                            debug_btn,
                             ft.IconButton(
                                 ft.Icons.ADD_BUSINESS,
                                 icon_color="#1565C0",
