@@ -192,8 +192,8 @@ def upload_proxy_file_to_supabase(storage_name: str) -> str:
             log_info(f"Upload Failure Detail: {err_str}")
             
             if "400" in err_str or "Bad Request" in err_str:
-                 if len(file_data) > 40 * 1024 * 1024:
-                      raise Exception("파일이 너무 큽니다. (현재 제한: 40MB)")
+                 if len(file_data) > 50 * 1024 * 1024:
+                      raise Exception("파일이 너무 큽니다 (50MB 제한). 더 큰 파일은 분할 압축해주세요.")
                  else:
                       # If 400 but small, maybe metadata issue? Recover with default stream type?
                       log_info("Retrying with octet-stream...")
