@@ -59,18 +59,24 @@ def get_chat_controls(page: ft.Page, navigate_to):
     root_view = ft.Column(expand=True, spacing=0)
 
     async def load_topics_thread(update_ui=True, show_all=False):
+        # [DEBUG] Start
+        try:
+            chat_header_title.controls[1].value = "Debug: Starting..."
+            if update_ui: page.update()
+        except: pass
+
         if not state["is_active"]: return
         if not current_user_id:
-            log_info("Chat ERROR: No user session found - cannot load topics")
-            page.snack_bar = ft.SnackBar(
-                ft.Text("세션이 만료되었습니다. 다시 로그인해 주세요.", color="white"),
-                bgcolor="red",
-                open=True
-            )
+            chat_header_title.controls[1].value = "Error: No Session"
             page.update()
+            log_info("Chat ERROR: No user session found - cannot load topics")
+            page.snack_bar = ft.SnackBar(ft.Text("세션이 만료되었습니다."), bgcolor="red", open=True); page.update()
             return
             
         try:
+            chat_header_title.controls[1].value = "Debug: Checking DB..."
+            if update_ui: page.update()
+            
             log_info(f"Loading topics (Mode: {'ALL' if show_all else 'Members Only'}) for {current_user_id}")
             
             # [DIAGNOSTIC] Log database connection status
@@ -87,13 +93,20 @@ def get_chat_controls(page: ft.Page, navigate_to):
             log_info(f"Loading topics for user {current_user_id} in channel {current_channel_id}")
             
             # [FIX] Async wrappers for Blocking Service Calls
+            chat_header_title.controls[1].value = "Debug: Fetching Cats..."
+            if update_ui: page.update()
+            
             categories_data = await asyncio.to_thread(chat_service.get_categories, current_channel_id)
             log_info(f"Categories loaded: {len(categories_data) if categories_data else 0}")
             categories = [c['name'] for c in categories_data] if categories_data else ["공지", "일반", "중요", "개별 업무"]
 
             if show_all:
+                chat_header_title.controls[1].value = "Debug: Fetching All Topics..."
+                if update_ui: page.update()
                 topics = await asyncio.to_thread(chat_service.get_all_topics, current_channel_id)
             else:
+                chat_header_title.controls[1].value = "Debug: Fetching User Topics..."
+                if update_ui: page.update()
                 topics = await asyncio.to_thread(chat_service.get_topics, current_user_id, current_channel_id)
                 
             log_info(f"Topics fetched: {len(topics)} topics for user {current_user_id}")
@@ -312,6 +325,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
             if update_ui: page.update()
         except Exception as ex:
             log_info(f"Load Topics Critical Error: {ex}")
+            chat_header_title.controls[1].value = f"Error: {str(ex)[:20]}"
+            if update_ui: page.update()
             try:
                 page.snack_bar = ft.SnackBar(
                     ft.Text(f"데이터 로딩 오류: {ex}", color="white"),

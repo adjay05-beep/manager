@@ -215,20 +215,29 @@ def get_home_controls(page: ft.Page, navigate_to):
                         # [FIX] Safer top padding with SafeArea
                         padding=ft.padding.only(left=20, right=20, top=10, bottom=10),
                         content=ft.Row([
-                            # Left: Store Info (Moved from Center to Start since Logo is gone)
-                            ft.Column([
-                                ft.Text(
-                                    page.session.get("channel_name") or "매장",
-                                size=22, 
-                                weight="bold",
-                                color="black",
-                            ),
-                            ft.Text(
-                                f"{display_name}님",
-                                size=12,
-                                color="grey",
-                            )
-                        ], spacing=2),
+                            # Left: Profile Avatar + Store Info
+                            ft.Row([
+                                ft.Container(
+                                    content=ft.Icon(ft.Icons.PERSON, color="white", size=24),
+                                    width=45, height=45, bgcolor="#E0E0E0", border_radius=22.5,
+                                    alignment=ft.alignment.center,
+                                    on_click=lambda _: navigate_to("store_manage"),
+                                    tooltip="내 프로필"
+                                ),
+                                ft.Column([
+                                    ft.Text(
+                                        page.session.get("channel_name") or "매장",
+                                        size=20, 
+                                        weight="bold",
+                                        color="black",
+                                    ),
+                                    ft.Text(
+                                        f"{display_name}님",
+                                        size=12,
+                                        color="grey",
+                                    )
+                                ], spacing=0, alignment=ft.MainAxisAlignment.CENTER),
+                            ], spacing=10), # End Left Row
 
                         # Right: Actions
                         ft.Row([
