@@ -488,6 +488,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
             
             message_list_view.controls = new_controls
             page.update()
+            # [FIX] Auto-scroll to bottom (newest messages)
+            try:
+                message_list_view.scroll_to(offset=-1.0, animate=False)
+                page.update()
+            except: pass
         except Exception as e:
             print(f"Load Msg Error: {e}")
 
@@ -1111,8 +1116,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
     chat_page = ft.Container(
         expand=True, bgcolor="white",
         content=ft.Column([
-            # [FIX] Embed Picker in View Tree
-            local_file_picker,
+            # Picker moved to Input Bar
             ft.Container(
                 content=ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", 
@@ -1128,6 +1132,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 content=ft.Column([
                     pending_container,
                     ft.Row([
+                        # [FIX] Place Picker near button for better Mobile positioning
+                        local_file_picker,
                         ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED, icon_color="#757575", on_click=lambda _: local_file_picker.pick_files()),
                         msg_input, 
                         ft.IconButton(ft.Icons.SEND_ROUNDED, icon_color="#2E7D32", icon_size=32, on_click=lambda _: send_message())
