@@ -69,7 +69,7 @@ def get_user_read_status(user_id: str) -> Dict[str, str]:
 def get_recent_messages(since_time: str) -> List[Dict[str, Any]]:
     """Fetch messages newer than a timestamp (for unread counts)."""
     try:
-        res = service_supabase.table("chat_messages").select("topic_id, created_at").gt("created_at", since_time).execute()
+        res = service_supabase.table("chat_messages").select("topic_id, created_at, user_id").gt("created_at", since_time).execute()
         return res.data or []
     except Exception as e:
         print(f"Service Error (get_recent_messages): {e}")

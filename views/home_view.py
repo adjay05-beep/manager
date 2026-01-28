@@ -221,7 +221,7 @@ def get_home_controls(page: ft.Page, navigate_to):
                                     content=ft.Icon(ft.Icons.PERSON, color="white", size=24),
                                     width=45, height=45, bgcolor="#E0E0E0", border_radius=22.5,
                                     alignment=ft.alignment.center,
-                                    on_click=lambda _: navigate_to("store_manage"),
+                                    on_click=lambda _: navigate_to("profile"),
                                     tooltip="내 프로필"
                                 ),
                                 ft.Column([

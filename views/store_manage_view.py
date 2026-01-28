@@ -351,132 +351,61 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
 
     # === LAYOUT CONSTRUCTION ===
     
-    # 1. Profile Card (KaTalk Style)
-    profile_card = ft.Container(
-        padding=20,
-        content=ft.Row([
-            ft.Container(
-                content=ft.Icon(ft.Icons.PERSON, size=40, color="white"),
-                width=70, height=70, bgcolor="#E0E0E0", border_radius=35,
-                alignment=ft.alignment.center
-            ),
-            ft.Container(width=10),
-            ft.Column([
-                 ft.Text(user_profile.get("full_name", "이름 없음"), size=20, weight="bold", color="#1A1A1A"),
-                 ft.Container(
-                     content=ft.Text(f"{user_profile.get('role', 'staff')}", size=12, color="white"),
-                     bgcolor="grey", padding=ft.padding.symmetric(horizontal=8, vertical=2), border_radius=10
-                 ),
-            ], spacing=5),
-            ft.Container(expand=True),
-            # Edit Button (Can toggle visibility of edit fields below)
-            ft.IconButton(ft.Icons.EDIT, icon_color="grey", tooltip="프로필 편집") 
-        ])
-    )
-
-    # 2. My Store List
-    store_list_items = []
-    if channels:
-        for ch in channels:
-            is_current = (ch['id'] == channel_id)
-            store_list_items.append(
-                ft.Container(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.STORE, color="#1565C0" if is_current else "grey"),
-                        ft.Text(ch['name'], weight="bold" if is_current else "normal"),
-                        ft.Container(expand=True),
-                         ft.Text("현재 접속 중" if is_current else "", size=12, color="#1565C0")
-                    ]),
-                    padding=10,
-                    border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE")),
-                    on_click=lambda e: None # Future: Switch store?
-                )
-            )
-    else:
-        store_list_items.append(ft.Text("가입된 매장이 없습니다.", color="grey"))
-
-    store_list_section = ft.Container(
+    # Store Settings Only
+    current_store_settings = ft.Container(
         padding=20,
         content=ft.Column([
-            ft.Text("내 매장 목록", size=16, weight="bold", color="#0A1929"),
-            ft.Column(store_list_items, spacing=0),
+            ft.Text(f"'{current_ch['name']}' 관리", size=18, weight="bold", color="#0A1929"),
             ft.Container(height=10),
-            ft.OutlinedButton("새 매장 추가하기", icon=ft.Icons.ADD, on_click=open_create_dialog, width=200)
+            
+            ft.Text("매장 이름 수정", size=14, color="grey"),
+            ft.Row([
+                ft.Container(store_name_tf, expand=True),
+                ft.ElevatedButton("저장", on_click=save_store_changes, visible=(role=="owner"), bgcolor="#00C73C", color="white"),
+            ]),
+            
+            ft.Container(height=20),
+            
+            # Invite Code
+            ft.Text("직원 초대 코드", size=14, color="grey"),
+            ft.Container(
+                padding=15, bgcolor="#F5FAFB", border_radius=8,
+                content=ft.Column([
+                    ft.Row([ft.Icon(ft.Icons.QR_CODE, color="cyan"), code_display]),
+                    code_expiry,
+                    ft.Row([generate_btn, ft.IconButton(ft.Icons.COPY, icon_color="cyan", on_click=copy_code)])
+                ])
+            ),
+            
+            ft.Container(height=20),
+            ft.Text("매장 멤버 관리", size=16, weight="bold", visible=(role=="owner"), color="#0A1929"),
+            member_mgmt_col if role == "owner" else ft.Container()
         ])
     )
-
-    # 3. Store Settings (Owner Only / Current Store)
-    current_store_settings = ft.Column([
-        ft.Divider(color="#EEEEEE", thickness=5),
-        ft.Container(
-            padding=20,
-            content=ft.Column([
-                ft.Text(f"'{current_ch['name']}' 관리", size=18, weight="bold"),
-                ft.Container(height=10),
-                ft.Text("매장 이름 수정", size=14, color="grey"),
-                ft.Row([
-                    ft.Container(store_name_tf, expand=True),
-                    ft.ElevatedButton("저장", on_click=save_store_changes, visible=(role=="owner"), bgcolor="#00C73C", color="white"),
-                ]),
-                ft.Container(height=20),
-                
-                # Invite Code
-                ft.Text("직원 초대 코드", size=14, color="grey"),
-                ft.Container(
-                    padding=15, bgcolor="#F5FAFB", border_radius=8,
-                    content=ft.Column([
-                        ft.Row([ft.Icon(ft.Icons.QR_CODE, color="cyan"), code_display]),
-                        code_expiry,
-                        ft.Row([generate_btn, ft.IconButton(ft.Icons.COPY, icon_color="cyan", on_click=copy_code)])
-                    ])
-                ),
-                
-                ft.Container(height=20),
-                ft.Text("매장 멤버 관리", size=16, weight="bold", visible=(role=="owner")),
-                member_mgmt_col if role == "owner" else ft.Container()
-            ])
-        )
-    ])
 
     return [
         ft.SafeArea(
             ft.Container(
                 expand=True,
                 bgcolor="white",
-                padding=ft.padding.only(left=0, right=0, top=10, bottom=0),
                 content=ft.Column([
                     # Header
                     ft.Container(
-                        padding=ft.padding.symmetric(horizontal=10),
+                        padding=ft.padding.symmetric(horizontal=10, vertical=10),
                         content=ft.Row([
                             ft.IconButton(ft.Icons.ARROW_BACK, icon_color="black", on_click=lambda _: navigate_to("home")),
-                            ft.Text("내 프로필", size=20, weight="bold", expand=True),
-                            ft.TextButton("로그아웃", icon=ft.Icons.LOGOUT, icon_color="red", style=ft.ButtonStyle(color="red"), on_click=perform_logout)
+                            ft.Text("매장 설정", size=20, weight="bold", expand=True, color="black"),
                         ])
                     ),
                     ft.Divider(color="#EEEEEE", height=1),
                     
-                    ft.Column([
-                        profile_card,
-                        ft.Divider(color="#EEEEEE"),
-                        store_list_section,
-                        current_store_settings,
-                        # Hidden fields for data saving if needed, but UI uses new structure
-                        # profile_name_tf used for display? No, I used text.
-                        # Using profile_name_tf in Edit dialog?
-                        # For now, simplistic view. 
-                        # To keep existing logic working:
-                        ft.ExpansionTile(
-                            title=ft.Text("프로필 정보 수정", size=14),
-                            controls=[
-                                ft.Container(padding=20, content=ft.Column([
-                                    ft.Text("이름 수정"),
-                                    ft.Row([profile_name_tf, ft.ElevatedButton("저장", on_click=save_profile_changes)])
-                                ]))
-                            ]
-                        )
-                    ], scroll=ft.ScrollMode.AUTO, expand=True)
-                ])
+                    ft.Container(
+                        content=current_store_settings,
+                        expand=True 
+                    ),
+                    
+                    msg
+                ], scroll=ft.ScrollMode.AUTO)
             )
         )
     ]

@@ -114,8 +114,13 @@ def main(page: ft.Page):
                 controls = get_closing_controls(page, navigate_to)
             elif route == "work":
                 controls = get_work_controls(page, navigate_to)
-            elif route == "store_info":
+            elif route == "work":
+                controls = get_work_controls(page, navigate_to)
+            elif route == "store_info" or route == "store_manage":
                 controls = get_store_manage_controls(page, navigate_to)
+            elif route == "profile":
+                from views.profile_view import get_profile_controls
+                controls = get_profile_controls(page, navigate_to)
             else:
                 controls = [ft.Text("Not Found")]
             
