@@ -5,7 +5,7 @@ import flet as ft
 
 # [NEW] Unified Storage Service to remove duplication in Views.
 
-async def handle_file_upload(page: ft.Page, file_obj: ft.FilePickerFile, status_callback=None, picker_ref: ft.FilePicker=None):
+async def handle_file_upload(page: ft.Page, file_obj, status_callback=None, picker_ref: ft.FilePicker=None):
     """
     Handles file upload for both Web (Bridge/SignedURL) and Native (Direct Read).
     Returns: Dict with keys 'type', 'public_url', 'storage_name'
