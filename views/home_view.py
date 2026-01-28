@@ -208,12 +208,13 @@ def get_home_controls(page: ft.Page, navigate_to):
     )
 
     # [DEBUG] Set FAB for Diagnostics
-    page.floating_action_button = ft.FloatingActionButton(
-        icon=ft.Icons.BUG_REPORT, 
-        bgcolor="red", 
-        on_click=lambda _: navigate_to("debug_upload"),
-        tooltip="업로드 진단 (개발용)"
-    )
+    # page.floating_action_button = ft.FloatingActionButton(
+    #     icon=ft.Icons.BUG_REPORT, 
+    #     bgcolor="red", 
+    #     on_click=lambda _: navigate_to("debug_upload"),
+    #     tooltip="업로드 진단 (개발용)"
+    # )
+    page.floating_action_button = None # Ensure it is cleared if we return to Home
 
     # Layout
     return [
