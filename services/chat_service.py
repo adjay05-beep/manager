@@ -188,4 +188,10 @@ def upload_file_server_side(filename: str, file_content: bytes, bucket: str = "u
 
 def get_public_url(filename: str, bucket: str = "uploads") -> str:
     """Construct public URL."""
-    return f"{supabase.url}/storage/v1/object/public/{bucket}/{filename}"
+    try:
+        # Use SDK method if available
+        return service_supabase.storage.from_(bucket).get_public_url(filename)
+    except:
+        # Fallback to manual construction
+        base_url = supabase.supabase_url if hasattr(supabase, "supabase_url") else "https://adjay05-beep.supabase.co"
+        return f"{base_url}/storage/v1/object/public/{bucket}/{filename}"
