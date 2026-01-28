@@ -741,22 +741,43 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     def update_pending_ui(public_url):
         if not public_url: return
+        
+        # [FIX] Robust File Type Detection
+        clean_url = public_url.split("?")[0]
+        ext = clean_url.split(".")[-1].lower() if "." in clean_url else ""
+        
+        image_exts = ["jpg", "jpeg", "png", "gif", "webp", "ico", "bmp"]
+        video_exts = ["mp4", "mov", "avi", "wmv", "mkv", "webm"]
+        
+        preview_content = None
+        status_text = "파일 준비 완료"
+        
+        if ext in image_exts:
+             preview_content = ft.Image(
+                src=public_url, 
+                fit=ft.ImageFit.COVER,
+                error_content=ft.Icon(ft.Icons.BROKEN_IMAGE, color="white") 
+            )
+             status_text = "이미지 준비 완료"
+        elif ext in video_exts:
+             preview_content = ft.Icon(ft.Icons.VIDEO_FILE, color="white", size=30)
+             status_text = "동영상 준비 완료"
+        else:
+             preview_content = ft.Icon(ft.Icons.INSERT_DRIVE_FILE, color="white", size=30)
+
         pending_container.content = ft.Row([
-            # Wrap Image in Container to ensure sizing and visibility
+            # Wrap Image/Icon in Container
             ft.Container(
-                content=ft.Image(
-                    src=public_url, 
-                    fit=ft.ImageFit.COVER,
-                    error_content=ft.Icon(ft.Icons.BROKEN_IMAGE, color="white") 
-                ),
+                content=preview_content,
                 width=50, 
                 height=50, 
                 border_radius=5, 
                 bgcolor="#424242", # Dark grey placeholder
-                border=ft.border.all(1, "#616161")
+                border=ft.border.all(1, "#616161"),
+                alignment=ft.alignment.center
             ),
             ft.Column([
-                ft.Text("이미지 준비 완료", size=12, weight="bold", color="white"),
+                ft.Text(status_text, size=12, weight="bold", color="white"),
                 ft.Text("전송 버튼을 눌러 발송하세요.", size=10, color="white70"),
             ], spacing=2, tight=True),
             ft.IconButton(ft.Icons.CANCEL, icon_color="red", on_click=lambda _: clear_pending())

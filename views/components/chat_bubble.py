@@ -54,16 +54,102 @@ class ChatBubble(ft.Container):
             border_side = None
         
         if img_url:
-            bubble_items.append(
-                ft.Image(
-                    src=img_url,
-                    width=200,
-                    height=200,
-                    fit=ft.ImageFit.COVER,
-                    border_radius=8,
-                    repeat=ft.ImageRepeat.NO_REPEAT,
+            # [FIX] Robust File Type Detection
+            # Extract extension ignoring query parameters
+            clean_url = img_url.split("?")[0]
+            ext = clean_url.split(".")[-1].lower() if "." in clean_url else ""
+            
+            image_exts = ["jpg", "jpeg", "png", "gif", "webp", "ico", "bmp"]
+            video_exts = ["mp4", "mov", "avi", "wmv", "mkv", "webm"]
+            
+            if ext in image_exts:
+                bubble_items.append(
+                    ft.Image(
+                        src=img_url,
+                        width=200,
+                        height=200,
+                        fit=ft.ImageFit.COVER,
+                        border_radius=8,
+                        repeat=ft.ImageRepeat.NO_REPEAT,
+                    )
                 )
-            )
+            elif ext in video_exts:
+                # [NEW] Video Card with Modal Player
+                def play_video(e):
+                    try:
+                        # Modal Video Player using Flet's Native Video Control
+                        # Note: Requires Flet 0.21.0+
+                        video_media = ft.VideoMedia(img_url)
+                        player = ft.Video(
+                            expand=True,
+                            playlist=[video_media],
+                            playlist_mode=ft.PlaylistMode.SINGLE,
+                            fill_color=ft.Colors.BLACK,
+                            aspect_ratio=16/9,
+                            autoplay=True,
+                            filter_quality=ft.FilterQuality.HIGH,
+                            muted=False,
+                            show_controls=True
+                        )
+                        
+                        dlg_content = ft.Container(
+                            content=player,
+                            width=350, # Mobile friendly width
+                            height=200,
+                            bgcolor="black",
+                            alignment=ft.alignment.center
+                        )
+                        
+                        # Fullscreen dialog on mobile?
+                        dlg = ft.AlertDialog(
+                            content=dlg_content,
+                            content_padding=0,
+                            bgcolor="transparent",
+                            inset_padding=10
+                        )
+                        e.page.open(dlg)
+                        e.page.update()
+                    except Exception as ex:
+                        print(f"Video Error: {ex}")
+                        # Fallback to External Browser
+                        e.page.launch_url(img_url)
+
+                card = ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.PLAY_CIRCLE_FILL, color="#E53935", size=32),
+                        ft.Column([
+                            ft.Text("동영상 재생", weight="bold", size=13, color="#212121"),
+                            ft.Text(f"{ext.upper()} 파일", size=10, color="grey")
+                        ], spacing=0, alignment="center")
+                    ], alignment="start", spacing=10),
+                    padding=ft.padding.symmetric(horizontal=12, vertical=12),
+                    bgcolor="#FAFAFA" if is_me else "white",
+                    border=ft.border.all(1, "#E0E0E0"),
+                    border_radius=10,
+                    width=220,
+                    on_click=play_video,
+                    ink=True
+                )
+                bubble_items.append(card)
+            else:
+                # [NEW] Generic File Attachment
+                 bubble_items.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.INSERT_DRIVE_FILE, color="#757575", size=30),
+                            ft.Column([
+                                ft.Text("파일 첨부", weight="bold", size=13, color="#212121"),
+                                ft.Text(f"{ext.upper()}", size=10, color="grey")
+                            ], spacing=0, expand=True),
+                            ft.IconButton(ft.Icons.DOWNLOAD_ROUNDED, icon_color="#0288D1", tooltip="다운로드", on_click=lambda e: e.page.launch_url(img_url))
+                        ]),
+                        padding=10,
+                        bgcolor="#FAFAFA" if is_me else "white",
+                        border=ft.border.all(1, "#E0E0E0"),
+                        border_radius=10,
+                        width=220
+                    )
+                 )
         
         if content:
             bubble_items.append(
