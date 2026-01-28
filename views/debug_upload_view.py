@@ -37,7 +37,8 @@ def DebugUploadView(page: ft.Page):
                     result = storage_service.handle_file_upload(
                         is_web=is_web,
                         file_obj=f,
-                        status_callback=status_callback
+                        status_callback=status_callback,
+                        picker_ref=picker
                     )
                     log(f"Result: {result}")
                 except Exception as ex:
