@@ -286,7 +286,7 @@ def get_home_controls(page: ft.Page, navigate_to):
                             )
                         ], spacing=0, alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.START)
 
-                    ])
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.START) # [FIX] Align Tops
                 ),
                 
                 ft.Divider(color="#EEEEEE", height=1),
@@ -295,9 +295,10 @@ def get_home_controls(page: ft.Page, navigate_to):
                 ft.Container(
                     padding=20,
                     content=grid,
-                    # [FIX] Removed expand=True to allow scrolling in Column
+                    expand=True,
+                    # Ensure grid can scroll if needed, though home screen usually fits
+                    # But responsive row needs width context.
                 )
-            # [FIX] Force Scroll Always
-            ], scroll=ft.ScrollMode.ALWAYS, expand=True)
+            ], scroll=ft.ScrollMode.AUTO)
         ))
     ]

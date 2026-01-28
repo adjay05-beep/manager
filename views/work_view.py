@@ -34,7 +34,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     # 2. Form Inputs
     reg_name = ft.TextField(label="이름", width=150, color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
     reg_type = ft.Dropdown(
-        label="고용 형태", width=160,
+        label="고용 형태", width=120,
         options=[ft.dropdown.Option("full", "정규직"), ft.dropdown.Option("part", "아르바이트")],
         value="part", color=black_text, label_style=ft.TextStyle(color=grey_text), border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14
     )
@@ -67,7 +67,7 @@ def get_work_controls(page: ft.Page, navigate_to):
         ft.Text("근무 시간:", size=12, color=black_text, weight="bold"),
         ft.Row([uniform_start, ft.Text("~"), uniform_end], spacing=5),
         ft.Text("근무 요일:", size=12, color=black_text, weight="bold"),
-        ft.Row(uniform_day_checks, spacing=8, alignment=ft.MainAxisAlignment.START, wrap=False, scroll=ft.ScrollMode.AUTO)
+        ft.Row(uniform_day_checks, spacing=20, alignment=ft.MainAxisAlignment.START, wrap=False, scroll=ft.ScrollMode.AUTO)
     ])
     
     custom_ui = ft.Column([
@@ -90,14 +90,13 @@ def get_work_controls(page: ft.Page, navigate_to):
     ], visible=False)
     
     # Mode Buttons
-    # Mode Buttons
     mode_btn_uniform = ft.Container(
-        content=ft.Text("모든 요일 동일", size=12, color="white"),
-        bgcolor="#1A237E", padding=10, border_radius=8, ink=True
+        content=ft.Text("모든 요일 동일", size=12, color="black"),
+        bgcolor="#1A237E", padding=8, border_radius=5, ink=True
     )
     mode_btn_custom = ft.Container(
         content=ft.Text("요일별 다르게", size=12, color="black"),
-        border=ft.border.all(1, "grey"), padding=10, border_radius=8, ink=True
+        border=ft.border.all(1, "grey"), padding=8, border_radius=5, ink=True
     )
     
     schedule_mode_state = {"value": "uniform"}
@@ -415,66 +414,29 @@ def get_work_controls(page: ft.Page, navigate_to):
                 if is_resigned:
                     status_chips.append(ft.Container(content=ft.Text("퇴사", size=10, color="white"), bgcolor="grey", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=5))
 
-                # Modern Card Design
-                avatar_color = "#9E9E9E" if is_resigned else "#1976D2"
-                initial = name[0] if name else "?"
-                
                 main_info = ft.Container(
                     content=ft.Column([
-                        # Header: Avatar + Name + Tags
                         ft.Row([
                             ft.Row([
-                                ft.CircleAvatar(content=ft.Text(initial, color="white", weight="bold"), bgcolor=avatar_color, radius=22),
-                                ft.Column([
-                                    ft.Row([
-                                        ft.Text(name, weight="bold", size=16, color="#424242" if not is_resigned else "grey"),
-                                        ft.Container(content=ft.Text("퇴사" if is_resigned else ("정규직" if latest.get('employee_type')=='full' else "알바"), size=10, color="white", weight="bold"), 
-                                                     bgcolor="#BDBDBD" if is_resigned else ("#1565C0" if latest.get('employee_type')=='full' else "#F57C00"), 
-                                                     padding=ft.padding.symmetric(horizontal=8, vertical=2), border_radius=4)
-                                    ], spacing=8, vertical_alignment="center"),
-                                    ft.Text(f"입사일: {original_start}", size=11, color="grey")
-                                ], spacing=2)
-                            ], spacing=15),
-                            
-                            # Actions
+                                ft.Text(name, weight="bold", size=16, color="black" if not is_resigned else "grey"),
+                                ft.Row(status_chips, spacing=5)
+                            ], spacing=10),
                             ft.Row([
-                                ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_color="#757575", tooltip="수정", on_click=lambda e, c=latest: open_edit_dialog(c)),
+                                ft.IconButton(ft.Icons.EDIT, icon_color="blue", tooltip="조건 변경/수정", on_click=lambda e, c=latest: open_edit_dialog(c)),
                                 ft.IconButton(
-                                    ft.Icons.RESTORE_FROM_TRASH_ROUNDED if is_resigned else ft.Icons.Running_WITH_ERRORS_ROUNDED, 
-                                    icon_color="#EF5350" if is_resigned else "#FF9800", 
+                                    ft.Icons.RESTORE if is_resigned else ft.Icons.LOGOUT, 
+                                    icon_color="blue" if is_resigned else "orange", 
                                     tooltip="복구" if is_resigned else "퇴사 처리", 
                                     on_click=lambda e, c=latest, ir=is_resigned: open_resign_dialog(c, "restore" if ir else "resign")
                                 ),
+                                ft.IconButton(ft.Icons.DELETE, icon_color="red", tooltip="삭제", data=latest.get('id'), on_click=delete_contract_click)
                             ], spacing=0)
-                            # Delete button removed from main view to prevent accidents? Or allow? Adding back Delete.
                         ], alignment="spaceBetween"),
-                        
-                        ft.Container(height=10),
-                        
-                        # Stats Grid
-                        ft.Container(
-                            content=ft.Row([
-                                ft.Column([
-                                    ft.Text("급여 정보", size=10, color="#757575"),
-                                    ft.Text(f"{'시급' if latest.get('wage_type')=='hourly' else '월급'} {latest.get('hourly_wage') or latest.get('monthly_wage'):,}원", size=12, weight="bold", color="#424242")
-                                ]),
-                                ft.Container(width=1, height=20, bgcolor="#E0E0E0"),
-                                ft.Column([
-                                    ft.Text("주간 시간", size=10, color="#757575"),
-                                    ft.Text(f"{weekly_hours:.1f} 시간", size=12, weight="bold", color="#424242")
-                                ]),
-                                ft.Container(width=1, height=20, bgcolor="#E0E0E0"),
-                                ft.Column([
-                                    ft.Text("근무 요일", size=10, color="#757575"),
-                                    ft.Text(day_str[:12]+".." if len(day_str)>12 else day_str, size=12, weight="bold", color="#424242")
-                                ])
-                            ], alignment="spaceEvenly", vertical_alignment="center"),
-                            padding=12, bgcolor="#F5F5F5", border_radius=8
-                        )
+                        ft.Text(f"최초 근무 시작: {original_start}", size=11, weight="bold", color="#1A237E"),
+                        ft.Text(f"현재 급여: {latest.get('hourly_wage') or latest.get('monthly_wage'):,}원 ({latest.get('wage_type')})", size=12, color="grey"),
+                        ft.Text(f"현재 일정: {day_str} (주 {weekly_hours:.1f}시간)", size=12, color="grey")
                     ]),
-                    padding=20, bgcolor="white", border_radius=12, 
-                    border=ft.border.all(1, "#E0E0E0"),
-                    shadow=ft.BoxShadow(blur_radius=5, color="#08000000", offset=ft.Offset(0,2))
+                    padding=15, bgcolor="white", border_radius=10, border=ft.border.all(1, "#EEEEEE")
                 )
 
                 if len(history) > 1:
@@ -711,70 +673,19 @@ def get_work_controls(page: ft.Page, navigate_to):
     contract_content = ft.Column([
         ft.Container(
             content=ft.Column([
-                ft.Row([
-                    ft.Icon(ft.Icons.PERSON_ADD_ALT_1_ROUNDED, size=26, color="#1565C0"),
-                    ft.Column([
-                        ft.Text("신규 직원 등록", weight="bold", size=18, color="#212121"),
-                        ft.Text("근로계약 정보와 근무 스케줄을 설정합니다.", size=12, color="grey"),
-                    ], spacing=2)
-                ], spacing=10),
-                
-                ft.Divider(height=20, color="#FAFAFA"),
-                
-                # Section 1: Basic Info
-                ft.Text("기본 정보", weight="bold", size=14, color="#424242"),
-                ft.Container(
-                    content=ft.Column([
-                        ft.Row([
-                            reg_name, 
-                            reg_type,
-                            reg_start_date
-                        ], spacing=15, run_spacing=10, wrap=True),
-                        ft.Row([
-                            reg_wage_type, 
-                            reg_wage,
-                            ft.Text("원", size=14, weight="bold")
-                        ], spacing=15, vertical_alignment="center"),
-                    ], spacing=15),
-                    padding=20, bgcolor="#F8F9FA", border_radius=10, border=ft.border.all(1, "#EEEEEE")
-                ),
-                
-                ft.Container(height=15),
-
-                # Section 2: Schedule
-                ft.Row([
-                    ft.Text("근무 일정", weight="bold", size=14, color="#424242"),
-                    ft.Container(width=10),
-                    ft.Row([mode_btn_uniform, mode_btn_custom], spacing=0) # Joined toggle style?
-                ], vertical_alignment="center"),
-                
-                ft.Container(
-                    content=ft.Column([
-                        uniform_ui,
-                        custom_ui
-                    ]),
-                    padding=20, bgcolor="#F8F9FA", border_radius=10, border=ft.border.all(1, "#EEEEEE")
-                ),
-
-                ft.Container(height=20),
-                ft.Row([
-                    ft.ElevatedButton(
-                        content=ft.Row([ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, size=20), ft.Text("직원 등록 완료", size=15, weight="bold")], spacing=5, alignment="center"),
-                        on_click=save_contract_click,
-                        style=ft.ButtonStyle(
-                            bgcolor={"": "#1565C0", "hovered": "#0D47A1"},
-                            color="white",
-                            shape=ft.RoundedRectangleBorder(radius=8),
-                            padding=20,
-                            elevation=0
-                        ),
-                        width=400
-                    )
-                ], alignment="center")
+                ft.Text("신규 직원 등록", weight="bold", size=18, color="black"),
+                ft.Container(height=10),
+                ft.Row([reg_name, reg_type]),
+                ft.Row([reg_wage_type, reg_wage]),
+                ft.Row([reg_start_date, ft.Text("부터 근무 시작", size=12, color="grey")], vertical_alignment="center"),
+                ft.Text("근무 일정:", size=12, color="black", weight="bold"),
+                ft.Row([mode_btn_uniform, mode_btn_custom], spacing=10),
+                uniform_ui,
+                custom_ui,
+                ft.Container(height=10),
+                ft.ElevatedButton("신규 등록", on_click=save_contract_click, width=300, height=40, bgcolor="#1A237E", color="white")
             ]),
-            padding=30, bgcolor="white", border_radius=16, 
-            shadow=ft.BoxShadow(blur_radius=15, color="#1A000000", offset=ft.Offset(0, 5)),
-            border=ft.border.all(1, "#E0E0E0")
+            padding=20, bgcolor="white", border_radius=10, shadow=ft.BoxShadow(blur_radius=5, color="#05000000")
         ),
         ft.Divider(),
         ft.Text("나의 직원 리스트", weight="bold", color="black"),

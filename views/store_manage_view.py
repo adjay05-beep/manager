@@ -383,15 +383,6 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         ])
     )
 
-    # === HEADER ===
-    header = ft.Container(
-        content=ft.Row([
-             ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
-             ft.Text("설정", size=20, weight="bold", color="#212121")
-        ], alignment=ft.MainAxisAlignment.START),
-        padding=ft.padding.only(left=10, top=10, bottom=10)
-    )
-
     return [
         ft.SafeArea(
             ft.Container(

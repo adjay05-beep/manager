@@ -488,13 +488,6 @@ def get_chat_controls(page: ft.Page, navigate_to):
             
             message_list_view.controls = new_controls
             page.update()
-            # [FIX] Auto-scroll to bottom (newest messages)
-            try:
-                import time
-                time.sleep(0.5)
-                message_list_view.scroll_to(offset=-1.0, animate=False)
-                page.update()
-            except: pass
         except Exception as e:
             print(f"Load Msg Error: {e}")
 
@@ -713,18 +706,24 @@ def get_chat_controls(page: ft.Page, navigate_to):
             if e.progress == 1.0:
                 s_name = state.get("pending_storage_name")
                 if s_name:
-                    # [FIX] Handover to Background Watcher
-                    # Do not run finalize_step here to prevent race condition/double upload.
-                    state["pending_storage_name"] = None # Reset flag
+                    # [PROXY FINALIZATION]
+                    state["pending_storage_name"] = None # Reset
                     
-                    try:
-                        if pending_container.visible and isinstance(pending_container.content, ft.Row):
-                            # Update Text to "Server Processing"
-                            col = pending_container.content.controls[1]
-                            col.controls[0].value = "서버 저장 및 최적화 중..."
-                            col.controls[1].value = "잠시만 기다려주세요."
-                            page.update()
-                    except: pass
+                    def finalize_step():
+                        try:
+                             final_url = storage_service.upload_proxy_file_to_supabase(s_name)
+                             state["pending_image_url"] = final_url
+                             
+                             # Success UI
+                             update_pending_ui(final_url)
+                             page.open(ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green", open=True))
+                             page.update()
+                        except Exception as fin_ex:
+                             print(f"Proxy Finalize Error: {fin_ex}")
+                             page.open(ft.SnackBar(ft.Text(f"처리 실패: {fin_ex}"), bgcolor="red", open=True))
+                             page.update()
+                             
+                    threading.Thread(target=finalize_step, daemon=True).start()
                 
                 else:
                     update_pending_ui(state.get("pending_image_url"))
@@ -738,9 +737,6 @@ def get_chat_controls(page: ft.Page, navigate_to):
         on_result=on_chat_file_result,
         on_upload=on_chat_upload_progress
     )
-    # [FIX] Use Overlay for reliable dialog access
-    if local_file_picker not in page.overlay:
-        page.overlay.append(local_file_picker)
     # We will add 'local_file_picker' to the chat_page controls list below.
 
     def update_pending_ui(public_url):
@@ -1115,7 +1111,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
     chat_page = ft.Container(
         expand=True, bgcolor="white",
         content=ft.Column([
-            # Picker moved to Input Bar
+            # [FIX] Embed Picker in View Tree
+            local_file_picker,
             ft.Container(
                 content=ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", 

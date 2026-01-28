@@ -163,26 +163,8 @@ def upload_proxy_file_to_supabase(storage_name: str) -> str:
             raise Exception(f"Server File Not Found: {local_path}")
             
     try:
-        # [NEW] Server-side Compression (Image/Video) before upload
-        # This reduces bandwidth usage and ensures files fit in 50MB
-        compressed_path = local_path
-        is_temp_compressed = False
-        
-        try:
-            from services.compression_service import compress_file, is_ffmpeg_available
-            if not is_ffmpeg_available():
-                log_info("FFmpeg not found - Video compression will be skipped.")
-                
-            compressed_path = compress_file(local_path)
-            if compressed_path != local_path:
-                is_temp_compressed = True
-                log_info(f"Compression Applied: {local_path} -> {compressed_path}")
-        except Exception as comp_ex:
-             from utils.logger import log_info
-             log_info(f"Compression Skipped (Error): {comp_ex}")
-        
-        # 1. Read File (Compressed Version if available)
-        with open(compressed_path, "rb") as f:
+        # 1. Read File
+        with open(local_path, "rb") as f:
             file_data = f.read()
             
         # 2. Upload to Supabase (Server-Side)
@@ -233,13 +215,8 @@ def upload_proxy_file_to_supabase(storage_name: str) -> str:
         raise e
         
     finally:
-        # 4. Cleanup Local File (Original)
+        # 4. Cleanup Local File
         if os.path.exists(local_path):
             try:
                 os.remove(local_path)
             except: pass
-            
-        # 5. Cleanup Compressed Temp
-        if 'is_temp_compressed' in locals() and is_temp_compressed and os.path.exists(compressed_path):
-             try: os.remove(compressed_path)
-             except: pass
