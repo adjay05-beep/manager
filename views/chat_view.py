@@ -491,7 +491,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             # [FIX] Auto-scroll to bottom (newest messages)
             try:
                 import time
-                time.sleep(0.1)
+                time.sleep(0.5)
                 message_list_view.scroll_to(offset=-1.0, animate=False)
                 page.update()
             except: pass
@@ -744,6 +744,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
         on_result=on_chat_file_result,
         on_upload=on_chat_upload_progress
     )
+    # [FIX] Use Overlay for reliable dialog access
+    if local_file_picker not in page.overlay:
+        page.overlay.append(local_file_picker)
     # We will add 'local_file_picker' to the chat_page controls list below.
 
     def update_pending_ui(public_url):
@@ -1134,8 +1137,6 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 content=ft.Column([
                     pending_container,
                     ft.Row([
-                        # [FIX] Place Picker near button for better Mobile positioning
-                        local_file_picker,
                         ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED, icon_color="#757575", on_click=lambda _: local_file_picker.pick_files()),
                         msg_input, 
                         ft.IconButton(ft.Icons.SEND_ROUNDED, icon_color="#2E7D32", icon_size=32, on_click=lambda _: send_message())

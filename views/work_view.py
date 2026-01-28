@@ -36,12 +36,12 @@ def get_work_controls(page: ft.Page, navigate_to):
     reg_type = ft.Dropdown(
         label="고용 형태", width=160,
         options=[ft.dropdown.Option("full", "정규직"), ft.dropdown.Option("part", "아르바이트")],
-        value="part", color=black_text, label_style=ft.TextStyle(color=grey_text), border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14
+        value="part", color=black_text, label_style=ft.TextStyle(color=grey_text), border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14, height=45
     )
     reg_wage_type = ft.Dropdown(
         label="급여 형태", width=100,
         options=[ft.dropdown.Option("hourly", "시급"), ft.dropdown.Option("monthly", "월급")],
-        value="hourly", color=black_text, label_style=ft.TextStyle(color=grey_text), border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14
+        value="hourly", color=black_text, label_style=ft.TextStyle(color=grey_text), border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14, height=45
     )
     reg_wage = ft.TextField(label="금액 (원)", width=120, value="10320", keyboard_type="number", color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
     reg_start_date = ft.TextField(label="근무 시작일", width=120, value=datetime.now().strftime("%Y-%m-%d"), color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)

@@ -297,6 +297,7 @@ def get_home_controls(page: ft.Page, navigate_to):
                     content=grid,
                     # [FIX] Removed expand=True to allow scrolling in Column
                 )
-            ], scroll=ft.ScrollMode.AUTO)
+            # [FIX] Force Scroll Always
+            ], scroll=ft.ScrollMode.ALWAYS, expand=True)
         ))
     ]
