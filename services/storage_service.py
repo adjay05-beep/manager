@@ -1,6 +1,7 @@
 import os
 import datetime
 from services.chat_service import get_storage_signed_url, get_public_url, upload_file_server_side
+from db import service_supabase
 import flet as ft
 
 # [NEW] Unified Storage Service to remove duplication in Views.
@@ -25,7 +26,14 @@ async def handle_file_upload(page: ft.Page, file_obj, status_callback=None, pick
             if status_callback: status_callback("클라우드로 전송 중 (Web)...")
             
             signed_url = get_storage_signed_url(storage_name)
-            public_url = get_public_url(storage_name)
+            
+            # [FIX] Use Signed URL for Display (Private Bucket Support)
+            try:
+                # 10 years expiration
+                res = service_supabase.storage.from_("uploads").create_signed_url(storage_name, 60*60*24*365*10)
+                public_url = res['signedURL']
+            except:
+                public_url = get_public_url(storage_name)
             
             if picker_ref:
                 # Execute Flet's internal Web Upload logic
@@ -92,9 +100,19 @@ async def handle_file_upload(page: ft.Page, file_obj, status_callback=None, pick
                             os.remove(final_path)
                         except: pass
 
+                # [FIX] Use Signed URL (10 years) to bypass Private Bucket restrictions
+                # Public URL returns 403 if bucket is not set to Public
+                try:
+                    # 10 years expiration
+                    signed_res = service_supabase.storage.from_("uploads").create_signed_url(storage_name, 60*60*24*365*10)
+                    final_url = signed_res['signedURL']
+                except Exception as sign_ex:
+                    print(f"Signed URL Gen Error: {sign_ex} - Fallback to Public")
+                    final_url = get_public_url(storage_name)
+
                 return {
                     "type": "native_url",
-                    "public_url": get_public_url(storage_name),
+                    "public_url": final_url,
                     "storage_name": storage_name
                 }
             else:

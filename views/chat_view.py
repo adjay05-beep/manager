@@ -570,7 +570,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         # Handle silent failure
                         err = result.get('error', 'URL 응답 없음')
                         print(f"Upload Missing URL: {result}")
-                        update_snack(f"업로드 실패: {err} [DEBUG: {str(result)[:100]}]")
+                        update_snack(f"업로드 실패: {err}")
                 
                 loop.run_until_complete(_async_logic())
                 loop.close()
