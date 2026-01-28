@@ -157,6 +157,10 @@ def upload_proxy_file_to_supabase(storage_name: str) -> str:
         final_url = res.get('signedURL') or res.get('signedUrl') or res.get('url')
         
         return final_url
+
+    except Exception as e:
+        print(f"Storage Service Error: {e}")
+        raise e
         
     finally:
         # 4. Cleanup Local File
@@ -164,7 +168,3 @@ def upload_proxy_file_to_supabase(storage_name: str) -> str:
             try:
                 os.remove(local_path)
             except: pass
-
-    except Exception as e:
-        print(f"Storage Service Error: {e}")
-        raise e
