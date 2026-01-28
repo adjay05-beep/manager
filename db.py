@@ -80,17 +80,25 @@ class ManualBucket:
         self.url = f"{url}/object/{bucket}"
         self.headers = headers
         self.client = client or httpx.Client(headers=headers)
-    def upload(self, path, content):
+    def upload(self, path, content, file_options=None, **kwargs):
         # [CRITICAL FIX] Avoid sending 'Content-Type: application/json' for binary files
         upload_headers = self.headers.copy()
         
-        # Determine MIME Type
-        mime_type, _ = mimetypes.guess_type(path)
-        if mime_type:
-            upload_headers["Content-Type"] = mime_type
-        elif "Content-Type" in upload_headers:
-            # Drop if we can't guess but it's binary
-            del upload_headers["Content-Type"]
+        # Handle Options (Support file_options from SDK style calls)
+        if file_options and isinstance(file_options, dict):
+            # Key can be 'content-type' or 'contentType'
+            ctype = file_options.get("content-type") or file_options.get("contentType")
+            if ctype:
+                upload_headers["Content-Type"] = ctype
+        
+        # Determine MIME Type if not set
+        if "Content-Type" not in upload_headers:
+            mime_type, _ = mimetypes.guess_type(path)
+            if mime_type:
+                upload_headers["Content-Type"] = mime_type
+            elif "Content-Type" in upload_headers:
+                # Drop if we can't guess but it's binary
+                del upload_headers["Content-Type"]
             
         resp = self.client.post(f"{self.url}/{path}", headers=upload_headers, content=content)
         if resp.status_code not in [200, 201]:
