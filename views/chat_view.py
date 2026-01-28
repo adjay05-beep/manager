@@ -582,6 +582,32 @@ def get_chat_controls(page: ft.Page, navigate_to):
                          page.update()
                          
                          update_snack(f"전송 시작... ({result['public_url'][:15]}...)")
+                         
+                         # [FIX] Start Polling for Completion (Fallback for missing on_upload)
+                         def monitor_upload(check_url):
+                             import time
+                             import httpx
+                             print(f"DTO Polling Start: {check_url}")
+                             for i in range(60): # 60 seconds timeout
+                                 try:
+                                     # HEAD request to check if file exists
+                                     res = httpx.head(check_url, timeout=2)
+                                     if res.status_code == 200:
+                                         print("DTO Polling Success: File Found")
+                                         update_pending_ui(check_url)
+                                         try:
+                                             page.open(ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green", open=True))
+                                             page.update()
+                                         except: pass
+                                         return
+                                 except Exception as req_ex:
+                                     print(f"Polling Error: {req_ex}")
+                                 
+                                 time.sleep(1)
+                             
+                             print("DTO Polling Timeout")
+                             
+                         threading.Thread(target=monitor_upload, args=(result['public_url'],), daemon=True).start()
                     else:
                          # Native: Immediate Update
                          update_pending_ui(state["pending_image_url"])
