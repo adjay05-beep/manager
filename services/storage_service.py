@@ -6,23 +6,25 @@ import flet as ft
 
 # [NEW] Unified Storage Service to remove duplication in Views.
 
-def handle_file_upload(page: ft.Page, file_obj, status_callback=None, picker_ref: ft.FilePicker=None):
+def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref: ft.FilePicker=None):
     """
     Handles file upload for both Web (Bridge/SignedURL) and Native (Direct Read).
     Returns: Dict with keys 'type', 'public_url', 'storage_name'
     """
     try:
+        print(f"DEBUG: Upload Start. Web={is_web}, Name={file_obj.name}")
         # 1. Generate Storage Name
         import uuid
         # [FIX] Use UUID to prevent URL encoding issues with Korean/Special characters
         ext = os.path.splitext(file_obj.name)[1] if file_obj.name else ""
         if not ext: ext = ".bin"
         storage_name = f"{uuid.uuid4()}{ext}"
+        print(f"DEBUG: Generated Name={storage_name}")
         
         if status_callback: status_callback("1/4. 업로드 준비 중...")
         
         # 2. Check Environment
-        is_web = page.web
+        # is_web is passed directly
         
         if is_web:
             if status_callback: status_callback("클라우드로 전송 중 (Web)...")

@@ -543,6 +543,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
             return
             
         f = e.files[0]
+        is_web_mode = page.web # Capture safely
+
         def _thread_target():
             # [FIX] Use Synchronous Threading (No Asyncio needed for Native Upload)
             # This fixes the "First attempt hangs" issue caused by Windows Event Loop conflicts
@@ -558,7 +560,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try:
                 # Use local_file_picker via closure
                 # No await needed now (handle_file_upload is synchronous)
-                result = storage_service.handle_file_upload(page, f, update_snack, picker_ref=local_file_picker)
+                result = storage_service.handle_file_upload(is_web_mode, f, update_snack, picker_ref=local_file_picker)
                 
                 if result and "public_url" in result:
                     state["pending_image_url"] = result["public_url"]
