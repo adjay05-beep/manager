@@ -558,7 +558,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
             try:
                 # Use Global Chat Picker
+                print(f"DEBUG: Calling handle_file_upload. Web={is_web_mode}")
                 result = storage_service.handle_file_upload(is_web_mode, f, update_snack, picker_ref=page.chat_file_picker)
+                print(f"DEBUG: Result: {result}")
                 
                 if result and "public_url" in result:
                     state["pending_image_url"] = result["public_url"]
