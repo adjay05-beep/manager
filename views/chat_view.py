@@ -611,10 +611,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                              # [FIX] Auto-Correct Filename Mismatch
                                              # If target (UUID) not found, but other files exist, assume naming mismatch and grab the first one.
                                              if found_files and not os.path.exists(target_path):
-                                             print(f"DEBUG: Filename Mismatch Detected! Expected {current_storage_name}, Found {found_files[0]}")
-                                             current_storage_name = found_files[0]
-                                             target_path = os.path.join("uploads", current_storage_name)
-                                             print(f"DEBUG: Auto-Corrected Target to {target_path}")
+                                                 print(f"DEBUG: Filename Mismatch Detected! Expected {current_storage_name}, Found {found_files[0]}")
+                                                 current_storage_name = found_files[0]
+                                                 target_path = os.path.join("uploads", current_storage_name)
+                                                 print(f"DEBUG: Auto-Corrected Target to {target_path}")
                                              
                                      except: pass
                                  else:
