@@ -34,7 +34,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     # 2. Form Inputs
     reg_name = ft.TextField(label="이름", width=150, color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
     reg_type = ft.Dropdown(
-        label="고용 형태", width=120,
+        label="고용 형태", width=160,
         options=[ft.dropdown.Option("full", "정규직"), ft.dropdown.Option("part", "아르바이트")],
         value="part", color=black_text, label_style=ft.TextStyle(color=grey_text), border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14
     )
@@ -67,7 +67,7 @@ def get_work_controls(page: ft.Page, navigate_to):
         ft.Text("근무 시간:", size=12, color=black_text, weight="bold"),
         ft.Row([uniform_start, ft.Text("~"), uniform_end], spacing=5),
         ft.Text("근무 요일:", size=12, color=black_text, weight="bold"),
-        ft.Row(uniform_day_checks, spacing=20, alignment=ft.MainAxisAlignment.START, wrap=False, scroll=ft.ScrollMode.AUTO)
+        ft.Row(uniform_day_checks, spacing=8, alignment=ft.MainAxisAlignment.START, wrap=False, scroll=ft.ScrollMode.AUTO)
     ])
     
     custom_ui = ft.Column([
@@ -90,13 +90,14 @@ def get_work_controls(page: ft.Page, navigate_to):
     ], visible=False)
     
     # Mode Buttons
+    # Mode Buttons
     mode_btn_uniform = ft.Container(
-        content=ft.Text("모든 요일 동일", size=12, color="black"),
-        bgcolor="#1A237E", padding=8, border_radius=5, ink=True
+        content=ft.Text("모든 요일 동일", size=12, color="white"),
+        bgcolor="#1A237E", padding=10, border_radius=8, ink=True
     )
     mode_btn_custom = ft.Container(
         content=ft.Text("요일별 다르게", size=12, color="black"),
-        border=ft.border.all(1, "grey"), padding=8, border_radius=5, ink=True
+        border=ft.border.all(1, "grey"), padding=10, border_radius=8, ink=True
     )
     
     schedule_mode_state = {"value": "uniform"}

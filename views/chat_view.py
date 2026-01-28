@@ -490,6 +490,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
             page.update()
             # [FIX] Auto-scroll to bottom (newest messages)
             try:
+                import time
+                time.sleep(0.1)
                 message_list_view.scroll_to(offset=-1.0, animate=False)
                 page.update()
             except: pass

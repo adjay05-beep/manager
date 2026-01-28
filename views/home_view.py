@@ -295,9 +295,7 @@ def get_home_controls(page: ft.Page, navigate_to):
                 ft.Container(
                     padding=20,
                     content=grid,
-                    expand=True,
-                    # Ensure grid can scroll if needed, though home screen usually fits
-                    # But responsive row needs width context.
+                    # [FIX] Removed expand=True to allow scrolling in Column
                 )
             ], scroll=ft.ScrollMode.AUTO)
         ))
