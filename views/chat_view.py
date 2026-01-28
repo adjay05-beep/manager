@@ -767,6 +767,14 @@ def get_chat_controls(page: ft.Page, navigate_to):
     # [FIX] Reverting to Global Picker (page.chat_file_picker)
     # The previous failure was due to Thread Blocking, which is now fixed.
     # Using Global Picker prevents Overlay pollution.
+
+    # [SAFETY] Ensure picker is in overlay (Handling page.clean side-effects)
+    if page.chat_file_picker not in page.overlay:
+        from utils.logger import log_info
+        log_info("DEBUG: Re-adding chat_file_picker to overlay")
+        page.overlay.append(page.chat_file_picker)
+        page.update()
+
     page.chat_file_picker.on_result = on_chat_file_result
     page.chat_file_picker.on_upload = on_chat_upload_progress
     
