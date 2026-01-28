@@ -213,7 +213,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                 ft.Row([delete_btn, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=5),
                                 ft.Row([
                                     edit_topic_btn, 
-                                    ft.Icon(ft.Icons.DRAG_HANDLE, size=24, color=ft.Colors.BLUE)
+                                    # ft.Icon(ft.Icons.DRAG_HANDLE) # Replaced by default handle
                                 ], spacing=0)
                             ], alignment="spaceBetween"),
                             padding=ft.padding.symmetric(horizontal=15, vertical=12),
@@ -225,7 +225,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 list_view = ft.ReorderableListView(
                     expand=True, 
                     on_reorder=on_topic_reorder, 
-                    show_default_drag_handles=False, # Disable system gray handle
+                    show_default_drag_handles=True, # Enable default handles
                     padding=0,
                     controls=edit_list_ctrls
                 )
@@ -238,16 +238,16 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     if cat not in grouped: grouped[cat] = []
                     grouped[cat].append(t)
                 
-                # 1. Show Uncategorized First
+                # 1. Show Uncategorized First as "General"
                 if None in grouped and grouped[None]:
                     list_view_ctrls.append(
                         ft.Container(
                             content=ft.Row([
-                                ft.Text("• 미분류", size=12, weight="bold", color="#FF9800"),
+                                ft.Text("• 일반", size=12, weight="bold", color="#757575"),
                                 ft.Text(str(len(grouped[None])), size=10, color="#BDBDBD")
                             ], alignment="spaceBetween"),
                             padding=ft.padding.only(left=20, right=20, top=10, bottom=5),
-                            bgcolor="#FFF3E0"
+                            bgcolor="#FAFAFA"
                         )
                     )
                     for t in grouped[None]:
@@ -482,42 +482,44 @@ def get_chat_controls(page: ft.Page, navigate_to):
         if e.files and state["current_topic_id"]:
             f = e.files[0]
             def _run_upload():
-                try:
-                    import asyncio
-                    from services import storage_service
-                    
-                    # Update UI helper
-                    def update_snack(msg):
-
-                        page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
-                        page.update()
-
-                    update_snack(f"'{f.name}' 준비 중...")
-
-                    # Execute Upload (Run the async function in a new loop or the page loop)
-                    # For stability in Sync 앱, we can use run_task if available or just execute logic.
-                    # Since handle_file_upload is async, we need a loop.
-                    
-                    # Simplified: if it's already in a thread, we can use a new loop but 
-                    # better to use page.run_task if picker.upload is involved.
-                    
-                    async def _async_logic():
-                        result = await storage_service.handle_file_upload(page, f, update_snack, picker_ref=page.chat_file_picker)
+                def _thread_target():
+                    try:
+                        import asyncio
+                        from services import storage_service
                         
-                        # Set pending state from result
-                        if "public_url" in result:
-                            state["pending_image_url"] = result["public_url"]
-                            
-                            # [FIX] For Web Uploads, wait for on_chat_upload_progress (progress=1.0)
-                            # to show the UI, otherwise the image will be broken (404)
-                            if result.get("type") == "web_upload_triggered":
-                                pass
-                            else:
-                                update_pending_ui(state["pending_image_url"])
-                                update_snack("파일 준비 완료!")
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
 
-                    # Use page logic to run async
-                    page.run_task(_async_logic)
+                        def update_snack(msg):
+                            # Ensure UI updates happen on main thread? Flet is thread-safe mostly for updates.
+                            page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
+                            page.update()
+
+                        update_snack(f"'{f.name}' 준비 중... (Threaded)")
+
+                        async def _async_logic():
+                            result = await storage_service.handle_file_upload(page, f, update_snack, picker_ref=page.chat_file_picker)
+                            
+                            if "public_url" in result:
+                                state["pending_image_url"] = result["public_url"]
+                                if result.get("type") == "web_upload_triggered":
+                                    pass
+                                else:
+                                    update_pending_ui(state["pending_image_url"])
+                                    update_snack("파일 준비 완료!")
+                        
+                        loop.run_until_complete(_async_logic())
+                        loop.close()
+                        
+                    except Exception as ex:
+                        print(f"ERROR in file upload: {ex}")
+                        import traceback
+                        traceback.print_exc()
+                        page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red", open=True)
+                        page.update()
+            
+            # Run the logic
+            threading.Thread(target=_run_upload, daemon=True).start()
 
                 except Exception as ex:
                     print(f"ERROR in file upload: {ex}")
