@@ -142,6 +142,34 @@ class ManualBucket:
         print(msg)
         raise Exception(msg)
 
+    def list(self, path=None):
+        # Construct List Endpoint: .../object/list/{bucket}
+        # self.url is .../object/{bucket}
+        parts = self.url.split("/object/")
+        base_storage_url = parts[0]
+        bucket = self.url.split("/")[-1]
+        
+        list_url = f"{base_storage_url}/object/list/{bucket}"
+        
+        headers = self.headers.copy()
+        headers["Content-Type"] = "application/json"
+        
+        body = {
+            "prefix": path if path else "",
+            "limit": 10,
+            "offset": 0,
+            "sortBy": {"column": "name", "order": "asc"}
+        }
+        
+        try:
+            resp = self.client.post(list_url, headers=headers, json=body)
+            # Supabase returns 200 for list even if empty
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            print(f"List Bucket Error: {e}")
+            raise e
+
     def create_signed_url(self, path, expires_in=60):
         # [FIX] Implement missing method matching supabase-py interface
         parts = self.url.split("/object/")
