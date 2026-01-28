@@ -619,26 +619,41 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                  target_path = os.path.join("uploads", current_storage_name)
                                  log_info(f"Server Watcher Started: {target_path}")
                                  
+                                 # [SMART WATCHER] Snapshot existing files to ignore them
+                                 initial_snapshot = set()
+                                 if os.path.exists("uploads"):
+                                     initial_snapshot = set(os.listdir("uploads"))
+                                 log_info(f"Watcher Snapshot: {len(initial_snapshot)} existing files ignored.")
+
                                  # Wait up to 60 seconds
                                  for i in range(60):
                                      time.sleep(1.0)
                                      
-                                     # [DIAGNOSTIC] Check Directory Content
-                                     found_files = []
-                                     if os.path.exists("uploads"):
-                                         try:
-                                             found_files = os.listdir("uploads")
-                                             log_info(f"Check {i}: Uploads={found_files}")
-                                             
-                                             # [FIX] Auto-Correct Filename Mismatch
-                                             if found_files and not os.path.exists(target_path):
-                                                 log_info(f"MISMATCH: Expected {current_storage_name}, Found {found_files[0]}")
-                                                 current_storage_name = found_files[0]
-                                                 target_path = os.path.join("uploads", current_storage_name)
-                                                 log_info(f"Auto-Corrected Target to: {target_path}")
-                                         except: pass
-                                     else:
+                                     if not os.path.exists("uploads"):
                                          log_info(f"Check {i}: 'uploads/' Dir MISSING")
+                                         continue
+
+                                     # Check for Target OR New Files
+                                     if os.path.exists(target_path):
+                                         # Target found directly!
+                                         found_files = [current_storage_name] # For consistency
+                                     else:
+                                         # Check for any NEW file that arrived
+                                         found_files = []
+                                         try:
+                                             current_files = set(os.listdir("uploads"))
+                                             found_files = list(current_files) # For logging
+                                             new_candidates = current_files - initial_snapshot
+                                             
+                                             if new_candidates:
+                                                 # Use the first new file found
+                                                 detected_name = list(new_candidates)[0]
+                                                 log_info(f"SMART MATCH: New file detected: {detected_name}")
+                                                 current_storage_name = detected_name
+                                                 target_path = os.path.join("uploads", current_storage_name)
+                                             else:
+                                                 log_info(f"Check {i}: Waiting... (No new files)")
+                                         except: pass
 
                                      if os.path.exists(target_path):
                                          # Wait for write to finish (simple stability check)
