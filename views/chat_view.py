@@ -713,24 +713,18 @@ def get_chat_controls(page: ft.Page, navigate_to):
             if e.progress == 1.0:
                 s_name = state.get("pending_storage_name")
                 if s_name:
-                    # [PROXY FINALIZATION]
-                    state["pending_storage_name"] = None # Reset
+                    # [FIX] Handover to Background Watcher
+                    # Do not run finalize_step here to prevent race condition/double upload.
+                    state["pending_storage_name"] = None # Reset flag
                     
-                    def finalize_step():
-                        try:
-                             final_url = storage_service.upload_proxy_file_to_supabase(s_name)
-                             state["pending_image_url"] = final_url
-                             
-                             # Success UI
-                             update_pending_ui(final_url)
-                             page.open(ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green", open=True))
-                             page.update()
-                        except Exception as fin_ex:
-                             print(f"Proxy Finalize Error: {fin_ex}")
-                             page.open(ft.SnackBar(ft.Text(f"처리 실패: {fin_ex}"), bgcolor="red", open=True))
-                             page.update()
-                             
-                    threading.Thread(target=finalize_step, daemon=True).start()
+                    try:
+                        if pending_container.visible and isinstance(pending_container.content, ft.Row):
+                            # Update Text to "Server Processing"
+                            col = pending_container.content.controls[1]
+                            col.controls[0].value = "서버 저장 및 최적화 중..."
+                            col.controls[1].value = "잠시만 기다려주세요."
+                            page.update()
+                    except: pass
                 
                 else:
                     update_pending_ui(state.get("pending_image_url"))
