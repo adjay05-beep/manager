@@ -583,24 +583,34 @@ def get_chat_controls(page: ft.Page, navigate_to):
                          # [FIX] Server-Side Watcher (Bypass Client Events)
                          # Watch local 'uploads/' folder for file arrival
                          def watch_server_file():
-                             import time, os
-                             # [SCOPE FIX] Use local variable to avoid UnboundLocalError on s_name closure
-                             current_storage_name = s_name
-                             target_path = os.path.join("uploads", current_storage_name)
-                             print(f"Server Watcher Started: {target_path}")
+                             import time, os, traceback
                              
-                             # Wait up to 60 seconds
-                             for i in range(60):
-                                 # [DIAGNOSTIC] Check Directory Content
-                                 found_files = []
-                                 if os.path.exists("uploads"):
-                                     try:
-                                         found_files = os.listdir("uploads")
-                                         print(f"Check {i}: Uploads Dir Content: {found_files}")
-                                         
-                                         # [FIX] Auto-Correct Filename Mismatch
-                                         # If target (UUID) not found, but other files exist, assume naming mismatch and grab the first one.
-                                         if found_files and not os.path.exists(target_path):
+                             # [SAFETY WRAPPER] Catch all thread crashes to prevent infinite loading
+                             try:
+                                 # 0. Immediate Feedback to confirm thread start
+                                 pending_container.content = ft.Row([
+                                    ft.Container(ft.ProgressRing(stroke_width=2, color="white"), width=20, height=20),
+                                    ft.Text("서버 파일 감시 시작...", size=11, color="white")
+                                 ], spacing=10)
+                                 pending_container.update()
+
+                                 # [SCOPE FIX] Use local variable to avoid UnboundLocalError on s_name closure
+                                 current_storage_name = s_name
+                                 target_path = os.path.join("uploads", current_storage_name)
+                                 print(f"Server Watcher Started: {target_path}")
+                                 
+                                 # Wait up to 60 seconds
+                                 for i in range(60):
+                                     # [DIAGNOSTIC] Check Directory Content
+                                     found_files = []
+                                     if os.path.exists("uploads"):
+                                         try:
+                                             found_files = os.listdir("uploads")
+                                             print(f"Check {i}: Uploads Dir Content: {found_files}")
+                                             
+                                             # [FIX] Auto-Correct Filename Mismatch
+                                             # If target (UUID) not found, but other files exist, assume naming mismatch and grab the first one.
+                                             if found_files and not os.path.exists(target_path):
                                              print(f"DEBUG: Filename Mismatch Detected! Expected {current_storage_name}, Found {found_files[0]}")
                                              current_storage_name = found_files[0]
                                              target_path = os.path.join("uploads", current_storage_name)
