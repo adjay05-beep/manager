@@ -140,6 +140,33 @@ class ManualBucket:
         print(msg)
         raise Exception(msg)
 
+    def create_signed_url(self, path, expires_in=60):
+        # [FIX] Implement missing method matching supabase-py interface
+        parts = self.url.split("/object/")
+        base_storage_url = parts[0]
+        bucket = self.url.split("/")[-1]
+        
+        # Endpoint: POST /object/sign/{bucket}/{path}
+        # Path should be part of the URL path
+        sign_url = f"{base_storage_url}/object/sign/{bucket}/{path}"
+        
+        headers = self.headers.copy()
+        headers["Content-Type"] = "application/json"
+        
+        try:
+            resp = self.client.post(sign_url, headers=headers, json={"expiresIn": expires_in})
+            resp.raise_for_status()
+            data = resp.json()
+            
+            s_url = data.get("signedURL")
+            if s_url and s_url.startswith("/"):
+                 s_url = f"{base_storage_url}{s_url}"
+                 
+            return {"signedURL": s_url}
+        except Exception as e:
+            print(f"Manual Signed URL Error: {e}")
+            raise e
+
 url = os.environ.get("SUPABASE_URL")
 key = os.environ.get("SUPABASE_KEY")
 service_key = os.environ.get("SUPABASE_SERVICE_KEY")
