@@ -65,6 +65,9 @@ def get_home_controls(page: ft.Page, navigate_to):
     )
     
     
+    # [DEBUG] Temporary Diagnostics Button
+    debug_btn = ft.TextButton("업로드 진단", on_click=lambda _: navigate_to("debug_upload"), icon=ft.Icons.BUG_REPORT, style=ft.ButtonStyle(color="red"))
+    
     def on_store_change(e):
         new_channel_id = int(store_selector.value)
         
@@ -242,6 +245,7 @@ def get_home_controls(page: ft.Page, navigate_to):
 
                         # Right: Actions
                         ft.Row([
+                            debug_btn,
                             ft.IconButton(
                                 ft.Icons.ADD_BUSINESS,
                                 icon_color="#1565C0",
