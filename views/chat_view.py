@@ -598,13 +598,26 @@ def get_chat_controls(page: ft.Page, navigate_to):
         threading.Thread(target=_thread_target, daemon=True).start()
 
     def on_chat_upload_progress(e: ft.FilePickerUploadEvent):
+        print(f"Upload Progress: {e.progress}, Error: {e.error}")
+        
         if e.error:
-            page.open(ft.SnackBar(ft.Text(f"업로드 실패: {e.file_name}"), bgcolor="red", open=True))
+            page.open(ft.SnackBar(ft.Text(f"업로드 실패: {e.error}"), bgcolor="red", open=True))
             page.update()
-        elif e.progress == 1.0:
-            update_pending_ui(state.get("pending_image_url"))
-            page.open(ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green", open=True))
+            pending_container.visible = False
             page.update()
+        else:
+            # Update Progress Text
+            try:
+                if pending_container.visible and isinstance(pending_container.content, ft.Row):
+                    prog_txt = pending_container.content.controls[1].controls[1]
+                    prog_txt.value = f"{int(e.progress * 100)}% 완료"
+                    page.update()
+            except: pass
+
+            if e.progress == 1.0:
+                update_pending_ui(state.get("pending_image_url"))
+                page.open(ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green", open=True))
+                page.update()
 
     # [FIX] Use Global Picker from main.py
     # This prevents multiple pickers in overlay and ensures correct callback wiring

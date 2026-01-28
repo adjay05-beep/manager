@@ -54,6 +54,7 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
                 return {
                     "type": "web_upload_triggered",
                     "public_url": public_url,
+                    "signed_url": signed_url, # [DEBUG]
                     "storage_name": storage_name
                 }
             
