@@ -616,7 +616,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                                  target_path = os.path.join("uploads", current_storage_name)
                                                  print(f"DEBUG: Auto-Corrected Target to {target_path}")
                                              
-                                     except: pass
+                                          except: pass
                                  else:
                                      print(f"Check {i}: 'uploads/' Dir MISSING")
 
