@@ -1,8 +1,9 @@
 import flet as ft
 import datetime
 from datetime import datetime as dt_class, timezone
-import asyncio
 import threading
+import asyncio
+from services import storage_service
 from services import chat_service
 from db import supabase, service_supabase, app_logs, log_info
 
@@ -543,24 +544,24 @@ def get_chat_controls(page: ft.Page, navigate_to):
             
         f = e.files[0]
         def _thread_target():
-            try:
-                import asyncio
-                from services import storage_service
-                
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
 
-                def update_snack(msg):
-                    print(f"[{f.name}] {msg}")
+            def update_snack(msg):
+                print(f"[{f.name}] {msg}")
+                try:
                     page.open(ft.SnackBar(ft.Text(msg, size=12), open=True))
                     page.update()
+                except: pass # Ignore UI update errors if page is closed
 
-                update_snack(f"1/4. '{f.name}' 준비 중...")
+            update_snack(f"1/4. '{f.name}' 준비 중...")
 
-                async def _async_logic():
+            async def _async_logic():
+                try:
                     # Use local_file_picker via closure
                     result = await storage_service.handle_file_upload(page, f, update_snack, picker_ref=local_file_picker)
-                    if "public_url" in result:
+                    
+                    if result and "public_url" in result:
                         state["pending_image_url"] = result["public_url"]
                         print(f"Upload Success URL: {result['public_url']}")
                         
@@ -569,16 +570,21 @@ def get_chat_controls(page: ft.Page, navigate_to):
                             update_snack("4/4. 이미지 준비 완료")
                     else:
                         # Handle silent failure
-                        err = result.get('error', 'URL 응답 없음')
+                        err = result.get('error', 'URL 응답 없음') if result else "데이터 없음"
                         print(f"Upload Missing URL: {result}")
                         update_snack(f"업로드 실패: {err}")
-                
+                except Exception as logic_ex:
+                    print(f"Async Logic Error: {logic_ex}")
+                    update_snack(f"처리 중 오류: {logic_ex}")
+
+            try:
                 loop.run_until_complete(_async_logic())
-                loop.close()
-            except Exception as ex:
-                print(f"Upload Error: {ex}")
-                page.open(ft.SnackBar(ft.Text(f"파일 처리 오류: {ex}"), bgcolor="red", open=True))
-                page.update()
+            except Exception as loop_ex:
+                print(f"Loop Error: {loop_ex}")
+                update_snack(f"시스템 오류: {loop_ex}")
+            finally:
+                try: loop.close()
+                except: pass
 
         threading.Thread(target=_thread_target, daemon=True).start()
 
