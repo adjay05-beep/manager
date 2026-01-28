@@ -574,8 +574,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
             from utils.logger import log_info
             log_info(f"DEBUG: Calling handle_file_upload in Main Thread. Web={is_web_mode}")
             
+            # [FIX] Use e.control to target the EXACT picker that triggered this event
+            # addressing potential ID mismatch or instance staleness
+            active_picker = e.control
+            
             # Synchronous Call triggers Browser Command immediately
-            result = storage_service.handle_file_upload(is_web_mode, f, update_snack, picker_ref=page.chat_file_picker)
+            result = storage_service.handle_file_upload(is_web_mode, f, update_snack, picker_ref=active_picker)
             
             if result and "public_url" in result:
                  state["pending_image_url"] = result["public_url"]
