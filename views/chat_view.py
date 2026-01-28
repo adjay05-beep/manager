@@ -730,21 +730,14 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     page.open(ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green", open=True))
                     page.update()
 
-    # [FIX] Reverting to Global Picker (page.chat_file_picker)
-    # The previous failure was due to Thread Blocking, which is now fixed.
-    # Using Global Picker prevents Overlay pollution.
-
-    # [SAFETY] Ensure picker is in overlay (Handling page.clean side-effects)
-    if page.chat_file_picker not in page.overlay:
-        log_info("DEBUG: Re-adding chat_file_picker to overlay")
-        page.overlay.append(page.chat_file_picker)
-        # [FIX] Removed conflicting update. Main.py handles the page refresh.
-
-    page.chat_file_picker.on_result = on_chat_file_result
-    page.chat_file_picker.on_upload = on_chat_upload_progress
-    
-    # Alias for compatibility with rest of the function
-    local_file_picker = page.chat_file_picker
+    # [FIX] STRICT LOCAL LIFECYCLE
+    # Reverting to Global Picker failed (race condition). 
+    # We now create a new FilePicker for THIS VIEW INSTANCE and add it to the visual tree (hidden).
+    local_file_picker = ft.FilePicker(
+        on_result=on_chat_file_result,
+        on_upload=on_chat_upload_progress
+    )
+    # We will add 'local_file_picker' to the chat_page controls list below.
 
     def update_pending_ui(public_url):
         if not public_url: return
@@ -1097,6 +1090,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
     chat_page = ft.Container(
         expand=True, bgcolor="white",
         content=ft.Column([
+            # [FIX] Embed Picker in View Tree
+            local_file_picker,
             ft.Container(
                 content=ft.Row([
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", 
