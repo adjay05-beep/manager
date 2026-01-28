@@ -123,11 +123,13 @@ class ManualBucket:
         
         last_error = ""
         for endpoint in endpoints:
-            try:
+        try:
                 resp = self.client.post(endpoint, headers=headers, json={"expiresIn": expires_in})
                 if resp.status_code == 200:
                     data = resp.json()
-                    s_url = data.get("url") or data.get("signedUrl")
+                    # [FIX] Handle all key variations
+                    s_url = data.get("signedURL") or data.get("signedUrl") or data.get("url")
+                    
                     if s_url and s_url.startswith("/"):
                         s_url = f"{base_storage_url}{s_url}"
                     return s_url

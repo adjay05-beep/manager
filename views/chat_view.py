@@ -564,12 +564,27 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     state["pending_image_url"] = result["public_url"]
                     print(f"Upload Success URL: {result['public_url']}")
                     
-                    # [FIX] Immediate UI Update (Don't wait for on_upload event)
-                    update_pending_ui(state["pending_image_url"])
-                    
                     if result.get("type") == "web_upload_triggered":
+                         # [FIX] Show Spinner while uploading (Race Condition Fix)
+                         pending_container.content = ft.Row([
+                            ft.Container(
+                                content=ft.ProgressRing(stroke_width=2, color="white"),
+                                width=40, height=40, 
+                                alignment=ft.alignment.center,
+                                bgcolor="#424242", border_radius=5
+                            ),
+                            ft.Column([
+                                ft.Text("이미지 업로드 중...", size=12, weight="bold", color="white"),
+                                ft.Text("잠시만 기다려주세요.", size=10, color="white70"),
+                            ], spacing=2, tight=True),
+                         ], spacing=10)
+                         pending_container.visible = True
+                         page.update()
+                         
                          update_snack(f"전송 시작... ({result['public_url'][:15]}...)")
                     else:
+                         # Native: Immediate Update
+                         update_pending_ui(state["pending_image_url"])
                          update_snack("4/4. 이미지 준비 완료")
                 else:
                     # Handle silent failure
