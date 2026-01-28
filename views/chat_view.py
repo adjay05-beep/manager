@@ -564,9 +564,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     state["pending_image_url"] = result["public_url"]
                     print(f"Upload Success URL: {result['public_url']}")
                     
-                    if result.get("type") != "web_upload_triggered":
-                        update_pending_ui(state["pending_image_url"])
-                        update_snack("4/4. 이미지 준비 완료")
+                    # [FIX] Immediate UI Update (Don't wait for on_upload event)
+                    update_pending_ui(state["pending_image_url"])
+                    
+                    if result.get("type") == "web_upload_triggered":
+                         update_snack("전송 시작...")
+                    else:
+                         update_snack("4/4. 이미지 준비 완료")
                 else:
                     # Handle silent failure
                     err = result.get('error', 'URL 응답 없음') if result else "데이터 없음"
