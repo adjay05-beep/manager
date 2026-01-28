@@ -412,6 +412,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                         ft.Container(height=10),
                         ft.Text(f"이메일: {user_email}", size=12, color="grey"),
                         ft.Container(height=10),
+                        ft.Row([
                             ft.Container(profile_name_tf, expand=True),
                             ft.Container(profile_role_tf, width=160),
                             ft.ElevatedButton("저장", on_click=save_profile_changes, bgcolor="#00C73C", color="white", height=40, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=30))),
