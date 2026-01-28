@@ -582,9 +582,24 @@ def get_chat_controls(page: ft.Page, navigate_to):
                          
                          # [FIX] Server-Side Watcher (Bypass Client Events)
                          # Watch local 'uploads/' folder for file arrival
+                         # [FIX] Server-Side Watcher (Bypass Client Events)
+                         # Watch local 'uploads/' folder for file arrival
                          def watch_server_file():
                              import time, os, traceback
-                             
+
+                             # [HELPER] Error UI
+                             def show_error_ui(msg, color="red"):
+                                 try:
+                                     pending_container.content = ft.Container(
+                                         ft.Text(msg, color="white", size=11),
+                                         bgcolor=color, padding=5, border_radius=5
+                                     )
+                                     pending_container.update()
+                                     time.sleep(5)
+                                     pending_container.visible = False
+                                     page.update()
+                                 except: pass
+
                              # [SAFETY WRAPPER] Catch all thread crashes to prevent infinite loading
                              try:
                                  # 0. Immediate Feedback to confirm thread start
@@ -594,13 +609,15 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                  ], spacing=10)
                                  pending_container.update()
 
-                                 # [SCOPE FIX] Use local variable to avoid UnboundLocalError on s_name closure
+                                 # [SCOPE FIX] Use local variable
                                  current_storage_name = s_name
                                  target_path = os.path.join("uploads", current_storage_name)
                                  print(f"Server Watcher Started: {target_path}")
                                  
                                  # Wait up to 60 seconds
                                  for i in range(60):
+                                     time.sleep(1.0)
+                                     
                                      # [DIAGNOSTIC] Check Directory Content
                                      found_files = []
                                      if os.path.exists("uploads"):
@@ -609,75 +626,69 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                              print(f"Check {i}: Uploads Dir Content: {found_files}")
                                              
                                              # [FIX] Auto-Correct Filename Mismatch
-                                             # If target (UUID) not found, but other files exist, assume naming mismatch and grab the first one.
                                              if found_files and not os.path.exists(target_path):
                                                  print(f"DEBUG: Filename Mismatch Detected! Expected {current_storage_name}, Found {found_files[0]}")
                                                  current_storage_name = found_files[0]
                                                  target_path = os.path.join("uploads", current_storage_name)
                                                  print(f"DEBUG: Auto-Corrected Target to {target_path}")
-                                             
                                          except: pass
-                                 else:
-                                     print(f"Check {i}: 'uploads/' Dir MISSING")
+                                     else:
+                                         print(f"Check {i}: 'uploads/' Dir MISSING")
 
-                                 if os.path.exists(target_path):
-                                     # Wait for write to finish (simple stability check)
-                                     try:
-                                         size1 = os.path.getsize(target_path)
-                                         time.sleep(1.0)
-                                         if not os.path.exists(target_path): continue
-                                         size2 = os.path.getsize(target_path)
-                                         
-                                         if size1 == size2 and size1 > 0:
-                                             print("Server Watcher: File Arrived & Stable")
+                                     if os.path.exists(target_path):
+                                         # Wait for write to finish (simple stability check)
+                                         try:
+                                             size1 = os.path.getsize(target_path)
+                                             time.sleep(1.0)
+                                             if not os.path.exists(target_path): continue
+                                             size2 = os.path.getsize(target_path)
                                              
-                                             # Finalize Step
-                                             try:
-                                                 final_url = storage_service.upload_proxy_file_to_supabase(current_storage_name)
-                                                 state["pending_image_url"] = final_url
+                                             if size1 == size2 and size1 > 0:
+                                                 print("Server Watcher: File Arrived & Stable")
                                                  
-                                                 # Update UI
-                                                 update_pending_ui(final_url)
-                                                 page.open(ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green", open=True))
-                                                 page.update()
-                                             except Exception as fin_ex:
-                                                 print(f"ProxyFinalizeError: {fin_ex}")
-                                                 # Clean Error UI
-                                                 pending_container.content = ft.Container(
-                                                     ft.Text(f"업로드 실패: {fin_ex}", color="white", size=11),
-                                                     bgcolor="red", padding=5, border_radius=5
-                                                 )
-                                                 pending_container.update()
-                                                 time.sleep(5)
-                                                 pending_container.visible = False
-                                                 page.update()
-                                             return
-                                     except: pass
-                                 
-                                 # [DIAGNOSTIC UI] Feedback to User
-                                 if i % 3 == 0:
-                                     msg = "서버 확인 중..."
-                                     if found_files:
-                                         # If files exist but not matched, showing likely candidate
-                                         msg = f"서버 파일 발견: {found_files[0]} (매칭 대기)"
-                                     elif not os.path.exists("uploads"):
-                                          msg = "서버 폴더(uploads) 없음"
+                                                 # Finalize Step
+                                                 try:
+                                                     final_url = storage_service.upload_proxy_file_to_supabase(current_storage_name)
+                                                     state["pending_image_url"] = final_url
+                                                     
+                                                     # Update UI
+                                                     update_pending_ui(final_url)
+                                                     page.open(ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green", open=True))
+                                                     page.update()
+                                                 except Exception as fin_ex:
+                                                     print(f"ProxyFinalizeError: {fin_ex}")
+                                                     show_error_ui(f"업로드 실패: {fin_ex}")
+                                                 return
+                                         except: pass
                                      
-                                     try:
-                                         # Update spinner text if possible
-                                         if pending_container.visible and isinstance(pending_container.content, ft.Row):
-                                              txt_col = pending_container.content.controls[1]
-                                              txt_col.controls[1].value = msg
-                                              page.update()
-                                     except: pass
+                                     # [DIAGNOSTIC UI] Feedback to User
+                                     if i % 3 == 0:
+                                         msg = "서버 확인 중..."
+                                         if found_files:
+                                             msg = f"파일 발견: {found_files[0]} (확인 중)"
+                                         elif not os.path.exists("uploads"):
+                                              msg = "서버 폴더 준비 중..."
+                                         
+                                         try:
+                                             # Update spinner text
+                                             if pending_container.visible and isinstance(pending_container.content, ft.Row):
+                                                  txt_col = pending_container.content.controls[1]
+                                                  if isinstance(txt_col, ft.Text):
+                                                      txt_col.value = msg
+                                                  elif isinstance(txt_col, ft.Column):
+                                                      txt_col.controls[0].value = msg
+                                                  page.update()
+                                         except: pass
 
-                                 time.sleep(1)
+                                 # Timeout
+                                 print(f"Server Watcher Timeout: {current_storage_name} not found.")
+                                 found_files_str = str(found_files) if 'found_files' in locals() else "None"
+                                 show_error_ui(f"처리 실패: Time Out.\nTarget: {current_storage_name}\nList: {found_files_str}")
                              
-                             print("Server Watcher Timeout")
-                             try:
-                                 page.open(ft.SnackBar(ft.Text("업로드 시간 초과. (서버 로그 확인 필요)"), bgcolor="red", open=True))
-                                 page.update()
-                             except: pass
+                             except Exception as thread_ex:
+                                 print(f"Watcher Crash: {thread_ex}")
+                                 traceback.print_exc()
+                                 show_error_ui(f"시스템 오류: {thread_ex}")
                          
                     elif result.get("type") == "web_upload_triggered":
                          # Legacy / Fallback (Should not be hit if is_web=True uses proxy)
