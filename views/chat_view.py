@@ -589,6 +589,16 @@ def get_chat_controls(page: ft.Page, navigate_to):
                              
                              # Wait up to 60 seconds
                              for i in range(60):
+                                 # [DIAGNOSTIC] Check Directory Content
+                                 found_files = []
+                                 if os.path.exists("uploads"):
+                                     try:
+                                         found_files = os.listdir("uploads")
+                                         print(f"Check {i}: Uploads Dir Content: {found_files}")
+                                     except: pass
+                                 else:
+                                     print(f"Check {i}: 'uploads/' Dir MISSING")
+
                                  if os.path.exists(target_path):
                                      # Wait for write to finish (simple stability check)
                                      try:
@@ -615,11 +625,31 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                                  page.update()
                                              return
                                      except: pass
+                                 
+                                 # [DIAGNOSTIC UI] Feedback to User
+                                 if i % 3 == 0:
+                                     msg = "서버 확인 중..."
+                                     if found_files:
+                                         # If files exist but not matched, showing likely candidate
+                                         msg = f"서버 파일 발견: {found_files[0]} (매칭 대기)"
+                                     elif not os.path.exists("uploads"):
+                                          msg = "서버 폴더(uploads) 없음"
+                                     
+                                     try:
+                                         # Update spinner text if possible
+                                         if pending_container.visible and isinstance(pending_container.content, ft.Row):
+                                              txt_col = pending_container.content.controls[1]
+                                              txt_col.controls[1].value = msg
+                                              page.update()
+                                     except: pass
+
                                  time.sleep(1)
                              
                              print("Server Watcher Timeout")
-                             
-                         threading.Thread(target=watch_server_file, daemon=True).start()
+                             try:
+                                 page.open(ft.SnackBar(ft.Text("업로드 시간 초과. (서버 로그 확인 필요)"), bgcolor="red", open=True))
+                                 page.update()
+                             except: pass
                          
                     elif result.get("type") == "web_upload_triggered":
                          # Legacy / Fallback (Should not be hit if is_web=True uses proxy)
