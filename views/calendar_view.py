@@ -904,11 +904,12 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         # [REMOVED] Store List as per request
             
         drawer.controls.append(ft.Divider(thickness=1, color="#EEEEEE"))
+        drawer.controls.append(ft.Divider(thickness=1, color="#EEEEEE"))
         drawer.controls.append(
             ft.Container(
-                content=ft.Row([ft.Icon(ft.Icons.ADD, color="grey"), ft.Text("새 매장 만들기", color="grey")]),
+                content=ft.Row([ft.Icon(ft.Icons.ADD_BOX_OUTLINED, color="grey"), ft.Text("새 캘린더 만들기 (준비중)", color="grey")]),
                 padding=ft.padding.symmetric(horizontal=20, vertical=15),
-                on_click=lambda _: navigate_to("onboarding")
+                on_click=lambda _: page.snack_bar.open_snack_bar(ft.SnackBar(ft.Text("다중 캘린더 기능은 준비 중입니다!"), open=True)) or page.update()
             )
         )
         return drawer

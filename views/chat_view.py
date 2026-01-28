@@ -48,7 +48,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
     # Initialize UI Controls
     topic_list_container = ft.Column(expand=True, spacing=0)
     message_list_view = ft.ListView(expand=True, spacing=5, padding=10)
-    chat_header_title = ft.Text("", weight="bold", size=18)
+    chat_header_title = ft.Column([
+        ft.Text("", weight="bold", size=18),
+        ft.Text(" ", size=10, color="red") # Debug Text
+    ], spacing=0)
+
+    # ... inside load topics ...
+    # chat_header_title.controls[1].value = f"Topics: {len(topics)}"
     msg_input = ft.TextField(hint_text="메시지를 입력하세요...", expand=True, multiline=True, max_lines=3)
     root_view = ft.Column(expand=True, spacing=0)
 
@@ -299,6 +305,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 new_controls = [list_view]
             
             topic_list_container.controls = new_controls
+            
+            # [DEBUG] Show count
+            chat_header_title.controls[1].value = f"Debug: {len(topics)} topics loaded (Raw)"
             if update_ui: page.update()
         except Exception as ex:
             log_info(f"Load Topics Critical Error: {ex}")
@@ -402,7 +411,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     def select_topic(topic):
         state["current_topic_id"] = topic['id']
-        chat_header_title.value = topic['name']
+        chat_header_title.controls[0].value = topic['name']
         msg_input.disabled = False
         state["view_mode"] = "chat"
         update_layer_view()

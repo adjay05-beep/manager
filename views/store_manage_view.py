@@ -66,17 +66,14 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         text_size=14
     )
     
-    profile_role_dd = ft.Dropdown(
+    profile_role_tf = ft.TextField(
         label="내 권한",
         value=user_profile.get("role", "staff") if user_profile else "staff",
-        options=[
-            ft.dropdown.Option("owner", "사장님 (Owner)"),
-            ft.dropdown.Option("manager", "매니저 (Manager)"),
-            ft.dropdown.Option("staff", "직원 (Staff)")
-        ],
+        read_only=True,
         color="black",
         border_color="#E0E0E0",
         label_style=ft.TextStyle(color="grey"),
+        height=45,
         border_radius=8,
         content_padding=10,
         text_size=14
@@ -182,7 +179,6 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                 user_client.from_("profiles").upsert({
                     "id": user_id,
                     "full_name": profile_name_tf.value,
-                    "role": profile_role_dd.value,
                     "updated_at": "now()"
                 }).execute()
             finally:
@@ -249,6 +245,93 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
     def open_create_dialog(e):
         page.open(create_dialog)
 
+    # === MEMBER MANAGEMENT (Owner Only) ===
+    member_mgmt_col = ft.Column(spacing=10)
+    
+    def load_members():
+        if role != "owner": return
+        try:
+            members = channel_service.get_channel_members_with_profiles(channel_id)
+            items = []
+            for m in members:
+                uid = m["user_id"]
+                u_role = m["role"]
+                is_me = (uid == user_id)
+                
+                role_dd = ft.Dropdown(
+                    value=u_role,
+                    options=[
+                        ft.dropdown.Option("owner", "사장님"),
+                        ft.dropdown.Option("manager", "매니저"),
+                        ft.dropdown.Option("staff", "직원")
+                    ],
+                    width=100,
+                    content_padding=5,
+                    text_size=12,
+                    height=35,
+                    border_radius=8,
+                    on_change=lambda e, uid=uid: update_member_role(uid, e.control.value),
+                    disabled=is_me  # Cannot change own role here
+                )
+                
+                kick_btn = ft.IconButton(
+                    ft.Icons.REMOVE_CIRCLE_OUTLINE, 
+                    icon_color="red", 
+                    tooltip="내보내기",
+                    on_click=lambda e, uid=uid, name=m["full_name"]: confirm_kick(uid, name),
+                    visible=(not is_me) # Cannot kick self
+                )
+                
+                items.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Column([
+                                ft.Text(m["full_name"], weight="bold", size=14),
+                                ft.Text(m["email"], size=10, color="grey")
+                            ], expand=True, spacing=2),
+                            role_dd,
+                            kick_btn
+                        ], alignment="spaceBetween"),
+                        padding=10,
+                        border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE")),
+                        bgcolor="white"
+                    )
+                )
+            member_mgmt_col.controls = items
+            page.update()
+        except Exception as ex:
+            log_error(f"Load Members Error: {ex}")
+
+    def update_member_role(uid, new_role):
+        try:
+            channel_service.update_member_role(channel_id, uid, new_role)
+            page.snack_bar = ft.SnackBar(ft.Text("권한이 수정되었습니다.")); page.snack_bar.open=True; page.update()
+        except Exception as ex:
+            page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
+
+    def confirm_kick(uid, name):
+        def do_kick(e):
+            try:
+                channel_service.remove_member(channel_id, uid)
+                page.close(dlg)
+                load_members()
+                page.snack_bar = ft.SnackBar(ft.Text(f"{name}님을 내보냈습니다.")); page.snack_bar.open=True; page.update()
+            except Exception as ex:
+                log_error(f"Kick Error: {ex}")
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("멤버 내보내기"),
+            content=ft.Text(f"정말 {name}님을 매장에서 내보내시겠습니까?"),
+            actions=[
+                ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
+                ft.TextButton("내보내기", color="red", on_click=do_kick)
+            ]
+        )
+        page.open(dlg)
+
+    if role == "owner":
+        load_members()
+
     # === LAYOUT ===
     return [
         ft.SafeArea(
@@ -306,7 +389,11 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                                     ft.IconButton(ft.Icons.COPY, icon_color="cyan", on_click=copy_code, tooltip="코드 복사")
                                 ])
                             ], spacing=5)
-                        )
+                        ),
+                        
+                        ft.Container(height=20),
+                        ft.Text("매장 멤버 관리 (사장님 전용)", size=16, weight="bold", color="#0A1929", visible=(role=="owner")),
+                        member_mgmt_col if role == "owner" else ft.Container()
                     ])
                 ),
                 
@@ -325,9 +412,8 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                         ft.Container(height=10),
                         ft.Text(f"이메일: {user_email}", size=12, color="grey"),
                         ft.Container(height=10),
-                        ft.Row([
                             ft.Container(profile_name_tf, expand=True),
-                            ft.Container(profile_role_dd, width=160),
+                            ft.Container(profile_role_tf, width=160),
                             ft.ElevatedButton("저장", on_click=save_profile_changes, bgcolor="#00C73C", color="white", height=40, style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=30))),
                         ]),
                     ])

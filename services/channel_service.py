@@ -197,5 +197,37 @@ class ChannelService:
             log_info(f"Error fetching invite codes: {e}")
             return []
 
+    def get_channel_members_with_profiles(self, channel_id: int) -> List[Dict[str, Any]]:
+        """Fetch members with their profile details."""
+        try:
+             res = service_supabase.table("channel_members").select("role, user_id, joined_at, profiles(full_name, email)")\
+                .eq("channel_id", channel_id).execute()
+             
+             members = []
+             if res.data:
+                 for m in res.data:
+                     profile = m.get("profiles") or {}
+                     members.append({
+                         "user_id": m["user_id"],
+                         "role": m["role"],
+                         "joined_at": m["joined_at"],
+                         "full_name": profile.get("full_name") or "Unknown",
+                         "email": profile.get("email") or ""
+                     })
+             return members
+        except Exception as e:
+            log_info(f"Error fetching members: {e}")
+            return []
+
+    def update_member_role(self, channel_id: int, target_user_id: str, new_role: str):
+        """Update a member's role."""
+        service_supabase.table("channel_members").update({"role": new_role})\
+            .eq("channel_id", channel_id).eq("user_id", target_user_id).execute()
+
+    def remove_member(self, channel_id: int, target_user_id: str):
+        """Remove a member from the channel."""
+        service_supabase.table("channel_members").delete()\
+            .eq("channel_id", channel_id).eq("user_id", target_user_id).execute()
+
 # Singleton
 channel_service = ChannelService()
