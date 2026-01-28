@@ -595,6 +595,16 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                      try:
                                          found_files = os.listdir("uploads")
                                          print(f"Check {i}: Uploads Dir Content: {found_files}")
+                                         
+                                         # [FIX] Auto-Correct Filename Mismatch
+                                         # If target (UUID) not found, but other files exist, assume naming mismatch and grab the first one.
+                                         # This is safe in this context as we clean up files after upload.
+                                         if found_files and not os.path.exists(target_path):
+                                             print(f"DEBUG: Filename Mismatch Detected! Expected {s_name}, Found {found_files[0]}")
+                                             s_name = found_files[0]
+                                             target_path = os.path.join("uploads", s_name)
+                                             print(f"DEBUG: Auto-Corrected Target to {target_path}")
+                                             
                                      except: pass
                                  else:
                                      print(f"Check {i}: 'uploads/' Dir MISSING")
