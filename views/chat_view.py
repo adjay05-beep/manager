@@ -598,7 +598,19 @@ def get_chat_controls(page: ft.Page, navigate_to):
     def update_pending_ui(public_url):
         if not public_url: return
         pending_container.content = ft.Row([
-            ft.Image(src=public_url, width=50, height=50, border_radius=5, fit=ft.ImageFit.COVER),
+            # Wrap Image in Container to ensure sizing and visibility
+            ft.Container(
+                content=ft.Image(
+                    src=public_url, 
+                    fit=ft.ImageFit.COVER,
+                    error_content=ft.Icon(ft.Icons.BROKEN_IMAGE, color="white") 
+                ),
+                width=50, 
+                height=50, 
+                border_radius=5, 
+                bgcolor="#424242", # Dark grey placeholder
+                border=ft.border.all(1, "#616161")
+            ),
             ft.Column([
                 ft.Text("이미지 준비 완료", size=12, weight="bold", color="white"),
                 ft.Text("전송 버튼을 눌러 발송하세요.", size=10, color="white70"),
