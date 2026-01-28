@@ -129,7 +129,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             new_controls = []
             if state["edit_mode"]:
                 edit_list_ctrls = []
-                grouped = {}
+                grouped = {c: [] for c in categories}
                 orphaned = []  # Topics without category or with deleted category
                 
                 for t in sorted_topics:
@@ -231,7 +231,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 new_controls = [list_view]
             else:
                 list_view_ctrls = []
-                grouped = {}
+                grouped = {c: [] for c in categories}
                 for t in sorted_topics:
                     cat = t.get('category') # Default to None (Uncategorized)
                     if cat not in grouped: grouped[cat] = []
@@ -537,7 +537,17 @@ def get_chat_controls(page: ft.Page, navigate_to):
             log_info("File Picker Result: Cancelled or keyless.")
 
         # [REFACTOR] Use Unified Storage Service
-        if e.files and state["current_topic_id"]:
+        if e.files:
+            if not state["current_topic_id"]:
+                log_info("Upload Error: No message topic selected")
+                page.snack_bar = ft.SnackBar(ft.Text("대화방을 선택해주세요."), bgcolor="red", open=True)
+                page.update()
+                return
+
+            # Immediate Feedback
+            page.snack_bar = ft.SnackBar(ft.Text("파일 처리 시작..."), open=True)
+            page.update()
+
             f = e.files[0]
             def _thread_target():
                 try:
