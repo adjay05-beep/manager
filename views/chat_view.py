@@ -167,12 +167,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         
                         item = ft.Container(
                             content=ft.Row([
+                                delete_btn,
                                 ft.Text(t['name'], size=14, color="#212121"),
-                                ft.Row([edit_topic_btn, delete_btn], spacing=0)
-                            ], alignment="spaceBetween"),
+                                edit_topic_btn
+                            ], alignment=ft.MainAxisAlignment.START),
                             padding=ft.padding.symmetric(horizontal=20, vertical=12),
                             bgcolor="white",
-                            data={"type": "topic", "id": tid}
+                            data={"type": "topic", "id": tid, "topic_name": t['name']}
                         )
                         edit_list_ctrls.append(item)
                 
@@ -193,7 +194,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                             ], alignment="spaceBetween"),
                             padding=ft.padding.only(left=20, right=20, top=10, bottom=5),
                             bgcolor="#FAFAFA",
-                            data={"type": "category", "id": cat_id} # Tag for Reorder
+                            data={"type": "category", "id": cat_id, "name": cat_name} # Tag for Reorder
                         )
                     )
                     
@@ -210,15 +211,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         
                         item = ft.Container(
                             content=ft.Row([
-                                ft.Row([delete_btn, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=5),
-                                ft.Row([
-                                    edit_topic_btn, 
-                                    # ft.Icon(ft.Icons.DRAG_HANDLE) # Replaced by default handle
-                                ], spacing=0)
-                            ], alignment="spaceBetween"),
+                                delete_btn,
+                                ft.Text(t['name'], size=16, weight="bold", color="#424242"),
+                                edit_topic_btn
+                            ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                             padding=ft.padding.symmetric(horizontal=15, vertical=12),
                             bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
-                            data={"type": "topic", "id": tid} # Crucial for reorder
+                            data={"type": "topic", "id": tid, "topic_name": t['name']} 
                         )
                         edit_list_ctrls.append(item)
                 
@@ -355,21 +354,75 @@ def get_chat_controls(page: ft.Page, navigate_to):
     def on_topic_reorder(e):
         try:
             list_ctrl = topic_list_container.controls[0]
+            if not list_ctrl: return
             controls = list_ctrl.controls
             moved_item = controls.pop(e.old_index)
             controls.insert(e.new_index, moved_item)
             
             # Fire and forget update
             def _update_order():
-                # Process topics in the list based on their new visual index
-                # We iterate backwards so items at the top have higher display_order
-                current_order = len(controls)
-                for ctrl in controls:
+                # Loop top-down to determine category context and order
+                current_cat = None # Default
+                # Find the first category header if exists
+                
+                # Check the first item, if it's a topic, what category is it?
+                # We need to scan/state-machine it.
+                # Actually, simply iterating and updating 'current_cat' when we hit a header is perfect.
+                # But what if the first item is a topic and we haven't hit a header yet?
+                # It belongs to the category of the header ABOVE it.
+                # If there is no header above it (e.g. at very top), it gets 'None' (Uncategorized/General) or we should infer?
+                # In our UI, "General" header is usually first. 
+                # So if we hit that, current_cat = "일반".
+                
+                current_cat_name = "일반" # Default fallback
+                
+                # We need to process updates in a batch or loop
+                db_updates = []
+                
+                # Calculate display_order (Reverse of index, usually)
+                # But wait, if I have [Header A, Topic 1, Topic 2, Header B]
+                # Topic 1 order > Topic 2 order? Or just use index?
+                # Usually 0 is top. If we want Descending sort for display:
+                # Top item has LOWEST index, HIGHEST score.
+                
+                max_score = len(controls) * 10
+                
+                for i, ctrl in enumerate(controls):
                     data = ctrl.data
-                    if isinstance(data, dict) and data.get("type") == "topic":
-                        chat_service.update_topic_order(data["id"], current_order)
-                    current_order -= 1
+                    if not data: continue
+                    
+                    dtype = data.get("type")
+                    if dtype == "category":
+                        current_cat_name = data.get("name")
+                    elif dtype == "topic":
+                        tid = data.get("id")
+                        # Update Category AND Order
+                        # We use 'score' = max_score - i
+                        score = max_score - i
+                        
+                        # Perform update (Sync or threaded?)
+                        # We are in a thread.
+                        # We need to get current topic data to see if category changed to avoid redundant DB call?
+                        # Or just update blindly. Blind update is safer for consistency.
+                        
+                        # However, 'update_topic' updates name too. We don't want to wipe name.
+                        # We should use a specific function for 'move_topic' or update specific cols.
+                        # chat_service.update_topic_order just updates order.
+                        # We need update_topic_metadata(id, category, order).
+                        
+                        # Creating ad-hoc update in chat_service or using raw query here?
+                        # Better to add a method in chat_service or use existing ones combined.
+                        # chat_service.update_topic calls with (id, name, category). Requires Name.
+                        # We don't have the Name handy in the 'data' (we might, but risky).
+                        # Let's add 'name' to topic data too for safety.
+                        
+                        t_name = data.get("topic_name") 
+                        # Update
+                        chat_service.update_topic(tid, t_name, current_cat_name)
+                        chat_service.update_topic_order(tid, score)
+                        
                 load_topics(True)
+                
             threading.Thread(target=_update_order, daemon=True).start()
         except Exception as ex:
             log_info(f"Reorder Error: {ex}")
@@ -477,6 +530,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
     
     # [FIX] Use Global Picker event handler connection
     def on_chat_file_result(e: ft.FilePickerResultEvent):
+        # [DEBUG]
+        if e.files:
+            log_info(f"File Picker Result: {len(e.files)} files selected. Top: {e.files[0].name}")
+        else:
+            log_info("File Picker Result: Cancelled or keyless.")
 
         # [REFACTOR] Use Unified Storage Service
         if e.files and state["current_topic_id"]:
