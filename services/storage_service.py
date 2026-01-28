@@ -3,6 +3,7 @@ import datetime
 from services.chat_service import get_storage_signed_url, get_public_url, upload_file_server_side
 from db import service_supabase
 import flet as ft
+from utils.logger import log_info
 
 # [NEW] Unified Storage Service to remove duplication in Views.
 
@@ -12,14 +13,14 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
     Returns: Dict with keys 'type', 'public_url', 'storage_name'
     """
     try:
-        print(f"DEBUG: Upload Start. Web={is_web}, Name={file_obj.name}")
+        log_info(f"DEBUG: Upload Start. Web={is_web}, Name={file_obj.name}")
         # 1. Generate Storage Name
         import uuid
         # [FIX] Use UUID to prevent URL encoding issues with Korean/Special characters
         ext = os.path.splitext(file_obj.name)[1] if file_obj.name else ""
         if not ext: ext = ".bin"
         storage_name = f"{uuid.uuid4()}{ext}"
-        print(f"DEBUG: Generated Name={storage_name}")
+        log_info(f"DEBUG: Generated Name={storage_name}")
         
         if status_callback: status_callback("1/4. 업로드 준비 중...")
         
@@ -33,7 +34,7 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
             # This bypasses Client-Side CORS/Signature issues.
             try:
                 raw_url = picker_ref.page.get_upload_url(storage_name, 600)
-                print(f"DEBUG: Internal Upload URL: {raw_url}")
+                log_info(f"DEBUG: Internal Upload URL: {raw_url}")
                 if status_callback: status_callback(f"생성된 URL 확인 중...")
                 
                 # [FIX] Convert to Relative URL to handle Render/Cloud Load Balancers
@@ -46,11 +47,11 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
                 if parsed.query:
                     upload_url += f"?{parsed.query}"
                 
-                print(f"DEBUG: Relativized Upload URL: {upload_url}")
+                log_info(f"DEBUG: Relativized Upload URL: {upload_url}")
                 if status_callback: status_callback(f"전송 경로 최적화 완료")
                     
             except Exception as e:
-                print(f"Proxy URL Error: {e}")
+                log_info(f"Proxy URL Error: {e}")
                 # Fallback to direct upload attempt if proxy fails (unlikely)
                 raise e
 
@@ -64,6 +65,7 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
                         )
                     ]
                 )
+                log_info("DEBUG: Browser Upload Triggered (PUT)")
                 return {
                     "type": "proxy_upload_triggered",
                     "storage_name": storage_name,

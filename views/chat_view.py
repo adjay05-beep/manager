@@ -615,7 +615,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                  # [SCOPE FIX] Use local variable
                                  current_storage_name = s_name
                                  target_path = os.path.join("uploads", current_storage_name)
-                                 print(f"Server Watcher Started: {target_path}")
+                                 log_info(f"Server Watcher Started: {target_path}")
                                  
                                  # Wait up to 60 seconds
                                  for i in range(60):
@@ -626,17 +626,17 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                      if os.path.exists("uploads"):
                                          try:
                                              found_files = os.listdir("uploads")
-                                             print(f"Check {i}: Uploads Dir Content: {found_files}")
+                                             log_info(f"Check {i}: Uploads={found_files}")
                                              
                                              # [FIX] Auto-Correct Filename Mismatch
                                              if found_files and not os.path.exists(target_path):
-                                                 print(f"DEBUG: Filename Mismatch Detected! Expected {current_storage_name}, Found {found_files[0]}")
+                                                 log_info(f"MISMATCH: Expected {current_storage_name}, Found {found_files[0]}")
                                                  current_storage_name = found_files[0]
                                                  target_path = os.path.join("uploads", current_storage_name)
-                                                 print(f"DEBUG: Auto-Corrected Target to {target_path}")
+                                                 log_info(f"Auto-Corrected Target to: {target_path}")
                                          except: pass
                                      else:
-                                         print(f"Check {i}: 'uploads/' Dir MISSING")
+                                         log_info(f"Check {i}: 'uploads/' Dir MISSING")
 
                                      if os.path.exists(target_path):
                                          # Wait for write to finish (simple stability check)
@@ -647,7 +647,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                              size2 = os.path.getsize(target_path)
                                              
                                              if size1 == size2 and size1 > 0:
-                                                 print("Server Watcher: File Arrived & Stable")
+                                                 log_info("Server Watcher: File Arrived & Stable")
                                                  
                                                  # Finalize Step
                                                  try:
@@ -659,7 +659,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                                      page.open(ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green", open=True))
                                                      page.update()
                                                  except Exception as fin_ex:
-                                                     print(f"ProxyFinalizeError: {fin_ex}")
+                                                     log_info(f"ProxyFinalizeError: {fin_ex}")
                                                      show_error_ui(f"업로드 실패: {fin_ex}")
                                                  return
                                          except: pass
@@ -684,13 +684,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                          except: pass
 
                                  # Timeout
-                                 print(f"Server Watcher Timeout: {current_storage_name} not found.")
+                                 log_info(f"Server Watcher Timeout: {current_storage_name} not found.")
                                  found_files_str = str(found_files) if 'found_files' in locals() else "None"
                                  show_error_ui(f"처리 실패: Time Out.\nTarget: {current_storage_name}\nList: {found_files_str}")
                              
                              except Exception as thread_ex:
-                                 print(f"Watcher Crash: {thread_ex}")
-                                 traceback.print_exc()
+                                 log_info(f"Watcher Crash: {thread_ex}")
+                                 log_info(traceback.format_exc())
                                  show_error_ui(f"시스템 오류: {thread_ex}")
                          
                          # [CRITICAL FIX] Execute the watcher!
