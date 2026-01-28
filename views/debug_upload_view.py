@@ -49,16 +49,24 @@ def DebugUploadView(page: ft.Page):
     page.overlay.append(picker)
     page.update()
 
-    return ft.View(
-        "/debug_upload",
-        [
-            ft.AppBar(title=ft.Text("Upload Diagnostic"), bgcolor="red"),
-            ft.ElevatedButton("Select File to Test", on_click=lambda _: picker.pick_files()),
-            ft.Container(
-                content=log_control,
-                border=ft.border.all(1, "grey"),
-                padding=10,
-                expand=True
-            )
-        ]
-    )
+    return [
+        ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Icon(ft.Icons.BUG_REPORT, color="red"),
+                    ft.Text("Upload Diagnostic", size=20, weight="bold", color="red")
+                ]),
+                ft.ElevatedButton("Select File to Test", on_click=lambda _: picker.pick_files()),
+                ft.Container(
+                    content=log_control,
+                    border=ft.border.all(1, "grey"),
+                    padding=10,
+                    expand=True,
+                    height=400 # Explicit height
+                )
+            ]),
+            expand=True,
+            padding=20,
+            bgcolor="white"
+        )
+    ]
