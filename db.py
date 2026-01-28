@@ -123,7 +123,7 @@ class ManualBucket:
         
         last_error = ""
         for endpoint in endpoints:
-        try:
+            try:
                 resp = self.client.post(endpoint, headers=headers, json={"expiresIn": expires_in})
                 if resp.status_code == 200:
                     data = resp.json()
