@@ -125,6 +125,11 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
                 # Should not happen on Native unless permission denied
                 raise Exception("파일 경로를 찾을 수 없습니다.")
 
+    except Exception as ex:
+        print(f"Upload Handle Error: {ex}")
+        if status_callback: status_callback(f"오류 발생: {ex}")
+        return {"type": "error", "error": str(ex)}
+
 def upload_proxy_file_to_supabase(storage_name: str) -> str:
     """
     Called after Flet receives the file in 'uploads/' directory.
