@@ -61,11 +61,11 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
                         ft.FilePickerUploadFile(
                             name=file_obj.name,
                             upload_url=upload_url,
-                            method="PUT"
+                            method="POST"
                         )
                     ]
                 )
-                log_info("DEBUG: Browser Upload Triggered (PUT)")
+                log_info("DEBUG: Browser Upload Triggered (POST)")
                 return {
                     "type": "proxy_upload_triggered",
                     "storage_name": storage_name,
