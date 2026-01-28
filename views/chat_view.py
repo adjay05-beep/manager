@@ -567,17 +567,59 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     if result.get("type") == "proxy_upload_triggered":
                          # [PROXY MODE]
                          state["pending_storage_name"] = result["storage_name"]
+                         s_name = result["storage_name"]
                          
                          pending_container.content = ft.Row([
                             ft.Container(ft.ProgressRing(stroke_width=2, color="white"), width=40, height=40, alignment=ft.alignment.center, bgcolor="#424242", border_radius=5),
                             ft.Column([
-                                ft.Text("보안 서버로 전송 중...", size=12, weight="bold", color="white"),
-                                ft.Text("안전하게 처리하고 있습니다.", size=10, color="white70"),
+                                ft.Text("서버 처리 중...", size=12, weight="bold", color="white"),
+                                ft.Text("파일을 저장하고 있습니다.", size=10, color="white70"),
                             ], spacing=2, tight=True),
                          ], spacing=10)
                          pending_container.visible = True
                          page.update()
-                         update_snack("서버 전송 시작...")
+                         update_snack("서버 업로드 확인 중...")
+                         
+                         # [FIX] Server-Side Watcher (Bypass Client Events)
+                         # Watch local 'uploads/' folder for file arrival
+                         def watch_server_file():
+                             import time, os
+                             target_path = os.path.join("uploads", s_name)
+                             print(f"Server Watcher Started: {target_path}")
+                             
+                             # Wait up to 60 seconds
+                             for i in range(60):
+                                 if os.path.exists(target_path):
+                                     # Wait for write to finish (simple stability check)
+                                     try:
+                                         size1 = os.path.getsize(target_path)
+                                         time.sleep(1.0)
+                                         if not os.path.exists(target_path): continue
+                                         size2 = os.path.getsize(target_path)
+                                         
+                                         if size1 == size2 and size1 > 0:
+                                             print("Server Watcher: File Arrived & Stable")
+                                             
+                                             # Finalize Step
+                                             try:
+                                                 final_url = storage_service.upload_proxy_file_to_supabase(s_name)
+                                                 state["pending_image_url"] = final_url
+                                                 
+                                                 # Update UI
+                                                 update_pending_ui(final_url)
+                                                 page.open(ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green", open=True))
+                                                 page.update()
+                                             except Exception as fin_ex:
+                                                 print(f"Proxy Finalize Error: {fin_ex}")
+                                                 page.open(ft.SnackBar(ft.Text(f"처리 실패: {fin_ex}"), bgcolor="red", open=True))
+                                                 page.update()
+                                             return
+                                     except: pass
+                                 time.sleep(1)
+                             
+                             print("Server Watcher Timeout")
+                             
+                         threading.Thread(target=watch_server_file, daemon=True).start()
                          
                     elif result.get("type") == "web_upload_triggered":
                          # Legacy / Fallback (Should not be hit if is_web=True uses proxy)
