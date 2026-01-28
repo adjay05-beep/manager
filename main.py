@@ -149,7 +149,7 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8555))
     host = "0.0.0.0"
     # Secure Uploads require a Secret Key
-    secret_key = os.getenv("FLET_SECRET_KEY", "sample_secret_key_1234") 
+    os.environ["FLET_SECRET_KEY"] = os.getenv("FLET_SECRET_KEY", "sample_secret_key_1234")
 
     # 브라우저 실행 모드로 명시적 설정
-    ft.app(target=main, port=port, host=host, assets_dir="assets", upload_dir="uploads", secret_key=secret_key, view=ft.AppView.WEB_BROWSER)
+    ft.app(target=main, port=port, host=host, assets_dir="assets", upload_dir="uploads", view=ft.AppView.WEB_BROWSER)
