@@ -32,13 +32,22 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
             # [FIX] Proxy Upload: Browser -> Flet Server -> Supabase
             # This bypasses Client-Side CORS/Signature issues.
             try:
-                upload_url = picker_ref.page.get_upload_url(storage_name, 600)
-                print(f"DEBUG: Generated Upload URL: {upload_url}")
+                raw_url = picker_ref.page.get_upload_url(storage_name, 600)
+                print(f"DEBUG: Internal Upload URL: {raw_url}")
+                if status_callback: status_callback(f"생성된 URL 확인 중...")
                 
-                # [FIX] Force HTTPS for Web App (Render terminates SSL, so Internal is HTTP, but External must be HTTPS)
-                if is_web and upload_url and upload_url.startswith("http://"):
-                    upload_url = upload_url.replace("http://", "https://")
-                    print(f"DEBUG: Enforced HTTPS: {upload_url}")
+                # [FIX] Convert to Relative URL to handle Render/Cloud Load Balancers
+                # Flet usually generates absolute URL with internal IP (e.g., http://0.0.0.0:10000/upload/...)
+                # which is unreachable from the outside.
+                # We strip the domain to let the browser use the current correct origin.
+                import urllib.parse
+                parsed = urllib.parse.urlparse(raw_url)
+                upload_url = parsed.path
+                if parsed.query:
+                    upload_url += f"?{parsed.query}"
+                
+                print(f"DEBUG: Relativized Upload URL: {upload_url}")
+                if status_callback: status_callback(f"전송 경로 최적화 완료")
                     
             except Exception as e:
                 print(f"Proxy URL Error: {e}")
