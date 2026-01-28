@@ -13,11 +13,13 @@ async def handle_file_upload(page: ft.Page, file_obj, status_callback=None, pick
     """
     try:
         # 1. Generate Storage Name
-        import datetime
-        timestamp = datetime.datetime.now().strftime('%Y%m%d%H%M%S')
-        storage_name = f"upload_{timestamp}_{file_obj.name}"
+        import uuid
+        # [FIX] Use UUID to prevent URL encoding issues with Korean/Special characters
+        ext = os.path.splitext(file_obj.name)[1] if file_obj.name else ""
+        if not ext: ext = ".bin"
+        storage_name = f"{uuid.uuid4()}{ext}"
         
-        if status_callback: status_callback("업로드 준비 중...")
+        if status_callback: status_callback("1/4. 업로드 준비 중...")
         
         # 2. Check Environment
         is_web = page.web
