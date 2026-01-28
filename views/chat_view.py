@@ -564,50 +564,25 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     state["pending_image_url"] = result["public_url"]
                     print(f"Upload Success URL: {result['public_url']}")
                     
-                    if result.get("type") == "web_upload_triggered":
-                         # [FIX] Show Spinner while uploading (Race Condition Fix)
+                    if result.get("type") == "proxy_upload_triggered":
+                         # [PROXY MODE]
+                         state["pending_storage_name"] = result["storage_name"]
+                         
                          pending_container.content = ft.Row([
-                            ft.Container(
-                                content=ft.ProgressRing(stroke_width=2, color="white"),
-                                width=40, height=40, 
-                                alignment=ft.alignment.center,
-                                bgcolor="#424242", border_radius=5
-                            ),
+                            ft.Container(ft.ProgressRing(stroke_width=2, color="white"), width=40, height=40, alignment=ft.alignment.center, bgcolor="#424242", border_radius=5),
                             ft.Column([
-                                ft.Text("이미지 업로드 중...", size=12, weight="bold", color="white"),
-                                ft.Text("잠시만 기다려주세요.", size=10, color="white70"),
+                                ft.Text("보안 서버로 전송 중...", size=12, weight="bold", color="white"),
+                                ft.Text("안전하게 처리하고 있습니다.", size=10, color="white70"),
                             ], spacing=2, tight=True),
                          ], spacing=10)
                          pending_container.visible = True
                          page.update()
+                         update_snack("서버 전송 시작...")
                          
-                         update_snack(f"전송 시작... ({result['public_url'][:15]}...)")
-                         
-                         # [FIX] Start Polling for Completion (Fallback for missing on_upload)
-                         def monitor_upload(check_url):
-                             import time
-                             import httpx
-                             print(f"DTO Polling Start: {check_url}")
-                             for i in range(60): # 60 seconds timeout
-                                 try:
-                                     # HEAD request to check if file exists
-                                     res = httpx.head(check_url, timeout=2)
-                                     if res.status_code == 200:
-                                         print("DTO Polling Success: File Found")
-                                         update_pending_ui(check_url)
-                                         try:
-                                             page.open(ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green", open=True))
-                                             page.update()
-                                         except: pass
-                                         return
-                                 except Exception as req_ex:
-                                     print(f"Polling Error: {req_ex}")
-                                 
-                                 time.sleep(1)
-                             
-                             print("DTO Polling Timeout")
-                             
-                         threading.Thread(target=monitor_upload, args=(result['public_url'],), daemon=True).start()
+                    elif result.get("type") == "web_upload_triggered":
+                         # Legacy / Fallback (Should not be hit if is_web=True uses proxy)
+                         pass
+
                     else:
                          # Native: Immediate Update
                          update_pending_ui(state["pending_image_url"])
@@ -636,14 +611,36 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try:
                 if pending_container.visible and isinstance(pending_container.content, ft.Row):
                     prog_txt = pending_container.content.controls[1].controls[1]
-                    prog_txt.value = f"{int(e.progress * 100)}% 완료"
+                    prog_txt.value = f"{int(e.progress * 100)}% 서버 도착"
                     page.update()
             except: pass
 
             if e.progress == 1.0:
-                update_pending_ui(state.get("pending_image_url"))
-                page.open(ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green", open=True))
-                page.update()
+                s_name = state.get("pending_storage_name")
+                if s_name:
+                    # [PROXY FINALIZATION]
+                    state["pending_storage_name"] = None # Reset
+                    
+                    def finalize_step():
+                        try:
+                             final_url = storage_service.upload_proxy_file_to_supabase(s_name)
+                             state["pending_image_url"] = final_url
+                             
+                             # Success UI
+                             update_pending_ui(final_url)
+                             page.open(ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green", open=True))
+                             page.update()
+                        except Exception as fin_ex:
+                             print(f"Proxy Finalize Error: {fin_ex}")
+                             page.open(ft.SnackBar(ft.Text(f"처리 실패: {fin_ex}"), bgcolor="red", open=True))
+                             page.update()
+                             
+                    threading.Thread(target=finalize_step, daemon=True).start()
+                
+                else:
+                    update_pending_ui(state.get("pending_image_url"))
+                    page.open(ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green", open=True))
+                    page.update()
 
     # [FIX] Use Global Picker from main.py
     # This prevents multiple pickers in overlay and ensures correct callback wiring

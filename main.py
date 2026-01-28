@@ -142,8 +142,11 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     import os
+    # Ensure upload directory exists for Proxy Uploads
+    os.makedirs("uploads", exist_ok=True)
+
     # 클라우드 환경(Render 등)에서 제공하는 PORT 변수를 우선 사용합니다.
     port = int(os.getenv("PORT", 8555))
     host = "0.0.0.0"
     # 브라우저 실행 모드로 명시적 설정
-    ft.app(target=main, port=port, host=host, assets_dir="assets", view=ft.AppView.WEB_BROWSER)
+    ft.app(target=main, port=port, host=host, assets_dir="assets", upload_dir="uploads", view=ft.AppView.WEB_BROWSER)

@@ -27,44 +27,34 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
         # is_web is passed directly
         
         if is_web:
-            if status_callback: status_callback("클라우드로 전송 중 (Web)...")
+            if status_callback: status_callback("보안 서버(Proxy)로 전송 중...")
             
-            signed_url = get_storage_signed_url(storage_name)
-            
-            # [FIX] Use Signed URL for Display (Private Bucket Support)
+            # [FIX] Proxy Upload: Browser -> Flet Server -> Supabase
+            # This bypasses Client-Side CORS/Signature issues.
             try:
-                # 10 years expiration
-                res = service_supabase.storage.from_("uploads").create_signed_url(storage_name, 60*60*24*365*10)
-                public_url = res['signedURL']
+                upload_url = picker_ref.page.get_upload_url(storage_name, 600)
             except Exception as e:
-                print(f"Signed URL Gen Error (Web): {e} - Fallback to Public")
-                public_url = get_public_url(storage_name)
-            
+                print(f"Proxy URL Error: {e}")
+                # Fallback to direct upload attempt if proxy fails (unlikely)
+                raise e
+
             if picker_ref:
-                # Execute Flet's internal Web Upload logic
                 picker_ref.upload(
                     files=[
                         ft.FilePickerUploadFile(
                             name=file_obj.name,
-                            upload_url=signed_url,
+                            upload_url=upload_url,
                             method="PUT"
                         )
                     ]
                 )
                 return {
-                    "type": "web_upload_triggered",
-                    "public_url": public_url,
-                    "signed_url": signed_url, # [DEBUG]
-                    "storage_name": storage_name
+                    "type": "proxy_upload_triggered",
+                    "storage_name": storage_name,
+                    "public_url": None
                 }
             
-            # Fallback if no picker provided
-            return {
-                "type": "web_js",
-                "signed_url": signed_url,
-                "public_url": public_url,
-                "storage_name": storage_name
-            }
+            return {"type": "error", "error": "No picker ref for proxy upload"}
 
         else:
             # Native / Desktop
@@ -120,7 +110,8 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
                 try:
                     # 10 years expiration
                     signed_res = service_supabase.storage.from_("uploads").create_signed_url(storage_name, 60*60*24*365*10)
-                    final_url = signed_res['signedURL']
+                    # Handle key variations
+                    final_url = signed_res.get('signedURL') or signed_res.get('signedUrl') or signed_res.get('url')
                 except Exception as sign_ex:
                     print(f"Signed URL Gen Error: {sign_ex} - Fallback to Public")
                     final_url = get_public_url(storage_name)
@@ -133,6 +124,46 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
             else:
                 # Should not happen on Native unless permission denied
                 raise Exception("파일 경로를 찾을 수 없습니다.")
+
+def upload_proxy_file_to_supabase(storage_name: str) -> str:
+    """
+    Called after Flet receives the file in 'uploads/' directory.
+    Reads it and uploads to Supabase using Service Key.
+    Returns the final display URL (Signed).
+    """
+    local_path = os.path.join("uploads", storage_name)
+    if not os.path.exists(local_path):
+        # Retry with just filename (sometimes Flet might not use subdir if config issue)
+        if os.path.exists(storage_name):
+            local_path = storage_name
+        else:
+            raise Exception(f"Server File Not Found: {local_path}")
+            
+    try:
+        # 1. Read File
+        with open(local_path, "rb") as f:
+            file_data = f.read()
+            
+        # 2. Upload to Supabase (Server-Side)
+        import mimetypes
+        ctype, _ = mimetypes.guess_type(local_path)
+        if not ctype: ctype = "application/octet-stream"
+        
+        upload_file_server_side(storage_name, file_data, content_type=ctype)
+        
+        # 3. Generate Signed URL
+        # 10 years expiration
+        res = service_supabase.storage.from_("uploads").create_signed_url(storage_name, 60*60*24*365*10)
+        final_url = res.get('signedURL') or res.get('signedUrl') or res.get('url')
+        
+        return final_url
+        
+    finally:
+        # 4. Cleanup Local File
+        if os.path.exists(local_path):
+            try:
+                os.remove(local_path)
+            except: pass
 
     except Exception as e:
         print(f"Storage Service Error: {e}")
