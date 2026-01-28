@@ -547,192 +547,138 @@ def get_chat_controls(page: ft.Page, navigate_to):
         f = e.files[0]
         is_web_mode = page.web # Capture safely
 
-        def _thread_target():
-            # [FIX] Use Synchronous Threading (No Asyncio needed for Native Upload)
-            def update_snack(msg):
-                print(f"[{f.name}] {msg}")
-                try:
-                    page.open(ft.SnackBar(ft.Text(msg, size=12), open=True))
-                    page.update()
-                except: pass
-
-            update_snack(f"1/4. '{f.name}' 준비 중...")
-
+        # [FIX] Main Thread Execution for Upload Trigger
+        # Previously inside a thread, which caused reliable upload issues.
+        def update_snack(msg):
             try:
-                # [DEBUG] Immediate Upload
-                from utils.logger import log_info
-                log_info(f"DEBUG: Calling handle_file_upload. Web={is_web_mode}")
-                # Use Global Picker explicitly
-                result = storage_service.handle_file_upload(is_web_mode, f, update_snack, picker_ref=page.chat_file_picker)
-                print(f"DEBUG: Result: {result}")
-                
-                if result and "public_url" in result:
-                    state["pending_image_url"] = result["public_url"]
-                    print(f"Upload Success URL: {result['public_url']}")
-                    
-                    if result.get("type") == "proxy_upload_triggered":
-                         # [PROXY MODE]
-                         state["pending_storage_name"] = result["storage_name"]
-                         s_name = result["storage_name"]
-                         
-                         pending_container.content = ft.Row([
+                page.open(ft.SnackBar(ft.Text(msg, size=12), open=True))
+                page.update()
+            except: pass
+
+        def show_error_ui(msg, color="red"):
+             try:
+                 pending_container.content = ft.Container(
+                     ft.Text(msg, color="white", size=11),
+                     bgcolor=color, padding=5, border_radius=5
+                 )
+                 pending_container.update()
+                 time.sleep(5)
+                 pending_container.visible = False
+                 page.update()
+             except: pass
+
+        try:
+            update_snack(f"1/4. '{f.name}' 준비 중...")
+            
+            # [DEBUG] Immediate Upload (Main Thread)
+            from utils.logger import log_info
+            log_info(f"DEBUG: Calling handle_file_upload in Main Thread. Web={is_web_mode}")
+            
+            # Synchronous Call triggers Browser Command immediately
+            result = storage_service.handle_file_upload(is_web_mode, f, update_snack, picker_ref=page.chat_file_picker)
+            
+            if result and "public_url" in result:
+                 state["pending_image_url"] = result["public_url"]
+            
+            if result:
+                 if result.get("type") == "proxy_upload_triggered":
+                      s_name = result["storage_name"]
+                      state["pending_storage_name"] = s_name
+                      update_snack("2/4. 서버 전송 시작...")
+                      
+                      pending_container.content = ft.Row([
                             ft.Container(ft.ProgressRing(stroke_width=2, color="white"), width=40, height=40, alignment=ft.alignment.center, bgcolor="#424242", border_radius=5),
                             ft.Column([
                                 ft.Text("서버 처리 중...", size=12, weight="bold", color="white"),
                                 ft.Text("파일을 저장하고 있습니다.", size=10, color="white70"),
                             ], spacing=2, tight=True),
                          ], spacing=10)
-                         pending_container.visible = True
-                         page.update()
-                         update_snack("서버 업로드 확인 중...")
-                         
-                         # [FIX] Server-Side Watcher (Bypass Client Events)
-                         # Watch local 'uploads/' folder for file arrival
-                         # [FIX] Server-Side Watcher (Bypass Client Events)
-                         # Watch local 'uploads/' folder for file arrival
-                         def watch_server_file():
-                             import time, os, traceback
+                      pending_container.visible = True
+                      page.update()
 
-                             # [HELPER] Error UI
-                             def show_error_ui(msg, color="red"):
-                                 try:
-                                     pending_container.content = ft.Container(
-                                         ft.Text(msg, color="white", size=11),
-                                         bgcolor=color, padding=5, border_radius=5
-                                     )
-                                     pending_container.update()
-                                     time.sleep(5)
-                                     pending_container.visible = False
-                                     page.update()
-                                 except: pass
+                      # [BACKGROUND WATCHER]
+                      def watch_server_file_target(target_name):
+                            import time, os, traceback
+                            try:
+                                # [SCOPE FIX] Use Argument
+                                current_storage_name = target_name
+                                target_path = os.path.join("uploads", current_storage_name)
+                                log_info(f"Server Watcher Started: {target_path}")
+                                
+                                # [SMART WATCHER] Snapshot existing files
+                                initial_snapshot = set()
+                                if os.path.exists("uploads"):
+                                    initial_snapshot = set(os.listdir("uploads"))
+                                log_info(f"Watcher Snapshot: {len(initial_snapshot)} ignored.")
 
-                             # [SAFETY WRAPPER] Catch all thread crashes to prevent infinite loading
-                             try:
-                                 # 0. Immediate Feedback to confirm thread start
-                                 pending_container.content = ft.Row([
-                                    ft.Container(ft.ProgressRing(stroke_width=2, color="white"), width=20, height=20),
-                                    ft.Text("서버 파일 감시 시작...", size=11, color="white")
-                                 ], spacing=10)
-                                 pending_container.update()
+                                # Wait up to 60 seconds
+                                for i in range(60):
+                                    time.sleep(1.0)
+                                    if not os.path.exists("uploads"): continue
 
-                                 # [SCOPE FIX] Use local variable
-                                 current_storage_name = s_name
-                                 target_path = os.path.join("uploads", current_storage_name)
-                                 log_info(f"Server Watcher Started: {target_path}")
-                                 
-                                 # [SMART WATCHER] Snapshot existing files to ignore them
-                                 initial_snapshot = set()
-                                 if os.path.exists("uploads"):
-                                     initial_snapshot = set(os.listdir("uploads"))
-                                 log_info(f"Watcher Snapshot: {len(initial_snapshot)} existing files ignored.")
-
-                                 # Wait up to 60 seconds
-                                 for i in range(60):
-                                     time.sleep(1.0)
-                                     
-                                     if not os.path.exists("uploads"):
-                                         log_info(f"Check {i}: 'uploads/' Dir MISSING")
-                                         continue
-
-                                     # Check for Target OR New Files
-                                     if os.path.exists(target_path):
-                                         # Target found directly!
-                                         found_files = [current_storage_name] # For consistency
-                                     else:
-                                         # Check for any NEW file that arrived
-                                         found_files = []
-                                         try:
-                                             current_files = set(os.listdir("uploads"))
-                                             found_files = list(current_files) # For logging
-                                             new_candidates = current_files - initial_snapshot
-                                             
-                                             if new_candidates:
-                                                 # Use the first new file found
-                                                 detected_name = list(new_candidates)[0]
-                                                 log_info(f"SMART MATCH: New file detected: {detected_name}")
-                                                 current_storage_name = detected_name
-                                                 target_path = os.path.join("uploads", current_storage_name)
-                                             else:
-                                                 log_info(f"Check {i}: Waiting... (No new files)")
-                                         except: pass
-
-                                     if os.path.exists(target_path):
-                                         # Wait for write to finish (simple stability check)
-                                         try:
-                                             size1 = os.path.getsize(target_path)
-                                             time.sleep(1.0)
-                                             if not os.path.exists(target_path): continue
-                                             size2 = os.path.getsize(target_path)
-                                             
-                                             if size1 == size2 and size1 > 0:
-                                                 log_info("Server Watcher: File Arrived & Stable")
-                                                 
-                                                 # Finalize Step
-                                                 try:
-                                                     final_url = storage_service.upload_proxy_file_to_supabase(current_storage_name)
-                                                     state["pending_image_url"] = final_url
-                                                     
-                                                     # Update UI
-                                                     update_pending_ui(final_url)
-                                                     page.open(ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green", open=True))
-                                                     page.update()
-                                                 except Exception as fin_ex:
-                                                     log_info(f"ProxyFinalizeError: {fin_ex}")
-                                                     show_error_ui(f"업로드 실패: {fin_ex}")
+                                    # Check for Target OR New Files
+                                    found_new = False
+                                    if os.path.exists(target_path):
+                                        found_new = True
+                                    else:
+                                        try:
+                                            # Check Candidates
+                                            current_files = set(os.listdir("uploads"))
+                                            new_candidates = current_files - initial_snapshot
+                                            if new_candidates:
+                                                detected_name = list(new_candidates)[0]
+                                                log_info(f"SMART MATCH: New file detected: {detected_name}")
+                                                current_storage_name = detected_name
+                                                target_path = os.path.join("uploads", current_storage_name)
+                                                found_new = True
+                                        except: pass
+                                    
+                                    if found_new:
+                                        # Stabilize
+                                        try:
+                                            size1 = os.path.getsize(target_path)
+                                            time.sleep(1.0)
+                                            if os.path.exists(target_path) and os.path.getsize(target_path) == size1:
+                                                 log_info("File Stable. Finalizing.")
+                                                 final_url = storage_service.upload_proxy_file_to_supabase(current_storage_name)
+                                                 state["pending_image_url"] = final_url
+                                                 update_pending_ui(final_url)
+                                                 page.open(ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green", open=True))
+                                                 page.update()
                                                  return
-                                         except: pass
-                                     
-                                     # [DIAGNOSTIC UI] Feedback to User
-                                     if i % 3 == 0:
-                                         msg = "서버 확인 중..."
-                                         if found_files:
-                                             msg = f"파일 발견: {found_files[0]} (확인 중)"
-                                         elif not os.path.exists("uploads"):
-                                              msg = "서버 폴더 준비 중..."
-                                         
-                                         try:
-                                             # Update spinner text
-                                             if pending_container.visible and isinstance(pending_container.content, ft.Row):
-                                                  txt_col = pending_container.content.controls[1]
-                                                  if isinstance(txt_col, ft.Text):
-                                                      txt_col.value = msg
-                                                  elif isinstance(txt_col, ft.Column):
-                                                      txt_col.controls[0].value = msg
-                                                  page.update()
-                                         except: pass
+                                        except Exception as fin_ex:
+                                             log_info(f"Finalize Error: {fin_ex}")
+                                             show_error_ui(f"업로드 실패: {fin_ex}")
+                                             return
+                                    
+                                    # Feedback (Simplified)
+                                    if i % 3 == 0:
+                                        try:
+                                            # Optional: Update text if container is valid
+                                            pass 
+                                        except: pass
 
-                                 # Timeout
-                                 log_info(f"Server Watcher Timeout: {current_storage_name} not found.")
-                                 found_files_str = str(found_files) if 'found_files' in locals() else "None"
-                                 show_error_ui(f"처리 실패: Time Out.\nTarget: {current_storage_name}\nList: {found_files_str}")
-                             
-                             except Exception as thread_ex:
-                                 log_info(f"Watcher Crash: {thread_ex}")
-                                 log_info(traceback.format_exc())
-                                 show_error_ui(f"시스템 오류: {thread_ex}")
-                         
-                         # [CRITICAL FIX] Execute the watcher in a THREAD to avoid blocking Main UI Loop
-                         # Blocking the main thread prevents picker.upload() command from reaching the browser!
-                         threading.Thread(target=watch_server_file, daemon=True).start()
-                         
-                    elif result.get("type") == "web_upload_triggered":
-                         # Legacy / Fallback (Should not be hit if is_web=True uses proxy)
-                         pass
+                                log_info("Watcher Timeout")
+                                show_error_ui("시간 초과: 파일을 찾을 수 없습니다.")
+                            
+                            except Exception as ex:
+                                log_info(f"Watcher Crash: {ex}")
+                                show_error_ui(f"시스템 오류: {ex}")
 
-                    else:
-                         # Native: Immediate Update
-                         update_pending_ui(state["pending_image_url"])
-                         update_snack("4/4. 이미지 준비 완료")
-                else:
-                    # Handle silent failure
-                    err = result.get('error', 'URL 응답 없음') if result else "데이터 없음"
-                    print(f"Upload Missing URL: {result}")
-                    update_snack(f"업로드 실패: {err}")
-            except Exception as logic_ex:
-                print(f"Sync Logic Error: {logic_ex}")
-                update_snack(f"처리 중 오류: {logic_ex}")
+                      threading.Thread(target=watch_server_file_target, args=(s_name,), daemon=True).start()
 
-        threading.Thread(target=_thread_target, daemon=True).start()
+                 elif result.get("type") == "web_upload_triggered":
+                      pass
+                 else:
+                      # Native
+                      update_pending_ui(result.get("public_url"))
+                      update_snack("4/4. 이미지 준비 완료")
+            else:
+                 update_snack("업로드 요청 실패")
+
+        except Exception as logic_ex:
+            print(f"Sync Logic Error: {logic_ex}")
+            update_snack(f"처리 중 오류: {logic_ex}")
 
     def on_chat_upload_progress(e: ft.FilePickerUploadEvent):
         from utils.logger import log_info
