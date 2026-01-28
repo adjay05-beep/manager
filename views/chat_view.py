@@ -584,7 +584,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                          # Watch local 'uploads/' folder for file arrival
                          def watch_server_file():
                              import time, os
-                             target_path = os.path.join("uploads", s_name)
+                             # [SCOPE FIX] Use local variable to avoid UnboundLocalError on s_name closure
+                             current_storage_name = s_name
+                             target_path = os.path.join("uploads", current_storage_name)
                              print(f"Server Watcher Started: {target_path}")
                              
                              # Wait up to 60 seconds
@@ -598,11 +600,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                          
                                          # [FIX] Auto-Correct Filename Mismatch
                                          # If target (UUID) not found, but other files exist, assume naming mismatch and grab the first one.
-                                         # This is safe in this context as we clean up files after upload.
                                          if found_files and not os.path.exists(target_path):
-                                             print(f"DEBUG: Filename Mismatch Detected! Expected {s_name}, Found {found_files[0]}")
-                                             s_name = found_files[0]
-                                             target_path = os.path.join("uploads", s_name)
+                                             print(f"DEBUG: Filename Mismatch Detected! Expected {current_storage_name}, Found {found_files[0]}")
+                                             current_storage_name = found_files[0]
+                                             target_path = os.path.join("uploads", current_storage_name)
                                              print(f"DEBUG: Auto-Corrected Target to {target_path}")
                                              
                                      except: pass
@@ -622,7 +623,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                              
                                              # Finalize Step
                                              try:
-                                                 final_url = storage_service.upload_proxy_file_to_supabase(s_name)
+                                                 final_url = storage_service.upload_proxy_file_to_supabase(current_storage_name)
                                                  state["pending_image_url"] = final_url
                                                  
                                                  # Update UI
@@ -630,8 +631,15 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                                  page.open(ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green", open=True))
                                                  page.update()
                                              except Exception as fin_ex:
-                                                 print(f"Proxy Finalize Error: {fin_ex}")
-                                                 page.open(ft.SnackBar(ft.Text(f"처리 실패: {fin_ex}"), bgcolor="red", open=True))
+                                                 print(f"ProxyFinalizeError: {fin_ex}")
+                                                 # Clean Error UI
+                                                 pending_container.content = ft.Container(
+                                                     ft.Text(f"업로드 실패: {fin_ex}", color="white", size=11),
+                                                     bgcolor="red", padding=5, border_radius=5
+                                                 )
+                                                 pending_container.update()
+                                                 time.sleep(5)
+                                                 pending_container.visible = False
                                                  page.update()
                                              return
                                      except: pass
