@@ -528,77 +528,70 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     pending_container = ft.Container(visible=False, padding=10, bgcolor="#3D4446", border_radius=10)
     
-    # [FIX] Use Global Picker event handler connection
+    # [FIX] Local FilePicker Logic
     def on_chat_file_result(e: ft.FilePickerResultEvent):
-        # [DEBUG]
-        if e.files:
-            log_info(f"File Picker Result: {len(e.files)} files selected. Top: {e.files[0].name}")
-        else:
-            log_info("File Picker Result: Cancelled or keyless.")
+        if not e.files: return
 
-        # [REFACTOR] Use Unified Storage Service
-        if e.files:
-            if not state["current_topic_id"]:
-                log_info("Upload Error: No message topic selected")
-                page.snack_bar = ft.SnackBar(ft.Text("대화방을 선택해주세요."), bgcolor="red", open=True)
-                page.update()
-                return
+        # Immediate Feedback
+        page.open(ft.SnackBar(ft.Text("파일 확인 중..."), open=True))
+        page.update()
 
-            # Immediate Feedback
-            page.snack_bar = ft.SnackBar(ft.Text("파일 처리 시작..."), open=True)
+        if not state["current_topic_id"]:
+            page.open(ft.SnackBar(ft.Text("대화방을 먼저 선택해주세요."), bgcolor="red", open=True))
             page.update()
+            return
+            
+        f = e.files[0]
+        def _thread_target():
+            try:
+                import asyncio
+                from services import storage_service
+                
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
 
-            f = e.files[0]
-            def _thread_target():
-                try:
-                    import asyncio
-                    from services import storage_service
-                    
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-
-                    def update_snack(msg):
-                        page.snack_bar = ft.SnackBar(ft.Text(msg), open=True)
-                        page.update()
-
-                    update_snack(f"'{f.name}' 준비 중...")
-
-                    async def _async_logic():
-                        result = await storage_service.handle_file_upload(page, f, update_snack, picker_ref=page.chat_file_picker)
-                        
-                        if "public_url" in result:
-                            state["pending_image_url"] = result["public_url"]
-                            if result.get("type") == "web_upload_triggered":
-                                pass
-                            else:
-                                update_pending_ui(state["pending_image_url"])
-                                update_snack("파일 준비 완료!")
-                    
-                    loop.run_until_complete(_async_logic())
-                    loop.close()
-                    
-                except Exception as ex:
-                    print(f"ERROR in file upload: {ex}")
-                    import traceback
-                    traceback.print_exc()
-                    page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red", open=True)
+                def update_snack(msg):
+                    page.open(ft.SnackBar(ft.Text(msg), open=True))
                     page.update()
-            
-            # Start Thread
-            threading.Thread(target=_thread_target, daemon=True).start()
-        else:
-            pass
-            
-    # [CRITICAL FIX] Bind global picker to local handler
-    page.chat_file_picker.on_result = on_chat_file_result
-    
+
+                update_snack(f"'{f.name}' 업로드 준비...")
+
+                async def _async_logic():
+                    # Use local_file_picker via closure
+                    result = await storage_service.handle_file_upload(page, f, update_snack, picker_ref=local_file_picker)
+                    if "public_url" in result:
+                        state["pending_image_url"] = result["public_url"]
+                        if result.get("type") != "web_upload_triggered":
+                            update_pending_ui(state["pending_image_url"])
+                            update_snack("파일 준비 완료!")
+                
+                loop.run_until_complete(_async_logic())
+                loop.close()
+            except Exception as ex:
+                print(f"Upload Error: {ex}")
+                page.open(ft.SnackBar(ft.Text(f"파일 처리 오류: {ex}"), bgcolor="red", open=True))
+                page.update()
+
+        threading.Thread(target=_thread_target, daemon=True).start()
+
     def on_chat_upload_progress(e: ft.FilePickerUploadEvent):
         if e.error:
-            page.snack_bar = ft.SnackBar(ft.Text(f"업로드 실패: {e.file_name}"), bgcolor="red", open=True); page.update()
+            page.open(ft.SnackBar(ft.Text(f"업로드 실패: {e.file_name}"), bgcolor="red", open=True))
+            page.update()
         elif e.progress == 1.0:
             update_pending_ui(state.get("pending_image_url"))
-            page.snack_bar = ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green", open=True)
+            page.open(ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green", open=True))
             page.update()
+
+    # [FIX] Instantiate Local Picker and Cleanup
+    local_file_picker = ft.FilePicker(on_result=on_chat_file_result, on_upload=on_chat_upload_progress)
+    local_file_picker.data = "chat_local_picker"
+    
+    for c in list(page.overlay):
+        if hasattr(c, "data") and c.data == "chat_local_picker":
+            try: page.overlay.remove(c)
+            except: pass
+    page.overlay.append(local_file_picker)
 
     def update_pending_ui(public_url):
         if not public_url: return
@@ -954,7 +947,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 content=ft.Column([
                     pending_container,
                     ft.Row([
-                        ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED, icon_color="#757575", on_click=lambda _: page.chat_file_picker.pick_files()),
+                        ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED, icon_color="#757575", on_click=lambda _: local_file_picker.pick_files()),
                         msg_input, 
                         ft.IconButton(ft.Icons.SEND_ROUNDED, icon_color="#2E7D32", icon_size=32, on_click=lambda _: send_message())
                     ], spacing=10)
