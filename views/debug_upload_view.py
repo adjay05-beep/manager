@@ -49,6 +49,52 @@ def DebugUploadView(page: ft.Page):
 
             threading.Thread(target=_target, daemon=True).start()
 
+        def check_disk_write(e):
+            import os, uuid
+            log("--- Checking Disk Write Permissions ---")
+            try:
+                test_name = f"test_{uuid.uuid4()}.txt"
+                path = os.path.join("uploads", test_name)
+                
+                # 1. Create Folder if missing
+                if not os.path.exists("uploads"):
+                    log("Creating 'uploads' directory...")
+                    os.makedirs("uploads", exist_ok=True)
+                
+                # 2. Write
+                log(f"Writing to {path}...")
+                with open(path, "w") as f:
+                    f.write("test_content")
+                
+                # 3. Read
+                log("Reading back...")
+                with open(path, "r") as f:
+                    content = f.read()
+                    
+                if content == "test_content":
+                    log("SUCCESS: Disk Write/Read OK")
+                else:
+                    log(f"FAILURE: Content mismatch ({content})")
+                    
+                # 4. Delete
+                log("Deleting test file...")
+                os.remove(path)
+                log("SUCCESS: Delete OK")
+                
+            except Exception as ex:
+                log(f"DISK ERROR: {ex}")
+                log(traceback.format_exc())
+
+        def check_supabase_connect(e):
+            log("--- Checking Supabase Network ---")
+            try:
+                from db import service_supabase
+                log("Calling list_buckets()...")
+                res = service_supabase.storage.list_buckets()
+                log(f"SUCCESS: Connected. Buckets Found: {len(res) if res else 0}")
+            except Exception as ex:
+                log(f"NETWORK ERROR: {ex}")
+
         picker = ft.FilePicker(on_result=on_upload_result)
         page.overlay.append(picker)
         # [FIX] Do not call page.update() here. Let main.py do it.
@@ -61,6 +107,10 @@ def DebugUploadView(page: ft.Page):
                         ft.Text("Upload Diagnostic", size=20, weight="bold", color="red")
                     ]),
                     ft.ElevatedButton("Select File to Test", on_click=lambda _: picker.pick_files()),
+                    ft.Row([
+                        ft.ElevatedButton("Server Disk Write Test", on_click=check_disk_write, bgcolor="blue", color="white"),
+                        ft.ElevatedButton("Supabase Connection Test", on_click=check_supabase_connect, bgcolor="green", color="white"),
+                    ], spacing=10),
                     ft.Container(
                         content=log_control,
                         border=ft.border.all(1, "grey"),
