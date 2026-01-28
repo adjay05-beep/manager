@@ -532,7 +532,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
     # [FIX] Local FilePicker Logic
     def on_chat_file_result(e: ft.FilePickerResultEvent):
         if not e.files: return
-
+        f = e.files[0]
+        from utils.logger import log_info
+        log_info(f"File Selected: {f.name}, Size: {f.size} bytes")
         # Immediate Feedback
         page.open(ft.SnackBar(ft.Text("파일 확인 중..."), open=True))
         page.update()
@@ -717,9 +719,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
         threading.Thread(target=_thread_target, daemon=True).start()
 
     def on_chat_upload_progress(e: ft.FilePickerUploadEvent):
-        print(f"Upload Progress: {e.progress}, Error: {e.error}")
+        from utils.logger import log_info
+        log_info(f"Upload Progress: {e.progress:.2f}, Error: {e.error}")
         
         if e.error:
+            log_info(f"CRITICAL: Upload Event Error: {e.error}")
             page.open(ft.SnackBar(ft.Text(f"업로드 실패: {e.error}"), bgcolor="red", open=True))
             page.update()
             pending_container.visible = False
