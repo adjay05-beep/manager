@@ -76,10 +76,23 @@ def analyze_chat_for_calendar(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         log_info(f"AI Analysis Result: {parsed}")
         return parsed
 
+    except requests.exceptions.HTTPError as http_err:
+        log_error(f"AI Service HTTP Error: {http_err}")
+        status = http_err.response.status_code
+        msg = "AI 요청 실패"
+        if status == 401: msg = "오류: API 키 인증 실패 (환경변수 확인)"
+        elif status == 429: msg = "오류: API 사용 한도 초과 (충전 필요)"
+        elif status == 500: msg = "오류: AI 서버 내부 에러"
+        
+        return {"summary": msg, "date": today_str}
+        
+    except requests.exceptions.Timeout:
+        log_error("AI Service Timeout")
+        return {"summary": "오류: 응답 시간 초과 (네트워크 확인)", "date": today_str}
+        
     except Exception as e:
         log_error(f"AI Service Error: {e}")
-        # Fallback
         return {
-            "summary": "AI 요약 실패 (직접 입력해주세요)", 
+            "summary": f"오류: {str(e)[:30]}...", 
             "date": today_str
         }
