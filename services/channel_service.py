@@ -95,10 +95,10 @@ class ChannelService:
     def join_channel(self, user_id: str, channel_code: str) -> Dict[str, Any]:
         """Join a channel via expiring invite code."""
         try:
-            from datetime import datetime
+            from datetime import datetime, timezone
             
             # 1. Find valid invite code
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(timezone.utc).isoformat()
             res = service_supabase.table("invite_codes")\
                 .select("*, channels(*)")\
                 .eq("code", channel_code)\
@@ -161,14 +161,14 @@ class ChannelService:
     def generate_invite_code(self, channel_id: int, user_id: str, duration_minutes: int = 10) -> str:
         """Generate a time-limited invite code."""
         try:
-            from datetime import datetime, timedelta
+            from datetime import datetime, timedelta, timezone
             import random, string
             
             # Generate unique code
             code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
             
             # Calculate expiration
-            expires_at = (datetime.utcnow() + timedelta(minutes=duration_minutes)).isoformat()
+            expires_at = (datetime.now(timezone.utc) + timedelta(minutes=duration_minutes)).isoformat()
             
             # Insert
             res = service_supabase.table("invite_codes").insert({
@@ -189,8 +189,8 @@ class ChannelService:
     def get_active_invite_codes(self, channel_id: int):
         """Get all active (non-expired) invite codes for a channel."""
         try:
-            from datetime import datetime
-            now = datetime.utcnow().isoformat()
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
             
             res = service_supabase.table("invite_codes")\
                 .select("*")\
