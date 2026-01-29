@@ -250,8 +250,6 @@ def get_home_controls(page: ft.Page, navigate_to):
                                         f"{display_name}님",
                                         style=AppTextStyles.BODY_SMALL
                                     )
-                                        color="grey",
-                                    )
                                 ], spacing=0, alignment=ft.MainAxisAlignment.CENTER),
                             ], spacing=10), # End Left Row
 
