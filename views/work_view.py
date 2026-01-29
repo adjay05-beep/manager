@@ -2,6 +2,8 @@ import flet as ft
 from datetime import datetime, timedelta
 from db import service_supabase
 import asyncio
+from views.styles import AppColors, AppTextStyles, AppLayout
+from views.components.app_header import AppHeader
 import os
 import calendar as cal_mod
 import re
@@ -970,9 +972,7 @@ def get_work_controls(page: ft.Page, navigate_to):
         
     update_tabs_ui()
 
-    from views.styles import AppColors, AppTextStyles, AppLayout
-    from views.components.app_header import AppHeader
-
+    # Imports moved to top
     header = AppHeader(
         title_text="직원 관리",
         on_back_click=lambda _: navigate_to("home")

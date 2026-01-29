@@ -334,8 +334,7 @@ def get_voice_controls(page: ft.Page, navigate_to):
         on_click=pick_file_click, padding=10
     )
     
-    from views.styles import AppColors, AppTextStyles, AppLayout
-    from views.components.app_header import AppHeader
+    # Imports moved to top
 
     # ... (Previous imports kept if possible)
 

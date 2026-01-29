@@ -6,6 +6,7 @@ import asyncio
 from services import storage_service
 from services import chat_service
 from db import supabase, service_supabase, app_logs, log_info
+from views.styles import AppColors, AppTextStyles, AppLayout
 
 DEBUG_MODE = True
 
@@ -1247,7 +1248,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
         root_view.controls = [list_page] if state["view_mode"] == "list" else [chat_page]
         page.update()
 
-    from views.styles import AppColors, AppTextStyles, AppLayout
+    # Removed local import to fix scope UnboundLocalError
 
     # ...
     

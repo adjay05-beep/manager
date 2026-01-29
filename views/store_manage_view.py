@@ -349,8 +349,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
     if role == "owner":
         load_members()
 
-    from views.styles import AppColors, AppTextStyles, AppLayout
-    from views.components.app_header import AppHeader
+    # Imports moved to top
 
     # ... (Previous imports kept if possible, but replace strict block)
 
