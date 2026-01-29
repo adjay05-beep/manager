@@ -6,11 +6,82 @@ from db import has_service_key, app_logs, service_key
 def get_onboarding_controls(page: ft.Page, navigate_to):
     current_user_id = page.session.get("user_id")
     
+    # [Name Verification] Fetch User Name
+    user_name = page.session.get("display_name")
+    if not user_name:
+        try:
+             res = service_supabase.table("profiles").select("full_name").eq("id", current_user_id).single().execute()
+             if res.data: user_name = res.data.get("full_name")
+        except: user_name = "User"
+
     # State
     join_code_tf = ft.TextField(label="매장 초대 코드 (예: STORE-1234)", text_align=ft.TextAlign.CENTER)
-    create_name_tf = ft.TextField(label="새 매장 이름", text_align=ft.TextAlign.CENTER)
+
+    # [Business Verification]
+    business_num_tf = ft.TextField(label="사업자 등록번호 (- 없이 입력)", text_align=ft.TextAlign.CENTER, input_filter=ft.InputFilter.numbers_only())
+    create_name_tf = ft.TextField(label="매장 이름 (자동 입력)", text_align=ft.TextAlign.CENTER, read_only=True, bgcolor="#F5F5F5")
+    
+    verified_biz_info = {"number": None, "owner": None}
     
     error_text = ft.Text("", color="red", size=12)
+
+    def on_verify_biz(e):
+        b_num = business_num_tf.value
+        if not b_num or len(b_num) < 10:
+            error_text.value = "올바른 사업자 번호 10자리를 입력해주세요."
+            page.update()
+            return
+        
+        # [MOCK API] Simulation of Hometax Lookup
+        # In real world, use hometax API or crawling
+        import asyncio
+        async def verify_process():
+            # Simulate network delay
+            btn_verify.disabled = True; btn_verify.content = ft.ProgressRing(width=16, height=16); page.update()
+            await asyncio.sleep(1.5)
+            
+            # Mock Result
+            # Logic: 
+            # Ends with '1': Mismatch (Hong Gil Dong)
+            # Ends with '9': Match (Current User)
+            # Others: Hong Gil Dong
+            
+            mock_owner = "홍길동"
+            if b_num.endswith("9"):
+                mock_owner = user_name
+            
+            if b_num.startswith("1") or b_num == "0000000000": 
+                biz_name = f"(주)사업자_{b_num[-4:]}" 
+                
+                # Check Name Match
+                is_match = (mock_owner == user_name)
+                
+                if not is_match:
+                     error_text.value = f"❌ 명의 불일치: 사업자 대표({mock_owner})와 가입자({user_name})가 다릅니다."
+                     error_text.color = "red"
+                     create_name_tf.value = ""
+                     verified_biz_info["number"] = None
+                else:
+                    create_name_tf.value = biz_name
+                    create_name_tf.read_only = True
+                    create_name_tf.bgcolor = "#E8F5E9" # Light Green
+                    create_name_tf.label = "매장 이름 (인증됨)"
+                    
+                    verified_biz_info["number"] = b_num
+                    verified_biz_info["owner"] = mock_owner
+                    
+                    error_text.value = "✅ 사업자 정보 및 본인 확인 완료."
+                    error_text.color = "green"
+            else:
+                error_text.value = "❌ 등록되지 않은 사업자 번호입니다. (테스트: 1로 시작하면 성공)"
+                error_text.color = "red"
+                create_name_tf.value = ""
+            
+            btn_verify.disabled = False; btn_verify.content = ft.Text("조회"); page.update()
+
+        page.run_task(verify_process)
+
+    btn_verify = ft.ElevatedButton("조회", on_click=on_verify_biz, bgcolor="#455A64", color="white")
     
     def on_join(e):
         code = join_code_tf.value
@@ -29,12 +100,22 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
     def on_create(e):
         name = create_name_tf.value
         if not name:
-            error_text.value = "매장 이름을 입력해주세요."
+            error_text.value = "먼저 사업자 번호를 조회해주세요."
             page.update()
             return
+            
+        if not verified_biz_info["number"]:
+             error_text.value = "사업자 인증이 필요합니다."
+             page.update()
+             return
 
         try:
-            ch = channel_service.create_channel(current_user_id, name)
+            ch = channel_service.create_channel(
+                current_user_id, 
+                name,
+                business_number=verified_biz_info["number"],
+                business_owner=verified_biz_info["owner"]
+            )
             complete_login(ch)
         except Exception as ex:
             error_text.value = f"생성 실패: {ex}"
@@ -67,6 +148,8 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
                         border_radius=10,
                         content=ft.Column([
                             ft.Text("새 매장 만들기 (사장님)", weight="bold", color="#0A1929"),
+                            ft.Text("사업자 등록번호를 입력하여 매장을 개설하세요.", size=12, color="grey"),
+                            ft.Row([business_num_tf, btn_verify], alignment="center"),
                             create_name_tf,
                             ft.ElevatedButton("매장 생성하기", on_click=on_create, width=200, height=45, bgcolor="#1565C0", color="white")
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)

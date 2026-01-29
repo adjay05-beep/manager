@@ -50,8 +50,8 @@ class ChannelService:
             log_info(f"Error fetching user channels: {e}")
             return []
 
-    def create_channel(self, user_id: str, name: str) -> Dict[str, Any]:
-        """Create a new channel and make user the owner."""
+    def create_channel(self, user_id: str, name: str, business_number: str = None, business_owner: str = None) -> Dict[str, Any]:
+        """Create a new channel and make user the owner. Optionally store business verification info."""
         try:
             # 1. Create Channel
             # Generate a random code? Or let DB handle it? 
@@ -59,11 +59,17 @@ class ChannelService:
             import random, string
             code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
             
-            res = service_supabase.table("channels").insert({
+            payload = {
                 "name": name,
                 "owner_id": user_id,
                 "channel_code": code
-            }).execute()
+            }
+            if business_number:
+                payload["business_number"] = business_number
+                payload["business_owner_name"] = business_owner
+                payload["is_verified"] = True
+
+            res = service_supabase.table("channels").insert(payload).execute()
             
             if not res.data:
                 raise Exception("Failed to create channel record")
