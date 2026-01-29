@@ -2,6 +2,7 @@ import os
 import mimetypes
 from datetime import datetime
 from dotenv import load_dotenv
+import httpx
 from supabase_auth import SyncGoTrueClient
 from postgrest import SyncPostgrestClient
 try:
@@ -66,7 +67,6 @@ class SupabaseClient:
             "Authorization": f"Bearer {self.key}"
         }
 
-import httpx
 class ManualStorageManager:
     def __init__(self, url, headers, client=None):
         self.url = url

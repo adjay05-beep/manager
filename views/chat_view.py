@@ -11,20 +11,64 @@ from views.components.app_header import AppHeader
 
 DEBUG_MODE = True
 
+
+class ThreadSafeState:
+    """[SECURITY] Thread-safe state management to prevent race conditions."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._data = {
+            "current_topic_id": None,
+            "edit_mode": False,
+            "view_mode": "list",
+            "pending_image_url": None,
+            "pending_file_name": None,
+            "is_active": True,
+            "selection_mode": False,
+            "selected_ids": set()
+        }
+
+    def get(self, key, default=None):
+        with self._lock:
+            return self._data.get(key, default)
+
+    def set(self, key, value):
+        with self._lock:
+            self._data[key] = value
+
+    def __getitem__(self, key):
+        with self._lock:
+            return self._data[key]
+
+    def __setitem__(self, key, value):
+        with self._lock:
+            self._data[key] = value
+
+    def add_selected(self, item_id):
+        with self._lock:
+            self._data["selected_ids"].add(str(item_id))
+
+    def remove_selected(self, item_id):
+        with self._lock:
+            str_id = str(item_id)
+            if str_id in self._data["selected_ids"]:
+                self._data["selected_ids"].remove(str_id)
+
+    def clear_selected(self):
+        with self._lock:
+            self._data["selected_ids"] = set()
+
+    def get_selected_copy(self):
+        with self._lock:
+            return self._data["selected_ids"].copy()
+
+
 def get_chat_controls(page: ft.Page, navigate_to):
     # [FIX] Stability: Use Global FilePicker and Robust Lifecycle Management
     from views.components.chat_bubble import ChatBubble
-    
-    state = {
-        "current_topic_id": None, 
-        "edit_mode": False, 
-        "view_mode": "list", 
-        "pending_image_url": None,
-        "pending_file_name": None,
-        "is_active": True, # Flag to control infinite loops
-        "selection_mode": False,
-        "selected_ids": set()
-    }
+
+    # [SECURITY] Thread-safe state management
+    state = ThreadSafeState()
     # [RBAC] Get User from Session
     current_user_id = page.session.get("user_id")
     
@@ -412,11 +456,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         # We don't have the Name handy in the 'data' (we might, but risky).
                         # Let's add 'name' to topic data too for safety.
                         
-                        t_name = data.get("topic_name") 
+                        t_name = data.get("topic_name")
                         # Update
                         chat_service.update_topic(tid, t_name, current_cat_name)
-                        chat_service.update_topic_order(tid, score)
-                        
+                        chat_service.update_topic_order(tid, score, current_user_id)
+
                 load_topics(True)
                 
             threading.Thread(target=_update_order, daemon=True).start()
@@ -424,7 +468,16 @@ def get_chat_controls(page: ft.Page, navigate_to):
             log_info(f"Reorder Error: {ex}")
 
     def toggle_priority(tid, current_val):
-        threading.Thread(target=lambda: (chat_service.toggle_topic_priority(tid, current_val), load_topics(True)), daemon=True).start()
+        def _do_toggle():
+            try:
+                chat_service.toggle_topic_priority(tid, current_val, current_user_id)
+                load_topics(True)
+            except PermissionError as perm_err:
+                page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red", open=True)
+                page.update()
+            except Exception as ex:
+                log_info(f"Toggle priority error: {ex}")
+        threading.Thread(target=_do_toggle, daemon=True).start()
 
     def open_manage_categories_dialog(e):
         cat_list = ft.Column(spacing=5)
@@ -501,15 +554,17 @@ def get_chat_controls(page: ft.Page, navigate_to):
             # 3. Build New Control List
             new_controls = []
             def on_msg_select(mid, val):
-                if val: state["selected_ids"].add(str(mid))
-                elif str(mid) in state["selected_ids"]: state["selected_ids"].remove(str(mid))
+                if val:
+                    state.add_selected(mid)
+                else:
+                    state.remove_selected(mid)
                 # Update UI count? Maybe later.
 
             for m in db_messages:
                 new_controls.append(ChatBubble(
-                    m, 
-                    current_user_id, 
-                    selection_mode=state["selection_mode"],
+                    m,
+                    current_user_id,
+                    selection_mode=state.get("selection_mode"),
                     on_select=on_msg_select
                 ))
             
@@ -862,7 +917,18 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     def confirm_delete_topic(tid):
         def delete_it(e):
-            threading.Thread(target=lambda: (chat_service.delete_topic(tid), load_topics(True)), daemon=True).start()
+            def _do_delete():
+                try:
+                    chat_service.delete_topic(tid, current_user_id)
+                    load_topics(True)
+                except PermissionError as perm_err:
+                    page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red", open=True)
+                    page.update()
+                except Exception as ex:
+                    log_info(f"Delete topic error: {ex}")
+                    page.snack_bar = ft.SnackBar(ft.Text(f"삭제 실패: {ex}"), bgcolor="red", open=True)
+                    page.update()
+            threading.Thread(target=_do_delete, daemon=True).start()
             page.close(dlg)
 
         dlg = ft.AlertDialog(
@@ -992,7 +1058,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             content=name_input,
             actions=[
                 ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
-                ft.ElevatedButton("저장", on_click=do_rename, bgcolor="#2E7D32", color="white")
+                ft.ElevatedButton("저장", on_click=do_update, bgcolor="#2E7D32", color="white")
             ]
         )
         page.open(dlg)
@@ -1225,142 +1291,6 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     # [AI Calendar Feature]
     def open_ai_calendar_dialog(e):
-        if not state.get("current_topic_id"): return
-        
-        # 1. Show Loading
-        loading_dlg = ft.AlertDialog(content=ft.Row([ft.ProgressRing(), ft.Text("AI가 대화를 분석 중입니다...")], alignment="center", spacing=20), modal=True)
-        page.open(loading_dlg)
-        page.update()
-        
-        def run_analysis():
-            try:
-                # 2. Fetch Messages
-                if state["selection_mode"] and state["selected_ids"]:
-                    # Fetch specific messages or filter from DB
-                    # Since we don't have get_messages_by_ids, we fetch all (limit) and filter?
-                    # Or simpler: The user likely selects from recent messages.
-                    # We can fetch 50 and filter.
-                    # Ideally, pass the messages directly if they were in memory, but state['selected_ids'] only has IDs.
-                    
-                    full_msgs = chat_service.get_messages(state["current_topic_id"], limit=100)
-                    msgs = [m for m in full_msgs if str(m['id']) in state["selected_ids"]]
-                    
-                    if not msgs:
-                        page.snack_bar = ft.SnackBar(ft.Text("선택된 메시지가 범위 내에 없거나 로드되지 않았습니다."), bgcolor="orange"); page.snack_bar.open=True; page.update(); page.close(loading_dlg); return
-                else:
-                    msgs = chat_service.get_messages(state["current_topic_id"], limit=50) 
-                
-                # 3. Analyze
-                
-                # 3. Analyze
-                result = ai_service.analyze_chat_for_calendar(msgs)
-                
-                # 4. Prepare Dialog Default Values
-                summary = result.get("summary", "")
-                d_str = result.get("date")
-                t_str = result.get("time")
-                
-                default_date = datetime.now()
-                if d_str:
-                    try: default_date = datetime.strptime(d_str, "%Y-%m-%d")
-                    except: pass
-                    
-                default_time = time(9, 0)
-                if t_str:
-                    try: 
-                        h, m = map(int, t_str.split(':'))
-                        default_time = time(h, m)
-                    except: pass
-                    
-                # 5. Show Editor Dialog (Re-using logic similar to calendar_view but simplified)
-                def show_editor():
-                    page.close(loading_dlg)
-                    
-                    tf_summary = ft.TextField(label="요약 (제목)", value=summary, autofocus=True)
-                    tf_date = ft.TextField(label="날짜", value=default_date.strftime("%Y-%m-%d"), read_only=True)
-                    tf_time = ft.TextField(label="시간", value=default_time.strftime("%H:%M"), read_only=True)
-                    
-                    # Date/Time Pickers
-                    def on_date_change(e):
-                        if e.control.value: tf_date.value = e.control.value.strftime("%Y-%m-%d"); page.update()
-                    dp = ft.DatePicker(on_change=on_date_change, value=default_date)
-                    
-                    def on_time_change(e):
-                        if e.control.value: tf_time.value = e.control.value.strftime("%H:%M"); page.update()
-                    tp = ft.TimePicker(on_change=on_time_change, value=default_time, time_picker_entry_mode=ft.TimePickerEntryMode.DIAL_ONLY)
-                    
-                    page.overlay.extend([dp, tp])
-                    
-                    def start_save(e):
-                        if not tf_summary.value: tf_summary.error_text = "내용을 입력하세요."; tf_summary.update(); return
-                        
-                        # Save
-                        async def do_save():
-                            try:
-                                d_val = datetime.strptime(tf_date.value, "%Y-%m-%d")
-                                t_val = datetime.strptime(tf_time.value, "%H:%M").time()
-                                dt_start = datetime.combine(d_val.date(), t_val)
-                                dt_end = dt_start + timedelta(hours=1) # Default 1 hour
-                                
-                                payload = {
-                                    "title": tf_summary.value,
-                                    "start_date": dt_start.strftime("%Y-%m-%d %H:%M:%S"),
-                                    "end_date": dt_end.strftime("%Y-%m-%d %H:%M:%S"),
-                                    "is_all_day": False,
-                                    "color": "#448AFF",
-                                    "created_by": current_user_id,
-                                    "user_id": current_user_id,
-                                    "channel_id": current_channel_id,
-                                    "description": "AI Generated from Chat Topic: " + str(state["current_topic_id"])
-                                }
-                                await calendar_service.create_event(payload)
-                                page.snack_bar = ft.SnackBar(ft.Text("📅 캘린더에 등록되었습니다!"), bgcolor="green"); page.snack_bar.open = True
-                                page.close(dlg)
-                                page.update()
-                            except Exception as ex:
-                                page.snack_bar = ft.SnackBar(ft.Text(f"등록 실패: {ex}"), bgcolor="red"); page.snack_bar.open = True
-                                page.update()
-                        
-                        page.run_task(do_save)
-
-                    dlg = ft.AlertDialog(
-                        title=ft.Text("AI 일정 등록"),
-                        content=ft.Container(
-                            height=300,
-                            content=ft.Column([
-                                tf_summary,
-                                ft.Row([
-                                    ft.IconButton(ft.Icons.CALENDAR_MONTH, on_click=lambda _: page.open(dp)),
-                                    tf_date,
-                                ]),
-                                ft.Row([
-                                    ft.IconButton(ft.Icons.ACCESS_TIME, on_click=lambda _: page.open(tp)),
-                                    tf_time
-                                ])
-                            ])
-                        ),
-                        actions=[
-                            ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
-                            ft.ElevatedButton("등록", on_click=start_save, bgcolor=AppColors.PRIMARY, color="white")
-                        ]
-                    )
-                    page.open(dlg)
-                
-                # Run UI update in main thread task logic? No, we are in run_analysis thread usually?
-                # Flet run_task runs in thread. UI update safe? Yes.
-                show_editor()
-                
-            except Exception as ex:
-                page.close(loading_dlg)
-                print(f"AI Error: {ex}")
-                page.snack_bar = ft.SnackBar(ft.Text(f"AI 분석 오류: {ex}"), bgcolor="red"); page.snack_bar.open=True
-                page.update()
-                
-        page.run_task(run_analysis)
-
-    # [AI Calendar Feature]
-    # [AI Calendar Feature]
-    def open_ai_calendar_dialog(e):
         from utils.logger import log_error, log_info
         # [FIX] Local imports to resolve scope issues safely
         from services import ai_service, calendar_service
@@ -1405,17 +1335,18 @@ def get_chat_controls(page: ft.Page, navigate_to):
         def run_analysis():
             try:
                 log_info(f"AI START: TopicID={state.get('current_topic_id')}, SelectionMode={state.get('selection_mode')}")
-                
-                # ...
-                if state.get("selection_mode") and state.get("selected_ids"):
-                    full_msgs = chat_service.get_messages(state["current_topic_id"], limit=100)
-                    msgs = [m for m in full_msgs if str(m['id']) in state["selected_ids"]]
-                    
+
+                # Get selected IDs safely (thread-safe copy)
+                selected_ids = state.get_selected_copy()
+                if state.get("selection_mode") and selected_ids:
+                    full_msgs = chat_service.get_messages(state.get("current_topic_id"), limit=100)
+                    msgs = [m for m in full_msgs if str(m['id']) in selected_ids]
+
                     if not msgs:
                         log_info("AI Aborted: No messages selected.")
                         page.snack_bar = ft.SnackBar(ft.Text("선택된 메시지가 범위 내에 없거나 로드되지 않았습니다."), bgcolor="orange"); page.snack_bar.open=True; page.update(); page.close(loading_dlg); return
                 else:
-                    msgs = chat_service.get_messages(state["current_topic_id"], limit=50)
+                    msgs = chat_service.get_messages(state.get("current_topic_id"), limit=50)
                 
                 log_info(f"AI Processing {len(msgs)} messages...")
 
@@ -1590,12 +1521,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
     )
 
     def toggle_selection_mode(active):
-        state["selection_mode"] = active
-        state["selected_ids"] = set() # Reset on toggle
+        state.set("selection_mode", active)
+        state.clear_selected()  # Thread-safe reset
         selection_action_bar.visible = active
-        input_row_container.visible = not active # We need a ref for the input row container
+        input_row_container.visible = not active  # We need a ref for the input row container
         page.update()
-        load_messages() # Re-render bubbles with checkboxes
+        load_messages()  # Re-render bubbles with checkboxes
 
     chat_input_row = ft.Row([
         ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED, icon_color="#757575", on_click=lambda _: local_file_picker.pick_files()),

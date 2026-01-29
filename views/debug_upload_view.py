@@ -116,8 +116,8 @@ def DebugUploadView(page: ft.Page):
                     try:
                         size = os.path.getsize(os.path.join("uploads", f))
                         log(f"- {f} ({size} bytes)")
-                    except:
-                        log(f"- {f} (Error reading size)")
+                    except OSError as os_err:
+                        log(f"- {f} (Error reading size: {os_err})")
                 if not files: log("(Empty)")
             else:
                 log("ERROR: 'uploads/' directory does not exist!")

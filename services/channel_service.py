@@ -147,7 +147,8 @@ class ChannelService:
             if res.data:
                 return res.data.get("role", "staff")
             return "staff"
-        except:
+        except Exception as e:
+            log_info(f"Failed to get channel role: channel={channel_id}, user={user_id}, error={e}")
             return "staff"
 
     def update_channel(self, channel_id: int, name: str):
@@ -225,15 +226,50 @@ class ChannelService:
             log_info(f"Error fetching members: {e}")
             return []
 
-    def update_member_role(self, channel_id: int, target_user_id: str, new_role: str):
-        """Update a member's role."""
+    def _verify_admin_permission(self, channel_id: int, user_id: str) -> bool:
+        """Verify user has admin (owner/manager) permission in channel."""
+        try:
+            res = service_supabase.table("channel_members").select("role")\
+                .eq("channel_id", channel_id).eq("user_id", user_id).single().execute()
+            if res.data and res.data.get("role") in ["owner", "manager"]:
+                return True
+            return False
+        except Exception as e:
+            log_info(f"Permission check error: {e}")
+            return False
+
+    def update_member_role(self, channel_id: int, target_user_id: str, new_role: str, requesting_user_id: str = None):
+        """Update a member's role with permission check."""
+        # [SECURITY] 권한 검증 - owner/manager만 역할 변경 가능
+        if requesting_user_id:
+            if not self._verify_admin_permission(channel_id, requesting_user_id):
+                raise PermissionError("멤버 역할을 변경할 권한이 없습니다.")
+
+            # Owner role은 owner만 부여 가능
+            if new_role == "owner":
+                current_role = self.get_channel_role(channel_id, requesting_user_id)
+                if current_role != "owner":
+                    raise PermissionError("Owner 역할은 현재 Owner만 부여할 수 있습니다.")
+
         service_supabase.table("channel_members").update({"role": new_role})\
             .eq("channel_id", channel_id).eq("user_id", target_user_id).execute()
+        log_info(f"Role updated: channel={channel_id}, user={target_user_id}, new_role={new_role}")
 
-    def remove_member(self, channel_id: int, target_user_id: str):
-        """Remove a member from the channel."""
+    def remove_member(self, channel_id: int, target_user_id: str, requesting_user_id: str = None):
+        """Remove a member from the channel with permission check."""
+        # [SECURITY] 권한 검증
+        if requesting_user_id:
+            if not self._verify_admin_permission(channel_id, requesting_user_id):
+                raise PermissionError("멤버를 내보낼 권한이 없습니다.")
+
+            # Owner는 삭제 불가 (ownership transfer 필요)
+            target_role = self.get_channel_role(channel_id, target_user_id)
+            if target_role == "owner":
+                raise PermissionError("Owner는 직접 나가거나 다른 사람에게 소유권을 이전해야 합니다.")
+
         service_supabase.table("channel_members").delete()\
             .eq("channel_id", channel_id).eq("user_id", target_user_id).execute()
+        log_info(f"Member removed: channel={channel_id}, user={target_user_id}")
 
 # Singleton
 channel_service = ChannelService()

@@ -320,12 +320,18 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         def delete_ev(e):
             async def _del():
                 try:
-                    await calendar_service.delete_event(ev['id'])
-                    page.snack_bar = ft.SnackBar(ft.Text("삭제되었습니다.")); page.snack_bar.open=True
+                    await calendar_service.delete_event(ev['id'], current_user_id)
+                    page.snack_bar = ft.SnackBar(ft.Text("삭제되었습니다."), bgcolor="green"); page.snack_bar.open=True
                     page.close(dlg_det)
                     load()
                     page.update()
-                except Exception as ex: print(f"Del Error: {ex}")
+                except PermissionError as perm_err:
+                    page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"); page.snack_bar.open=True
+                    page.update()
+                except Exception as ex:
+                    log_error(f"Delete Error: {ex}")
+                    page.snack_bar = ft.SnackBar(ft.Text(f"삭제 실패: {ex}"), bgcolor="red"); page.snack_bar.open=True
+                    page.update()
             page.run_task(_del)
 
         def open_map(e):
@@ -502,7 +508,8 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                     if nh >= 24: nh -= 24 # Simplified wrap around
                     et_time = f"{nh:02d}:{nm:02d}"
                     title_suffix = f"({ext_h}h 연장 / {st_time}~{et_time})"
-                except:
+                except Exception as calc_err:
+                    log_error(f"Overtime calculation error: {calc_err}")
                     page.open(ft.SnackBar(ft.Text("연장 시간 계산 오류"), bgcolor="red"))
                     return
 
@@ -638,33 +645,8 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 status_msg.value = "준비 중..."
                 status_msg.visible = True
                 page.update()
-                
-                try:
-                    from services import storage_service
-                    
-                    def update_ui_status(msg):
-                        status_msg.value = msg
-                        page.update()
-                    
-                    # [REFACTORED] Use Unified Storage Service
-                    # Use page.file_picker which is set in main.py
-                    picker = getattr(page, "file_picker", None)
-                    res = page.run_task(lambda: storage_service.handle_file_upload(page, f, update_ui_status, picker_ref=picker)).result()
-                    
-                    # Async handling inside sync event handler requires waiting or restructuring
-                    # Actually, handle_file_upload is async. We are in a sync UI callback?
-                    # Flet UI callbacks are threaded?
-                    # No, we should run it as a task.
-                    # But run_task returns a Task object, not the result immediately.
-                    
-                    # FIX: We need to wrap this properly.
-                    # Since we can't await here easily without making on_file_result async (which Flet supports!)
-                    pass
-                except:
-                    # Fallback Logic inline if async migration is hard
-                    pass
-                
-                # Let's switch on_file_result to async!
+
+                # [CLEAN] Use async do_upload function
                 async def do_upload():
                     try:
                         from services import storage_service

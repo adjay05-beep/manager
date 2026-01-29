@@ -1,5 +1,6 @@
 import flet as ft
 from db import supabase, service_supabase
+from utils.logger import log_error, log_info
 
 # [NEW] Authentication Service for Real Login
 
@@ -95,7 +96,8 @@ class AuthService:
             if res.data:
                 return res.data.get("role", "staff")
             return "staff"
-        except:
+        except Exception as e:
+            log_error(f"Failed to fetch user role for {user_id}: {e}")
             return "staff"
 
     def resend_otp(self, email):
@@ -124,7 +126,8 @@ class AuthService:
             session = supabase.auth.get_session()
             if session and session.access_token:
                 return session.access_token
-        except: pass
+        except Exception as e:
+            log_error(f"Failed to get access token: {e}")
         return None
 
     def get_auth_headers(self):
@@ -150,7 +153,8 @@ class AuthService:
         """Return the current session object (containing tokens)"""
         try:
             return supabase.auth.get_session()
-        except:
+        except Exception as e:
+            log_error(f"Failed to get session: {e}")
             return None
 
     def refresh_session(self, refresh_token_str):

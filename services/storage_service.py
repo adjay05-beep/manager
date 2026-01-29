@@ -199,7 +199,8 @@ def upload_proxy_file_to_supabase(storage_name: str) -> str:
                       log_info("Retrying with octet-stream...")
                       try:
                            upload_file_server_side(storage_name, file_data, content_type="application/octet-stream")
-                      except:
+                      except Exception as retry_err:
+                           log_error(f"Retry upload failed: {retry_err}")
                            raise Exception(f"업로드 거부 (400): 파일 형식 문제 또는 네트워크 오류입니다.")
             raise up_ex
         

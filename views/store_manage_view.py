@@ -36,8 +36,8 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
     try:
         res = service_supabase.table("profiles").select("*").eq("id", user_id).single().execute()
         user_profile = res.data
-    except:
-        pass
+    except Exception as e:
+        log_error(f"Failed to fetch user profile: {e}")
 
     # === UI STATE ===
     
@@ -323,18 +323,22 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
 
     def update_member_role(uid, new_role):
         try:
-            channel_service.update_member_role(channel_id, uid, new_role)
-            page.snack_bar = ft.SnackBar(ft.Text("권한이 수정되었습니다.")); page.snack_bar.open=True; page.update()
+            channel_service.update_member_role(channel_id, uid, new_role, user_id)
+            page.snack_bar = ft.SnackBar(ft.Text("권한이 수정되었습니다."), bgcolor="green"); page.snack_bar.open=True; page.update()
+        except PermissionError as perm_err:
+            page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"); page.snack_bar.open=True; page.update()
         except Exception as ex:
             page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
 
     def confirm_kick(uid, name):
         def do_kick(e):
             try:
-                channel_service.remove_member(channel_id, uid)
+                channel_service.remove_member(channel_id, uid, user_id)
                 page.close(dlg)
                 load_members()
-                page.snack_bar = ft.SnackBar(ft.Text(f"{name}님을 내보냈습니다.")); page.snack_bar.open=True; page.update()
+                page.snack_bar = ft.SnackBar(ft.Text(f"{name}님을 내보냈습니다."), bgcolor="green"); page.snack_bar.open=True; page.update()
+            except PermissionError as perm_err:
+                page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"); page.snack_bar.open=True; page.update()
             except Exception as ex:
                 log_error(f"Kick Error: {ex}")
 

@@ -3,12 +3,10 @@
 Chat Service for The Manager
 Handles chat topics, categories, and messages using Supabase.
 """
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from db import supabase, service_supabase
 from utils.network import retry_operation
-
-# Constants
-CURRENT_USER_ID = "00000000-0000-0000-0000-000000000001"
+from utils.logger import log_error, log_info
 
 def get_categories(channel_id: int) -> List[Dict[str, Any]]:
     """Fetch all chat categories for a specific channel."""
@@ -76,19 +74,57 @@ def get_recent_messages(since_time: str) -> List[Dict[str, Any]]:
         print(f"Service Error (get_recent_messages): {e}")
         return []
 
-def update_topic_order(topic_id: str, new_order: int):
+def _verify_topic_permission(topic_id: str, user_id: str) -> bool:
+    """Verify user has permission to modify topic (owner or channel admin)."""
+    try:
+        # Check if user is topic creator or has owner/manager role in channel
+        topic_res = service_supabase.table("chat_topics").select("id, created_by, channel_id").eq("id", topic_id).single().execute()
+        if not topic_res.data:
+            return False
+
+        topic = topic_res.data
+        # Creator can always modify
+        if topic.get("created_by") == user_id:
+            return True
+
+        # Check if user is owner/manager in the channel
+        channel_id = topic.get("channel_id")
+        if channel_id:
+            member_res = service_supabase.table("channel_members").select("role").eq("channel_id", channel_id).eq("user_id", user_id).single().execute()
+            if member_res.data and member_res.data.get("role") in ["owner", "manager"]:
+                return True
+
+        return False
+    except Exception as e:
+        log_error(f"Permission check error: {e}")
+        return False
+
+def update_topic_order(topic_id: str, new_order: int, user_id: str = None):
     """Update display order of a topic."""
+    if user_id and not _verify_topic_permission(topic_id, user_id):
+        raise PermissionError("토픽 수정 권한이 없습니다.")
     service_supabase.table("chat_topics").update({"display_order": new_order}).eq("id", topic_id).execute()
 
-def delete_topic(topic_id: str):
+def delete_topic(topic_id: str, user_id: str = None):
     """Delete a topic and its messages (Application-side Cascade)."""
+    # [SECURITY] 권한 검증
+    if user_id and not _verify_topic_permission(topic_id, user_id):
+        raise PermissionError("토픽 삭제 권한이 없습니다.")
+
     # 1. Delete Messages first (Constraint Fix)
     service_supabase.table("chat_messages").delete().eq("topic_id", topic_id).execute()
-    # 2. Delete Topic
+    # 2. Delete Topic Members
+    service_supabase.table("chat_topic_members").delete().eq("topic_id", topic_id).execute()
+    # 3. Delete Reading Status
+    service_supabase.table("chat_user_reading").delete().eq("topic_id", topic_id).execute()
+    # 4. Delete Topic
     service_supabase.table("chat_topics").delete().eq("id", topic_id).execute()
+    log_info(f"Topic deleted: {topic_id} by user {user_id}")
 
-def toggle_topic_priority(topic_id: str, current_val: bool):
+def toggle_topic_priority(topic_id: str, current_val: bool, user_id: str = None):
     """Toggle priority status."""
+    if user_id and not _verify_topic_permission(topic_id, user_id):
+        raise PermissionError("토픽 수정 권한이 없습니다.")
     service_supabase.table("chat_topics").update({"is_priority": not current_val}).eq("id", topic_id).execute()
 
 def create_category(name: str, channel_id: int):
@@ -201,46 +237,88 @@ def get_public_url(filename: str, bucket: str = "uploads") -> str:
     try:
         # Use SDK method if available
         return service_supabase.storage.from_(bucket).get_public_url(filename)
-    except:
+    except Exception as e:
         # Fallback to manual construction
-        base_url = supabase.supabase_url if hasattr(supabase, "supabase_url") else "https://adjay05-beep.supabase.co"
+        log_info(f"SDK get_public_url failed, using fallback: {e}")
+        base_url = supabase.url if hasattr(supabase, "url") else "https://adjay05-beep.supabase.co"
         return f"{base_url}/storage/v1/object/public/{bucket}/{filename}"
 
 def get_unread_counts(user_id: str, topics: List[Dict[str, Any]]) -> Dict[str, int]:
     """
     Calculate unread messages for a list of topics.
     Returns: {topic_id: count}
+
+    [OPTIMIZATION] Batch query instead of N+1 queries:
+    - Fetch all read statuses in one query
+    - Fetch all recent messages in one query
+    - Process counts in memory
     """
+    if not topics:
+        return {}
+
     try:
+        # 1. Get user's read status map (single query)
         read_map = get_user_read_status(user_id)
-        counts = {}
-        
-        # Optimization: Loop through provided topics
-        # In production this should be a single aggregated query or RPC
-        for t in topics:
-            tid = t['id']
+
+        # 2. Get topic IDs
+        topic_ids = [t['id'] for t in topics]
+
+        # 3. Find the oldest read timestamp to minimize data fetch
+        oldest_read = None
+        never_read_topics = []
+        for tid in topic_ids:
             last_read = read_map.get(tid)
-            
             if not last_read:
-                # If never read, we just assume there are unread messages if topic is not empty.
-                # Just checking count > 0 for optimization
-                counts[tid] = 99
-                continue
-                
-            # Count messages newer than last_read
+                never_read_topics.append(tid)
+            elif oldest_read is None or last_read < oldest_read:
+                oldest_read = last_read
+
+        counts = {}
+
+        # 4. For never-read topics, check if they have any messages
+        if never_read_topics:
+            # Single query to check which topics have messages
             res = service_supabase.table("chat_messages")\
-                .select("id", count="exact", head=True)\
-                .eq("topic_id", tid)\
-                .gt("created_at", last_read)\
+                .select("topic_id")\
+                .in_("topic_id", never_read_topics)\
+                .limit(500)\
                 .execute()
-                
-            c = res.count
-            if c and c > 0:
-                counts[tid] = c
-                
+
+            if res.data:
+                topics_with_messages = set(m['topic_id'] for m in res.data)
+                for tid in never_read_topics:
+                    if tid in topics_with_messages:
+                        counts[tid] = 99  # Indicate "many unread"
+
+        # 5. For read topics, fetch messages newer than oldest_read (single query)
+        read_topic_ids = [tid for tid in topic_ids if tid not in never_read_topics]
+        if read_topic_ids and oldest_read:
+            res = service_supabase.table("chat_messages")\
+                .select("topic_id, created_at")\
+                .in_("topic_id", read_topic_ids)\
+                .gt("created_at", oldest_read)\
+                .order("created_at", desc=True)\
+                .limit(1000)\
+                .execute()
+
+            if res.data:
+                # Count messages per topic that are newer than user's last read
+                from collections import defaultdict
+                topic_messages = defaultdict(list)
+                for m in res.data:
+                    topic_messages[m['topic_id']].append(m['created_at'])
+
+                for tid in read_topic_ids:
+                    last_read = read_map.get(tid)
+                    if last_read and tid in topic_messages:
+                        # Count messages newer than last_read
+                        unread = sum(1 for msg_time in topic_messages[tid] if msg_time > last_read)
+                        if unread > 0:
+                            counts[tid] = min(unread, 99)  # Cap at 99
+
         return counts
     except Exception as e:
-        print(f"Service Error (get_unread_counts): {e}")
+        log_error(f"Service Error (get_unread_counts): {e}")
         return {}
 
 def search_messages_global(query: str, channel_id: int) -> List[Dict[str, Any]]:

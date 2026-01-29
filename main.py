@@ -9,7 +9,6 @@ from views.closing_view import get_closing_controls
 from views.signup_view import get_signup_controls
 from views.create_profile_view import get_create_profile_controls
 from views.work_view import get_work_controls
-from views.work_view import get_work_controls
 from views.profile_edit_view import get_profile_edit_controls
 from views.onboarding_view import get_onboarding_controls
 from views.store_manage_view import get_store_manage_controls
@@ -114,8 +113,6 @@ def main(page: ft.Page):
                 controls = get_closing_controls(page, navigate_to)
             elif route == "work":
                 controls = get_work_controls(page, navigate_to)
-            elif route == "work":
-                controls = get_work_controls(page, navigate_to)
             elif route == "store_info" or route == "store_manage":
                 controls = get_store_manage_controls(page, navigate_to)
             elif route == "profile":
@@ -149,7 +146,13 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", 8555))
     host = "0.0.0.0"
     # Secure Uploads require a Secret Key
-    os.environ["FLET_SECRET_KEY"] = os.getenv("FLET_SECRET_KEY", "sample_secret_key_1234")
+    # [SECURITY FIX] 하드코딩된 기본값 제거 - 환경변수 필수 또는 안전한 랜덤 키 생성
+    secret_key = os.getenv("FLET_SECRET_KEY")
+    if not secret_key:
+        import secrets
+        secret_key = secrets.token_hex(32)
+        print("WARNING: FLET_SECRET_KEY not set. Generated temporary key (will change on restart).")
+    os.environ["FLET_SECRET_KEY"] = secret_key
 
     # 브라우저 실행 모드로 명시적 설정
     ft.app(target=main, port=port, host=host, assets_dir="assets", upload_dir="uploads", view=ft.AppView.WEB_BROWSER)

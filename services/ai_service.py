@@ -4,8 +4,7 @@ import json
 import datetime
 from typing import List, Dict, Any, Optional
 from utils.logger import log_info, log_error
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+from config import config
 
 def analyze_chat_for_calendar(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
@@ -16,7 +15,7 @@ def analyze_chat_for_calendar(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
             "date": "YYYY-MM-DD" (or None if not found, logic should default to today)
         }
     """
-    if not OPENAI_API_KEY:
+    if not config.OPENAI_API_KEY:
         log_error("AI Service Error: OPENAI_API_KEY not found.")
         return {"summary": "Error: API Key missing", "date": None}
 
@@ -52,11 +51,11 @@ def analyze_chat_for_calendar(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         response = requests.post(
             "https://api.openai.com/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {OPENAI_API_KEY}",
+                "Authorization": f"Bearer {config.OPENAI_API_KEY}",
                 "Content-Type": "application/json"
             },
             json={
-                "model": "gpt-4o-mini", # Cost-effective model
+                "model": "gpt-4o-mini",  # Cost-effective model
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -64,7 +63,7 @@ def analyze_chat_for_calendar(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "temperature": 0.3,
                 "response_format": {"type": "json_object"}
             },
-            timeout=45
+            timeout=config.AI_TIMEOUT
         )
         
         response.raise_for_status()

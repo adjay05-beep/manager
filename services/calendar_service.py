@@ -1,8 +1,7 @@
 import asyncio
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from db import service_supabase
-
-CURRENT_USER_ID = "00000000-0000-0000-0000-000000000001"
+from utils.logger import log_error, log_info
 
 async def get_all_events(user_id: str, channel_id: int) -> List[Dict[str, Any]]:
     """Fetch calendar events visible to the user in specific channel."""
@@ -20,46 +19,66 @@ async def get_all_events(user_id: str, channel_id: int) -> List[Dict[str, Any]]:
         # Note: SyncPostgrestClient is lightweight
         client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
     
-    # query 1: Events Created by Me in this Channel
-    # Use client.from_(...) instead of service_supabase.table(...)
+    # query 1: Fetch ALL filtered events for this channel (Shared Calendar Model)
+    # [FIX] Simplified policy: If you are in the channel, you see all channel events.
+    # This removes the need for complex 'participant_ids' JSONB filtering on the server/client.
     t1 = asyncio.to_thread(lambda: client.from_("calendar_events")
                            .select("*, profiles!calendar_events_created_by_fkey(full_name)")
-                           .eq("created_by", user_id)
-                           .eq("is_work_schedule", False)
-                           .eq("channel_id", channel_id) # [FIX] Multi-Channel Filter
+                           .eq("channel_id", channel_id) # Filter by Channel
+                           .order("start_date", desc=True)
+                           .limit(500) # Safety limit
                            .execute())
     
-    # query 2: Events with Me as Participant (JSONB Containment)
-    # [FIX] Temporarily disabled due to Postgrest JSON serialization issues (22P02)
-    # t2 = asyncio.to_thread(lambda: client.from_("calendar_events").select("*, profiles!calendar_events_created_by_fkey(full_name)").cs("participant_ids", f'["{user_id}"]').execute())
-    t2 = None # Skip
+    # query 2: Deprecated (Merged into t1)
+    t2 = None 
     
-    # Run in parallel with error handling
+    # Run
     res1 = None
-    res2 = None
     try:
-        # Only run t1
-        # results = await asyncio.gather(t1, t2, return_exceptions=True)
         res1 = await t1
-            
     except Exception as e:
-        print(f"Calendar Fetch Fatal Error: {e}")
+        log_error(f"Calendar Fetch Error: {e}")
         return []
     
-    # Merge and Deduplicate by ID
-    events_map = {}
-    if res1 and res1.data:
-        for e in res1.data: events_map[e['id']] = e
-    if res2 and res2.data:
-        for e in res2.data: events_map[e['id']] = e
-        
-    return list(events_map.values())
+    events = res1.data if res1 and res1.data else []
+    
+    # [OPTIONAL] Client-side filter if strict privacy needed (e.g. is_private column)
+    # For now, we return all channel events.
+    return events
 
-async def delete_event(event_id: str):
-    """Delete an event by ID."""
-    # TODO: Verify ownership? View handles it? 
-    # Service should ideally check too.
-    await asyncio.to_thread(lambda: service_supabase.table("calendar_events").delete().eq("id", event_id).execute())
+async def delete_event(event_id: str, user_id: str) -> bool:
+    """Delete an event by ID with ownership verification."""
+    try:
+        # [SECURITY] 소유권 검증 - 본인이 생성한 이벤트만 삭제 가능
+        event_res = await asyncio.to_thread(
+            lambda: service_supabase.table("calendar_events")
+                .select("id, created_by")
+                .eq("id", event_id)
+                .single()
+                .execute()
+        )
+
+        if not event_res.data:
+            log_error(f"Event not found: {event_id}")
+            raise PermissionError("이벤트를 찾을 수 없습니다.")
+
+        if event_res.data.get("created_by") != user_id:
+            log_error(f"Unauthorized delete attempt: user={user_id}, event={event_id}")
+            raise PermissionError("본인이 생성한 이벤트만 삭제할 수 있습니다.")
+
+        await asyncio.to_thread(
+            lambda: service_supabase.table("calendar_events")
+                .delete()
+                .eq("id", event_id)
+                .execute()
+        )
+        log_info(f"Event deleted: {event_id} by user {user_id}")
+        return True
+    except PermissionError:
+        raise
+    except Exception as e:
+        log_error(f"Delete event error: {e}")
+        raise
 
 async def load_profiles(channel_id: int) -> List[Dict[str, Any]]:
     """Fetch all user profiles in the current channel."""

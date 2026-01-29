@@ -177,39 +177,42 @@ def get_login_controls(page: ft.Page, navigate_to):
         navigate_to("home")
         return []
 
-    # Try to load saved credentials
+    # [SECURITY] 이메일만 저장 (비밀번호 평문 저장 제거)
     saved_email = page.client_storage.get("saved_email") or ""
-    saved_password = page.client_storage.get("saved_password") or ""
-    remember_me_checked = bool(saved_email and saved_password)
+    remember_email_checked = bool(saved_email)
+
+    # [SECURITY] 저장된 비밀번호가 있다면 마이그레이션을 위해 제거
+    if page.client_storage.get("saved_password"):
+        page.client_storage.remove("saved_password")
 
     email_tf = ft.TextField(
-        label="이메일", 
-        width=280, 
+        label="이메일",
+        width=280,
         text_align=ft.TextAlign.LEFT,
-        border_color="#CCCCCC", 
-        cursor_color="#1565C0", 
+        border_color="#CCCCCC",
+        cursor_color="#1565C0",
         color="black",
         keyboard_type=ft.KeyboardType.EMAIL,
         value=saved_email,
         label_style=ft.TextStyle(color="grey")
     )
-    
+
     pw_tf = ft.TextField(
-        label="비밀번호", 
-        password=True, 
-        width=280, 
+        label="비밀번호",
+        password=True,
+        width=280,
         text_align=ft.TextAlign.LEFT,
         on_submit=lambda e: perform_login(),
         border_color="#CCCCCC",
         cursor_color="#1565C0",
         color="black",
-        value=saved_password,
+        value="",  # [SECURITY] 비밀번호는 저장하지 않음
         label_style=ft.TextStyle(color="grey")
     )
-    
+
     remember_checkbox = ft.Checkbox(
-        label="아이디/비밀번호 기억하기",
-        value=remember_me_checked,
+        label="이메일 기억하기",  # [SECURITY] 라벨 변경
+        value=remember_email_checked,
         fill_color="#1565C0",
         check_color="white",
         label_style=ft.TextStyle(color="grey")
@@ -229,13 +232,11 @@ def get_login_controls(page: ft.Page, navigate_to):
         try:
             res = auth_service.sign_in(email_tf.value, pw_tf.value)
             
-            # Save or clear credentials based on checkbox
+            # [SECURITY] 이메일만 저장 (비밀번호는 저장하지 않음)
             if remember_checkbox.value:
                 page.client_storage.set("saved_email", email_tf.value)
-                page.client_storage.set("saved_password", pw_tf.value)
             else:
                 page.client_storage.remove("saved_email")
-                page.client_storage.remove("saved_password")
             
             # Extract pure data to avoid RecursionError with Supabase objects
             user_obj = res.user
