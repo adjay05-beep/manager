@@ -298,6 +298,5 @@ def get_home_controls(page: ft.Page, navigate_to):
                     )
                 ], expand=True, spacing=0)
             )
-            )
         )
     ]
