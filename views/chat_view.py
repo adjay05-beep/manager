@@ -1545,7 +1545,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 page.snack_bar = ft.SnackBar(ft.Text(f"시스템 오류: {str(ex)}"), bgcolor="red"); page.snack_bar.open=True
                 page.update()
                 
-        page.run_task(run_analysis)
+        # [FIX] Use explicit thread to avoid Flet task pool exhaustion
+        import threading
+        threading.Thread(target=run_analysis, daemon=True).start()
 
     chat_page_header = AppHeader(
         title_text="스레드",
