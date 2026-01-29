@@ -1359,11 +1359,23 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.run_task(run_analysis)
 
     # [AI Calendar Feature]
+    # [AI Calendar Feature]
     def open_ai_calendar_dialog(e):
         if not state.get("current_topic_id"): return
         
-        # 1. Show Loading
-        loading_dlg = ft.AlertDialog(content=ft.Row([ft.ProgressRing(), ft.Text("AI가 대화를 분석 중입니다...")], alignment="center", spacing=20), modal=True)
+        # [NEW] Cancel Flag
+        is_cancelled = [False]
+        
+        def on_cancel(e):
+            is_cancelled[0] = True
+            page.close(loading_dlg)
+            
+        # 1. Show Loading with Cancel
+        loading_dlg = ft.AlertDialog(
+            content=ft.Row([ft.ProgressRing(), ft.Text("AI가 대화를 분석 중입니다...")], alignment="center", spacing=20), 
+            modal=True,
+            actions=[ft.TextButton("취소", on_click=on_cancel)]
+        )
         page.open(loading_dlg)
         page.update()
         
@@ -1380,7 +1392,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     msgs = chat_service.get_messages(state["current_topic_id"], limit=50)
                 
                 # 3. Analyze
-                result = ai_service.analyze_chat_for_calendar(msgs)
+                try:
+                    result = ai_service.analyze_chat_for_calendar(msgs)
+                except Exception as api_err:
+                     if is_cancelled[0]: return
+                     raise api_err
+                
+                if is_cancelled[0]: return
                 
                 # 4. Prepare Dialog Default Values
                 summary = result.get("summary", "")
@@ -1401,6 +1419,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     
                 # 5. Show Editor Dialog
                 def show_editor():
+                    if is_cancelled[0]: return
                     page.close(loading_dlg)
                     
                     tf_summary = ft.TextField(label="요약 (제목)", value=summary, autofocus=True)
