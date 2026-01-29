@@ -377,6 +377,8 @@ def get_topic_members(topic_id: str) -> List[Dict[str, Any]]:
 
 def get_channel_members_not_in_topic(channel_id: int, topic_id: str) -> List[Dict[str, Any]]:
     """Get channel members who are NOT in the specific topic."""
+    if not channel_id or not topic_id: return []
+    
     # 1. Get all channel members
     c_res = service_supabase.table("channel_members").select("user_id, profiles(full_name)")\
         .eq("channel_id", channel_id).execute()
@@ -389,10 +391,12 @@ def get_channel_members_not_in_topic(channel_id: int, topic_id: str) -> List[Dic
     # 3. Filter
     available = []
     for u in channel_users:
-        if u["user_id"] not in topic_user_ids:
+        u_id = u["user_id"]
+        # Ensure exact match (UUIDs should be strings)
+        if u_id not in topic_user_ids:
             p = u.get("profiles") or {}
             available.append({
-                "user_id": u["user_id"],
+                "user_id": u_id,
                 "full_name": p.get("full_name") or "Unknown"
             })
     return available

@@ -1568,7 +1568,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         )
                     )
                 members_col.controls = items
+                # [DEBUG] Feedback
+                # page.snack_bar = ft.SnackBar(ft.Text(f"멤버 {len(items)}명 로드됨")); page.snack_bar.open=True
                 page.update()
+
             except Exception as ex:
                 print(f"Load Members Error: {ex}")
 
@@ -1597,8 +1600,14 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     )
                 if not items:
                     items.append(ft.Text("초대할 수 있는 멤버가 없습니다 (모두 가입됨).", color="grey"))
+                if not items:
+                    items.append(ft.Container(content=ft.Text("초대할 수 있는 멤버가 없습니다.\n(모든 직원이 이미 참여 중입니다)", color="grey", text_align="center"), alignment=ft.alignment.center, padding=20))
+                
                 invite_col.controls = items
+                # [DEBUG] Feedback
+                print(f"Candidates Loaded: {len(items)}")
                 page.update()
+
             except Exception as ex:
                 print(f"Load Candidates Error: {ex}")
 
