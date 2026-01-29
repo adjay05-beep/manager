@@ -221,8 +221,8 @@ def get_home_controls(page: ft.Page, navigate_to):
 
     # Layout
     return [
-        ft.SafeArea(
-            ft.Container(
+        ft.SafeArea(expand=True,
+            content=ft.Container(
                 expand=True,
                 bgcolor=AppColors.BACKGROUND,
                 content=ft.ListView(

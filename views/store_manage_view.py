@@ -399,8 +399,8 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
     )
 
     return [
-        ft.SafeArea(
-            ft.Container(
+        ft.SafeArea(expand=True,
+            content=ft.Container(
                 expand=True,
                 bgcolor=AppColors.SURFACE,
                 content=ft.ListView(
