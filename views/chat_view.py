@@ -1118,43 +1118,35 @@ def get_chat_controls(page: ft.Page, navigate_to):
         search_results_col.controls = [ft.Text("검색어를 입력하고 엔터를 누르세요.", color="grey", size=12)]
         page.open(search_dlg)
 
-    list_page_content = ft.Container(
-        expand=True, bgcolor="white",
-        content=ft.Column([
-            ft.Container(
-                content=ft.Row([
-                    ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
-                    chat_header_title, # Dynamic Title with Debug Info
-                    ft.Row([
-                        # [NEW] Search Button
-                        ft.IconButton(ft.Icons.SEARCH, icon_color="#424242", tooltip="전체 검색", on_click=open_search_dialog),
-                        ft.PopupMenuButton(
-                            icon=ft.Icons.ADD,
-                            icon_color="#2E7D32",
-                            tooltip="메뉴",
-                            items=[
-                                ft.PopupMenuItem(
-                                    text="새 스레드 생성",
-                                    icon=ft.Icons.ADD_COMMENT_OUTLINED,
-                                    on_click=show_create_modal
-                                ),
-                                ft.PopupMenuItem(
-                                    text="카테고리 관리",
-                                    icon=ft.Icons.CATEGORY_OUTLINED,
-                                    on_click=open_manage_categories_dialog
-                                ),
-                            ]
-                        ),
-                        ft.OutlinedButton(
-                            ref=edit_btn_ref, 
-                            text="편집", 
-                            style=ft.ButtonStyle(color="#424242", shape=ft.RoundedRectangleBorder(radius=30), side=ft.BorderSide(1, "#E0E0E0"), padding=ft.padding.symmetric(horizontal=12, vertical=0)), 
-                            on_click=lambda _: toggle_edit_mode()
-                        )
-                    ], spacing=0)
-                ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=10, bottom=0),
-                border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
+            AppHeader(
+                title_text="팀 스레드",
+                on_back_click=lambda _: navigate_to("home"),
+                action_button=ft.Row([
+                    ft.IconButton(ft.Icons.SEARCH, icon_color=AppColors.TEXT_SECONDARY, tooltip="전체 검색", on_click=open_search_dialog),
+                    ft.PopupMenuButton(
+                        icon=ft.Icons.ADD,
+                        icon_color=AppColors.PRIMARY,
+                        tooltip="메뉴",
+                        items=[
+                            ft.PopupMenuItem(
+                                text="새 스레드 생성",
+                                icon=ft.Icons.ADD_COMMENT_OUTLINED,
+                                on_click=show_create_modal
+                            ),
+                            ft.PopupMenuItem(
+                                text="카테고리 관리",
+                                icon=ft.Icons.CATEGORY_OUTLINED,
+                                on_click=open_manage_categories_dialog
+                            ),
+                        ]
+                    ),
+                    ft.OutlinedButton(
+                        ref=edit_btn_ref, 
+                        text="편집", 
+                        style=ft.ButtonStyle(color=AppColors.TEXT_SECONDARY, shape=ft.RoundedRectangleBorder(radius=30), side=ft.BorderSide(1, AppColors.BORDER_LIGHT), padding=ft.padding.symmetric(horizontal=12, vertical=0)), 
+                        on_click=lambda _: toggle_edit_mode()
+                    )
+                ], spacing=0)
             ),
             ft.Container(
                 content=topic_list_container, 
