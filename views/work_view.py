@@ -970,8 +970,8 @@ def get_work_controls(page: ft.Page, navigate_to):
         
     update_tabs_ui()
 
-from views.styles import AppColors, AppTextStyles, AppLayout
-from views.components.app_header import AppHeader
+    from views.styles import AppColors, AppTextStyles, AppLayout
+    from views.components.app_header import AppHeader
 
     header = AppHeader(
         title_text="직원 관리",

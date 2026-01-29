@@ -334,10 +334,10 @@ def get_voice_controls(page: ft.Page, navigate_to):
         on_click=pick_file_click, padding=10
     )
     
-from views.styles import AppColors, AppTextStyles, AppLayout
-from views.components.app_header import AppHeader
+    from views.styles import AppColors, AppTextStyles, AppLayout
+    from views.components.app_header import AppHeader
 
-# ... (Previous imports kept if possible)
+    # ... (Previous imports kept if possible)
 
     header = AppHeader(
         title_text="음성 메모",

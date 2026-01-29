@@ -349,13 +349,13 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
     if role == "owner":
         load_members()
 
-from views.styles import AppColors, AppTextStyles, AppLayout
-from views.components.app_header import AppHeader
+    from views.styles import AppColors, AppTextStyles, AppLayout
+    from views.components.app_header import AppHeader
 
-# ... (Previous imports kept if possible, but replace strict block)
+    # ... (Previous imports kept if possible, but replace strict block)
 
     # === LAYOUT CONSTRUCTION ===
-    
+
     header = AppHeader(
         title_text="매장 설정",
         on_back_click=lambda _: navigate_to("home")
