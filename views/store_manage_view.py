@@ -93,9 +93,9 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
             latest = active_codes[0]
             code_display.value = latest["code"]
             
-            from datetime import datetime
+            from datetime import datetime, timezone
             expires = datetime.fromisoformat(latest["expires_at"].replace("Z", "+00:00"))
-            now = datetime.now(datetime.UTC)
+            now = datetime.now(timezone.utc)
             remaining = expires - now
             minutes = int(remaining.total_seconds() / 60)
             
