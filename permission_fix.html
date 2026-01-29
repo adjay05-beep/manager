@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>마이크 권한 설정 도우미</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #f0f2f5; }
+        .card { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; max-width: 90%; width: 350px; }
+        h1 { font-size: 20px; margin-bottom: 20px; color: #333; }
+        p { color: #666; font-size: 14px; margin-bottom: 30px; line-height: 1.5; }
+        button { background-color: #007AFF; color: white; border: none; padding: 15px 30px; font-size: 16px; border-radius: 12px; font-weight: bold; cursor: pointer; width: 100%; transition: background-color 0.2s; }
+        button:active { background-color: #0056b3; transform: scale(0.98); }
+        .success { color: #00C73C; font-weight: bold; margin-top: 20px; display: none; }
+        .error { color: #FF3B30; font-weight: bold; margin-top: 20px; display: none; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🎙️ 마이크 권한 설정</h1>
+        <p>아이폰 보안 정책으로 인해<br>별도의 승인 과정이 필요합니다.<br><br>아래 버튼을 누르고 <b>'허용'</b>을 선택해주세요.</p>
+        <button onclick="requestMic()">마이크 허용하기</button>
+        <div id="success-msg" class="success">✅ 설정 완료!<br>이제 앱으로 돌아가셔도 됩니다.</div>
+        <div id="error-msg" class="error"></div>
+    </div>
+
+    <script>
+        function requestMic() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+            .then(function(stream) {
+                document.getElementById('success-msg').style.display = 'block';
+                document.getElementById('error-msg').style.display = 'none';
+                
+                // Stop immediately, we just needed the permission grant
+                stream.getTracks().forEach(track => track.stop());
+                
+                // Verify via alert for user assurance
+                setTimeout(() => {
+                    alert("성공했습니다! 왼쪽 상단 '완료' 또는 뒤로가기를 눌러 앱으로 돌아가세요.");
+                    // Try to close if opened in popup
+                    try { window.close(); } catch(e){}
+                }, 500);
+            })
+            .catch(function(err) {
+                document.getElementById('success-msg').style.display = 'none';
+                var errDiv = document.getElementById('error-msg');
+                errDiv.style.display = 'block';
+                errDiv.innerText = "⚠️ 실패: " + err + "\n\n설정 > Safari > 마이크 > 허용으로 변경해주세요.";
+            });
+        }
+    </script>
+</body>
+</html>
