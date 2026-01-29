@@ -18,7 +18,7 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
     join_code_tf = ft.TextField(label="매장 초대 코드 (예: STORE-1234)", text_align=ft.TextAlign.CENTER)
 
     # [Business Verification]
-    business_num_tf = ft.TextField(label="사업자 등록번호 (- 없이 입력)", text_align=ft.TextAlign.CENTER, input_filter=ft.InputFilter.numbers_only())
+    business_num_tf = ft.TextField(label="사업자 등록번호 (- 없이 입력)", text_align=ft.TextAlign.CENTER, input_filter=ft.InputFilter(regex_string=r"^[0-9]*$"))
     create_name_tf = ft.TextField(label="매장 이름 (자동 입력)", text_align=ft.TextAlign.CENTER, read_only=True, bgcolor="#F5F5F5")
     
     verified_biz_info = {"number": None, "owner": None}
