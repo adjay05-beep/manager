@@ -987,6 +987,6 @@ def get_work_controls(page: ft.Page, navigate_to):
                 ft.Container(header, bgcolor=AppColors.SURFACE),
                 ft.Container(tabs_row, height=50, bgcolor=AppColors.SURFACE),
                 ft.Container(body, expand=True, padding=10)
-            ], spacing=0, expand=True),
-        expand=True)
+            ], spacing=0, expand=True)
+        )
     ]
