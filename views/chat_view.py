@@ -51,7 +51,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
     topic_list_container = ft.Column(expand=True, spacing=0)
     message_list_view = ft.ListView(expand=True, spacing=5, padding=10)
     chat_header_title = ft.Column([
-        ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
+        ft.Text("팀 스레드", style=AppTextStyles.HEADER_TITLE),
         ft.Text("", size=10, color="red", visible=False) # Debug Text Hidden
     ], spacing=0)
 
@@ -63,20 +63,21 @@ def get_chat_controls(page: ft.Page, navigate_to):
     async def load_topics_thread(update_ui=True, show_all=False):
         # [DEBUG] Start
         try:
-            chat_header_title.controls[1].value = "Debug: Starting..."
+            pass
+            # chat_header_title.controls[1].value = "Debug: Starting..."
             # [FIX] Remove instant update to prevent race with Main Thread init
         except: pass
 
         if not state["is_active"]: return
         if not current_user_id:
-            chat_header_title.controls[1].value = "Error: No Session"
+            # chat_header_title.controls[1].value = "Error: No Session"
             page.update()
             log_info("Chat ERROR: No user session found - cannot load topics")
             page.snack_bar = ft.SnackBar(ft.Text("세션이 만료되었습니다."), bgcolor="red", open=True); page.update()
             return
             
         try:
-            chat_header_title.controls[1].value = "Debug: Checking DB..."
+            # chat_header_title.controls[1].value = "Debug: Checking DB..."
             if update_ui: page.update()
             
             log_info(f"Loading topics (Mode: {'ALL' if show_all else 'Members Only'}) for {current_user_id}")
@@ -326,11 +327,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
             
             # [DEBUG] Show detailed count
             ctrl_count = len(list_view_ctrls) if 'list_view_ctrls' in locals() else "N/A"
-            chat_header_title.controls[1].value = f"Debug: {len(topics)} topics, {ctrl_count} items. Mode: {state.get('view_mode')}"
+            # chat_header_title.controls[1].value = f"Debug: {len(topics)} topics, {ctrl_count} items. Mode: {state.get('view_mode')}"
             if update_ui: page.update()
         except Exception as ex:
             log_info(f"Load Topics Critical Error: {ex}")
-            chat_header_title.controls[1].value = f"Error: {str(ex)[:20]}"
+            # chat_header_title.controls[1].value = f"Error: {str(ex)[:20]}"
             if update_ui: page.update()
             try:
                 page.snack_bar = ft.SnackBar(
@@ -1220,8 +1221,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     chat_header_title,
                     ft.IconButton(ft.Icons.REFRESH_ROUNDED, icon_color="#BDBDBD", on_click=lambda _: load_messages())
                 ], alignment="spaceBetween"),
-                padding=ft.padding.only(left=10, right=10, top=10, bottom=5),
-                border=ft.border.only(bottom=ft.border.BorderSide(1, "#F0F0F0"))
+                padding=AppLayout.HEADER_PADDING,
+                border=ft.border.only(bottom=ft.border.BorderSide(1, AppColors.BORDER_LIGHT))
             ),
             ft.Container(content=message_list_view, expand=True, bgcolor="#F5F5F5"),
             ft.Container(
@@ -1246,10 +1247,15 @@ def get_chat_controls(page: ft.Page, navigate_to):
         root_view.controls = [list_page] if state["view_mode"] == "list" else [chat_page]
         page.update()
 
-    chat_header_title.color = "#212121"
-    msg_input.bgcolor = "#FAFAFA"
-    msg_input.color = "black"
-    msg_input.border_color = "#E0E0E0"
+from views.styles import AppColors, AppTextStyles, AppLayout
+
+# ...
+
+    chat_header_title.controls[0].style = AppTextStyles.HEADER_TITLE
+    # chat_header_title.color = "#212121" # Removed old color setter
+    msg_input.bgcolor = AppColors.SURFACE_VARIANT
+    msg_input.color = AppColors.TEXT_PRIMARY
+    msg_input.border_color = AppColors.BORDER
     msg_input.border_width = 1
 
     # [FIX] Robust Realtime Task

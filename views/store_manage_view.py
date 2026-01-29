@@ -349,25 +349,26 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
     if role == "owner":
         load_members()
 
+from views.styles import AppColors, AppTextStyles, AppLayout
+from views.components.app_header import AppHeader
+
+# ... (Previous imports kept if possible, but replace strict block)
+
     # === LAYOUT CONSTRUCTION ===
     
-    header = ft.Container(
-        content=ft.Row([
-            ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
-            ft.Text("매장 설정", weight="bold", size=20, color="#212121"),
-            ft.Container(width=40) 
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-        padding=ft.padding.only(left=10, top=10, right=10)
+    header = AppHeader(
+        title_text="매장 설정",
+        on_back_click=lambda _: navigate_to("home")
     )
     
     # Store Settings Only
     current_store_settings = ft.Container(
-        padding=20,
+        padding=AppLayout.CONTENT_PADDING,
         content=ft.Column([
-            ft.Text(f"'{current_ch['name']}' 관리", size=18, weight="bold", color="#0A1929"),
+            ft.Text(f"'{current_ch['name']}' 관리", style=ft.TextStyle(size=18, weight=ft.FontWeight.BOLD, color=AppColors.TEXT_PRIMARY)),
             ft.Container(height=10),
             
-            ft.Text("매장 이름 수정", size=14, color="grey"),
+            ft.Text("매장 이름 수정", style=AppTextStyles.BODY_SMALL),
             ft.Row([
                 ft.Container(store_name_tf, expand=True),
                 ft.ElevatedButton("저장", on_click=save_store_changes, visible=(role=="owner"), bgcolor="#00C73C", color="white"),
@@ -376,18 +377,18 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
             ft.Container(height=20),
             
             # Invite Code
-            ft.Text("직원 초대 코드", size=14, color="grey"),
+            ft.Text("직원 초대 코드", style=AppTextStyles.BODY_SMALL),
             ft.Container(
-                padding=15, bgcolor="#F5FAFB", border_radius=8,
+                padding=15, bgcolor=AppColors.SURFACE_VARIANT, border_radius=8,
                 content=ft.Column([
-                    ft.Row([ft.Icon(ft.Icons.QR_CODE, color="cyan"), code_display]),
+                    ft.Row([ft.Icon(ft.Icons.QR_CODE, color=AppColors.SECONDARY), code_display]),
                     code_expiry,
-                    ft.Row([generate_btn, ft.IconButton(ft.Icons.COPY, icon_color="cyan", on_click=copy_code)])
+                    ft.Row([generate_btn, ft.IconButton(ft.Icons.COPY, icon_color=AppColors.SECONDARY, on_click=copy_code)])
                 ])
             ),
             
             ft.Container(height=20),
-            ft.Text("매장 멤버 관리", size=16, weight="bold", visible=(role=="owner"), color="#0A1929"),
+            ft.Text("매장 멤버 관리", style=ft.TextStyle(size=16, weight=ft.FontWeight.BOLD, color=AppColors.TEXT_PRIMARY), visible=(role=="owner")),
             member_mgmt_col if role == "owner" else ft.Container()
         ])
     )
@@ -396,7 +397,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         ft.SafeArea(
             ft.Container(
                 expand=True,
-                bgcolor="white",
+                bgcolor=AppColors.SURFACE,
                 content=ft.Column([
                     # Header
                     header,

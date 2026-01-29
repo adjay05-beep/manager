@@ -3,6 +3,7 @@ from services.auth_service import auth_service
 from services.channel_service import channel_service
 from db import service_supabase
 from utils.logger import log_debug, log_error
+from views.styles import AppColors, AppTextStyles, AppLayout
 
 def get_home_controls(page: ft.Page, navigate_to):
     log_debug(f"Entering Home View. User: {page.session.get('user_id')}")
@@ -163,11 +164,12 @@ def get_home_controls(page: ft.Page, navigate_to):
             navigate_to("login")
 
     # === ACTION BUTTON HELPER ===
+    # === ACTION BUTTON HELPER ===
     def action_btn(label, icon_path, route):
         return ft.Container(
             content=ft.Column([
                 ft.Image(src=icon_path, width=80, height=80),
-                ft.Text(label, weight="bold", size=14, color="#0A1929"),
+                ft.Text(label, style=AppTextStyles.SECTION_TITLE),
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             height=180,
             # Responsive Column Settings:
@@ -175,13 +177,13 @@ def get_home_controls(page: ft.Page, navigate_to):
             # sm=4 (3 per row on tablet)
             # md=3 (4 per row on desktop)
             col={"xs": 6, "sm": 4, "md": 3},
-            bgcolor="white",
+            bgcolor=AppColors.SURFACE,
             border_radius=25,
             on_click=lambda _: navigate_to(route),
             alignment=ft.alignment.center,
             ink=True,
             shadow=ft.BoxShadow(blur_radius=15, color=ft.Colors.with_opacity(0.05, "black")),
-            border=ft.border.all(1, "white")
+            border=ft.border.all(1, AppColors.SURFACE)
         )
 
     # === GRID LAYOUT ===
@@ -222,17 +224,18 @@ def get_home_controls(page: ft.Page, navigate_to):
         ft.SafeArea(
             ft.Container(
                 expand=True,
-                bgcolor="#F5F5F5",
+                bgcolor=AppColors.BACKGROUND,
                 content=ft.Column([
                     # === HEADER WITH STORE SELECTOR ===
                     ft.Container(
-                        # [FIX] Safer top padding with SafeArea
-                        padding=ft.padding.only(left=20, right=20, top=10, bottom=10),
+                        padding=AppLayout.HEADER_PADDING,
+                        bgcolor=AppColors.SURFACE,
+                        border=ft.border.only(bottom=ft.border.BorderSide(1, AppColors.BORDER_LIGHT)),
                         content=ft.Row([
                             # Left: Profile Avatar + Store Info
                             ft.Row([
                                 ft.Container(
-                                    content=ft.Icon(ft.Icons.PERSON, color="white", size=24),
+                                    content=ft.Icon(ft.Icons.PERSON, color=AppColors.SURFACE, size=24),
                                     width=45, height=45, bgcolor="#E0E0E0", border_radius=22.5,
                                     alignment=ft.alignment.center,
                                     on_click=lambda _: navigate_to("profile"),
@@ -241,13 +244,12 @@ def get_home_controls(page: ft.Page, navigate_to):
                                 ft.Column([
                                     ft.Text(
                                         page.session.get("channel_name") or "매장",
-                                        size=20, 
-                                        weight="bold",
-                                        color="black",
+                                        style=AppTextStyles.HEADER_TITLE
                                     ),
                                     ft.Text(
                                         f"{display_name}님",
-                                        size=12,
+                                        style=AppTextStyles.BODY_SMALL
+                                    )
                                         color="grey",
                                     )
                                 ], spacing=0, alignment=ft.MainAxisAlignment.CENTER),

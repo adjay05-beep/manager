@@ -334,19 +334,21 @@ def get_voice_controls(page: ft.Page, navigate_to):
         on_click=pick_file_click, padding=10
     )
     
-    header = ft.Container(
-        content=ft.Row([
-            ft.Row([
-                ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda _: navigate_to("home")), 
-                ft.Text("음성 메모", size=20, weight="bold")
-            ]),
-            ft.Row([
-                ft.Icon(ft.Icons.INFO_OUTLINE, size=14, color="grey"),
-                ft.Text("Audio:2일 / Text:15일", size=10, color="grey")
-            ])
-        ], alignment="spaceBetween"), 
-        padding=10, 
-        border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE"))
+from views.styles import AppColors, AppTextStyles, AppLayout
+from views.components.app_header import AppHeader
+
+# ... (Previous imports kept if possible)
+
+    header = AppHeader(
+        title_text="음성 메모",
+        on_back_click=lambda _: navigate_to("home"),
+        action_button=ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.Icons.INFO_OUTLINE, size=14, color=AppColors.TEXT_SECONDARY),
+                ft.Text("Audio:2일 / Text:15일", style=AppTextStyles.CAPTION)
+            ], spacing=2),
+            padding=ft.padding.only(right=10)
+        )
     )
     
     controls_area = ft.Container(

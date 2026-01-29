@@ -970,16 +970,12 @@ def get_work_controls(page: ft.Page, navigate_to):
         
     update_tabs_ui()
 
-    header = ft.Container(
-        content=ft.Row([
-            ft.Row([
-                ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda _: navigate_to("home")), 
-                ft.Text("직원 관리", size=20, weight="bold", color="black")
-            ]), 
-        ], alignment="spaceBetween"), 
-        # [FIX] Match Mobile Top Padding (Safe Area)
-        padding=ft.padding.only(left=10, right=10, top=10, bottom=10),
-        border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE"))
+from views.styles import AppColors, AppTextStyles, AppLayout
+from views.components.app_header import AppHeader
+
+    header = AppHeader(
+        title_text="직원 관리",
+        on_back_click=lambda _: navigate_to("home")
     )
 
     # [FIX] Initial Data Load
@@ -988,8 +984,8 @@ def get_work_controls(page: ft.Page, navigate_to):
     return [
         ft.SafeArea(
             ft.Column([
-                ft.Container(header, bgcolor="white"),
-                ft.Container(tabs_row, height=50, bgcolor="white"),
+                ft.Container(header, bgcolor=AppColors.SURFACE),
+                ft.Container(tabs_row, height=50, bgcolor=AppColors.SURFACE),
                 ft.Container(body, expand=True, padding=10)
             ], spacing=0, expand=True),
         expand=True)
