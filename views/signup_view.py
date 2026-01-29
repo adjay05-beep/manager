@@ -212,7 +212,8 @@ def get_signup_controls(page: ft.Page, navigate_to):
     card_content = ft.Column(
         alignment=ft.MainAxisAlignment.CENTER, 
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-        spacing=10
+        spacing=10,
+        scroll=ft.ScrollMode.AUTO
     )
     
     # Initialize

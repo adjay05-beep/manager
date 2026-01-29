@@ -286,7 +286,7 @@ def get_login_controls(page: ft.Page, navigate_to):
                 on_click=lambda _: perform_login()
             ),
             ft.TextButton("계정이 없으신가요? 회원가입", on_click=lambda _: navigate_to("signup"), style=ft.ButtonStyle(color="grey"))
-        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO),
         padding=40,
         border_radius=16,
         bgcolor="white",

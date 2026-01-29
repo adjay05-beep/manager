@@ -185,7 +185,8 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 alignment=ft.MainAxisAlignment.CENTER,
-                spacing=20
+                spacing=20,
+                scroll=ft.ScrollMode.AUTO
             ),
             padding=20
         )
