@@ -511,7 +511,15 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     def select_topic(topic):
         state["current_topic_id"] = topic['id']
-        chat_header_title.controls[0].value = topic['name']
+        if 'chat_page_header' in locals():
+            chat_page_header.content.controls[1].value = topic['name']
+        else:
+             # Fallback if variable scope issue (though likely fine due to closure)
+             # But wait, chat_page_header is defined later?
+             # Python Update: In nested functions, if variable is assigned later in the outer scope, it is accessible.
+             # However, we must ensure it is initialized.
+             # Actually, since select_topic is called via User Action, chat_page_header will be defined by then.
+             chat_page_header.content.controls[1].value = topic['name']
         msg_input.disabled = False
         state["view_mode"] = "chat"
         update_layer_view()
@@ -1203,21 +1211,18 @@ def get_chat_controls(page: ft.Page, navigate_to):
         modal_container
     ], expand=True)
 
+    chat_page_header = AppHeader(
+        title_text="스레드",
+        on_back_click=lambda _: back_to_list(),
+        action_button=ft.IconButton(ft.Icons.REFRESH_ROUNDED, icon_color=AppColors.TEXT_SECONDARY, on_click=lambda _: load_messages())
+    )
+
     chat_page = ft.Container(
         expand=True, bgcolor="white",
         content=ft.Column([
             # [FIX] Embed Picker in View Tree
             local_file_picker,
-            ft.Container(
-                content=ft.Row([
-                    ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", 
-                                  on_click=lambda _: back_to_list()),
-                    chat_header_title,
-                    ft.IconButton(ft.Icons.REFRESH_ROUNDED, icon_color="#BDBDBD", on_click=lambda _: load_messages())
-                ], alignment="spaceBetween"),
-                padding=AppLayout.HEADER_PADDING,
-                border=ft.border.only(bottom=ft.border.BorderSide(1, AppColors.BORDER_LIGHT))
-            ),
+            chat_page_header,
             ft.Container(content=message_list_view, expand=True, bgcolor="#F5F5F5"),
             ft.Container(
                 content=ft.Column([
