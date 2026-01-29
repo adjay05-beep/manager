@@ -203,6 +203,9 @@ def get_public_url(filename: str, bucket: str = "uploads") -> str:
         return service_supabase.storage.from_(bucket).get_public_url(filename)
     except:
         # Fallback to manual construction
+        base_url = supabase.supabase_url if hasattr(supabase, "supabase_url") else "https://adjay05-beep.supabase.co"
+        return f"{base_url}/storage/v1/object/public/{bucket}/{filename}"
+
 def get_unread_counts(user_id: str, topics: List[Dict[str, Any]]) -> Dict[str, int]:
     """
     Calculate unread messages for a list of topics.
