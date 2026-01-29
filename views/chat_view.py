@@ -1522,7 +1522,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
         threading.Thread(target=run_analysis, daemon=True).start()
 
     def open_topic_member_management_dialog(e):
-        if not state.get("current_topic_id"): return
+        try:
+            print(f"DEBUG: Opening Member Dialog. TopicID={state.get('current_topic_id')}")
+            if not state.get("current_topic_id"): 
+                page.snack_bar = ft.SnackBar(ft.Text("오류: 선택된 토픽이 없습니다."), bgcolor="red")
+                page.snack_bar.open = True
+                page.update()
+                return
         
         # Load Data
         topic_id = state.get("current_topic_id")
@@ -1656,7 +1662,19 @@ def get_chat_controls(page: ft.Page, navigate_to):
             actions=[ft.TextButton("닫기", on_click=lambda e: page.close(dlg))]
         )
         page.open(dlg)
-        load_members()
+        page.update()
+        # Call load_members safely
+        try:
+            load_members()
+        except: pass
+
+        except Exception as e:
+            print(f"CRITICAL ERROR in Member Dialog: {e}")
+            import traceback
+            traceback.print_exc()
+            page.snack_bar = ft.SnackBar(ft.Text(f"대화상자 열기 실패: {e}"), bgcolor="red")
+            page.snack_bar.open = True
+            page.update()
 
     chat_page_header = AppHeader(
         title_text="스레드",
