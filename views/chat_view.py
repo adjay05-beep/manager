@@ -7,6 +7,7 @@ from services import storage_service
 from services import chat_service
 from db import supabase, service_supabase, app_logs, log_info
 from views.styles import AppColors, AppTextStyles, AppLayout
+from views.components.app_header import AppHeader
 
 DEBUG_MODE = True
 
@@ -51,10 +52,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
     # Initialize UI Controls
     topic_list_container = ft.Column(expand=True, spacing=0)
     message_list_view = ft.ListView(expand=True, spacing=5, padding=10)
-    chat_header_title = ft.Column([
-        ft.Text("팀 스레드", style=AppTextStyles.HEADER_TITLE),
-        ft.Text("", size=10, color="red", visible=False) # Debug Text Hidden
-    ], spacing=0)
+    # chat_header_title removed (Refactored to AppHeader)
 
     # ... inside load topics ...
     # chat_header_title.controls[1].value = f"Topics: {len(topics)}"
@@ -1252,7 +1250,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
     # ...
     
-    chat_header_title.controls[0].style = AppTextStyles.HEADER_TITLE
+    # Style applied by AppHeader
     # chat_header_title.color = "#212121" # Removed old color setter
     msg_input.bgcolor = AppColors.SURFACE_VARIANT
     msg_input.color = AppColors.TEXT_PRIMARY

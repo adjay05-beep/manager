@@ -5,6 +5,8 @@ from db import service_supabase
 from postgrest import SyncPostgrestClient
 import os
 from utils.logger import log_debug, log_error, log_info
+from views.styles import AppColors, AppTextStyles, AppLayout
+from views.components.app_header import AppHeader
 
 def get_store_manage_controls(page: ft.Page, navigate_to):
     log_debug(f"Entering Store Manage. User: {page.session.get('user_id')}")

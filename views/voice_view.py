@@ -3,6 +3,8 @@ from services import voice_service, audio_service
 import asyncio
 from datetime import datetime
 import os
+from views.styles import AppColors, AppTextStyles, AppLayout
+from views.components.app_header import AppHeader
 
 def get_voice_controls(page: ft.Page, navigate_to):
     import warnings
