@@ -1247,10 +1247,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
         root_view.controls = [list_page] if state["view_mode"] == "list" else [chat_page]
         page.update()
 
-from views.styles import AppColors, AppTextStyles, AppLayout
+    from views.styles import AppColors, AppTextStyles, AppLayout
 
-# ...
-
+    # ...
+    
     chat_header_title.controls[0].style = AppTextStyles.HEADER_TITLE
     # chat_header_title.color = "#212121" # Removed old color setter
     msg_input.bgcolor = AppColors.SURFACE_VARIANT
