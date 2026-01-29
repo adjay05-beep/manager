@@ -1535,8 +1535,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
             channel_id = page.session.get("channel_id")
             
             # UI Holders
-            members_col = ft.Column(spacing=10)
-            invite_col = ft.Column(spacing=10)
+            members_col = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
+            invite_col = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
             
             # Views (initialized late)
             members_view = ft.Column(visible=True)
@@ -1639,7 +1639,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
             members_view.controls = [
                 ft.Text("현재 멤버", size=16, weight="bold"),
-                ft.Container(content=members_col, height=300, scroll=ft.ScrollMode.AUTO),
+                ft.Container(content=members_col, height=300),
                 ft.ElevatedButton("멤버 초대하기", on_click=show_invite_view, width=200, bgcolor=AppColors.PRIMARY, color="white")
             ]
             
@@ -1648,7 +1648,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     ft.IconButton(ft.Icons.ARROW_BACK, on_click=show_members_view),
                     ft.Text("멤버 초대", size=16, weight="bold")
                 ]),
-                ft.Container(content=invite_col, height=300, scroll=ft.ScrollMode.AUTO)
+                ft.Container(content=invite_col, height=300)
             ]
 
             dlg = ft.AlertDialog(
