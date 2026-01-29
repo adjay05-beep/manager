@@ -1407,11 +1407,21 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     msgs = chat_service.get_messages(state["current_topic_id"], limit=50)
                 
                 # 3. Analyze
+                result = {}
                 try:
                     result = ai_service.analyze_chat_for_calendar(msgs)
                 except Exception as api_err:
                      if is_cancelled[0]: return
-                     raise api_err
+                     print(f"AI API Error: {api_err}")
+                     # [UX Fix] Continue even if AI fails, so user can enter manually
+                     result = {
+                         "summary": "분석 실패 (직접 입력해주세요)",
+                         "date": datetime.now().strftime("%Y-%m-%d"),
+                         "time": "09:00"
+                     }
+                     page.snack_bar = ft.SnackBar(ft.Text(f"AI 연결 실패: {str(api_err)[:30]}..."), bgcolor="orange")
+                     page.snack_bar.open = True
+                     page.update()
                 
                 if is_cancelled[0]: return
                 
@@ -1435,7 +1445,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 # 5. Show Editor Dialog
                 def show_editor():
                     if is_cancelled[0]: return
-                    page.close(loading_dlg)
+                    try:
+                        page.close(loading_dlg)
+                    except: pass
                     
                     tf_summary = ft.TextField(label="요약 (제목)", value=summary, autofocus=True)
                     tf_date = ft.TextField(label="날짜", value=default_date.strftime("%Y-%m-%d"), read_only=True)
@@ -1467,31 +1479,31 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                     "end_date": dt_end.strftime("%Y-%m-%d %H:%M:%S"),
                                     "is_all_day": False,
                                     "color": "#448AFF",
-                                    "created_by": current_user_id,
-                                    "user_id": current_user_id,
+                                    "created_by": page.session.get("user_id"),
+                                    "user_id": page.session.get("user_id"),
                                     "channel_id": page.session.get("channel_id"), 
                                     "description": "AI Generated from Chat Topic: " + str(state["current_topic_id"])
                                 }
+                                
                                 await calendar_service.create_event(payload)
-                                page.snack_bar = ft.SnackBar(ft.Text("📅 캘린더에 등록되었습니다!"), bgcolor="green"); page.snack_bar.open = True
+                                page.snack_bar = ft.SnackBar(ft.Text("일정이 등록되었습니다!"), bgcolor="green"); page.snack_bar.open=True
                                 page.close(dlg)
                                 toggle_selection_mode(False) # Turn off selection mode
                                 page.update()
                             except Exception as ex:
-                                page.snack_bar = ft.SnackBar(ft.Text(f"등록 실패: {ex}"), bgcolor="red"); page.snack_bar.open = True
-                                page.update()
-                        
+                                page.snack_bar = ft.SnackBar(ft.Text(f"등록 실패: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
+                                
                         page.run_task(do_save)
 
                     dlg = ft.AlertDialog(
-                        title=ft.Text("AI 일정 등록"),
+                        title=ft.Text("일정 등록"),
                         content=ft.Container(
-                            height=300,
+                            width=300,
                             content=ft.Column([
                                 tf_summary,
                                 ft.Row([
-                                    ft.IconButton(ft.Icons.CALENDAR_MONTH, on_click=lambda _: page.open(dp)),
-                                    tf_date,
+                                    ft.IconButton(ft.Icons.CALENDAR_TODAY, on_click=lambda _: page.open(dp)),
+                                    tf_date
                                 ]),
                                 ft.Row([
                                     ft.IconButton(ft.Icons.ACCESS_TIME, on_click=lambda _: page.open(tp)),
@@ -1505,13 +1517,18 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         ]
                     )
                     page.open(dlg)
+                    page.update()
                 
                 show_editor()
                 
             except Exception as ex:
-                page.close(loading_dlg)
+                try: page.close(loading_dlg)
+                except: pass
                 print(f"AI Error: {ex}")
-                page.snack_bar = ft.SnackBar(ft.Text(f"AI 분석 오류: {ex}"), bgcolor="red"); page.snack_bar.open=True
+                # Fallback to Editor even on Outer Exception? 
+                # If outer exception happens, 'msg' might be undefined or 'result' undefined.
+                # Just show error snackbar for critical crashes.
+                page.snack_bar = ft.SnackBar(ft.Text(f"시스템 오류: {str(ex)}"), bgcolor="red"); page.snack_bar.open=True
                 page.update()
                 
         page.run_task(run_analysis)
