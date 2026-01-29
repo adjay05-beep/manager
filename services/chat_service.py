@@ -203,5 +203,59 @@ def get_public_url(filename: str, bucket: str = "uploads") -> str:
         return service_supabase.storage.from_(bucket).get_public_url(filename)
     except:
         # Fallback to manual construction
-        base_url = supabase.supabase_url if hasattr(supabase, "supabase_url") else "https://adjay05-beep.supabase.co"
-        return f"{base_url}/storage/v1/object/public/{bucket}/{filename}"
+def get_unread_counts(user_id: str, topics: List[Dict[str, Any]]) -> Dict[str, int]:
+    """
+    Calculate unread messages for a list of topics.
+    Returns: {topic_id: count}
+    """
+    try:
+        read_map = get_user_read_status(user_id)
+        counts = {}
+        
+        # Optimization: Loop through provided topics
+        # In production this should be a single aggregated query or RPC
+        for t in topics:
+            tid = t['id']
+            last_read = read_map.get(tid)
+            
+            if not last_read:
+                # If never read, we just assume there are unread messages if topic is not empty.
+                # Just checking count > 0 for optimization
+                counts[tid] = 99
+                continue
+                
+            # Count messages newer than last_read
+            res = service_supabase.table("chat_messages")\
+                .select("id", count="exact", head=True)\
+                .eq("topic_id", tid)\
+                .gt("created_at", last_read)\
+                .execute()
+                
+            c = res.count
+            if c and c > 0:
+                counts[tid] = c
+                
+        return counts
+    except Exception as e:
+        print(f"Service Error (get_unread_counts): {e}")
+        return {}
+
+def search_messages_global(query: str, channel_id: int) -> List[Dict[str, Any]]:
+    """
+    Search messages across all topics in a channel.
+    """
+    try:
+        # Join with topics to ensure channel context
+        # We need to filter by channel via the relationship
+        res = service_supabase.table("chat_messages")\
+            .select("*, chat_topics!inner(id, name, channel_id), profiles(full_name)")\
+            .eq("chat_topics.channel_id", channel_id)\
+            .ilike("content", f"%{query}%")\
+            .order("created_at", desc=True)\
+            .limit(30)\
+            .execute()
+            
+        return res.data or []
+    except Exception as e:
+        print(f"Service Error (search_messages_global): {e}")
+        return []

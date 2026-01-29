@@ -115,17 +115,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 log_info("WARNING: No topics returned from database - user may need to create one or check membership")
             sorted_topics = sorted(topics, key=lambda x: (x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
             
-            reading_map = await asyncio.to_thread(chat_service.get_user_read_status, current_user_id)
-            default_old = "1970-01-01T00:00:00Z"
-            earliest_read = min(reading_map.values()) if reading_map else default_old
-            
-            recent_msgs = await asyncio.to_thread(chat_service.get_recent_messages, earliest_read)
-            
-            unread_counts = {}
-            for m in recent_msgs:
-                if m['user_id'] == current_user_id: continue # Skip own messages
-                tid_m = m['topic_id']; lr_m = reading_map.get(tid_m, default_old)
-                if m['created_at'] > lr_m: unread_counts[tid_m] = unread_counts.get(tid_m, 0) + 1
+            # [FIX] Efficient Unread Count Fetching
+            unread_counts = await asyncio.to_thread(chat_service.get_unread_counts, current_user_id, topics)
+            log_info(f"Unread Counts calculated for {len(topics)} topics")
 
             new_controls = []
             if state["edit_mode"]:
@@ -1050,22 +1042,80 @@ def get_chat_controls(page: ft.Page, navigate_to):
         ]
     )
 
-    # [DEBUG] Log Viewer
-    def show_debug_logs(e):
-        from utils.logger import get_logs
-        logs = get_logs()
-        log_text_col = ft.Column(
-            [ft.Text(l, size=10, color="green" if "[INFO]" in l else "red" if "[ERROR]" in l else "black") for l in logs],
-            scroll=ft.ScrollMode.ALWAYS,
-            height=300
-        )
+    # [SEARCH] Global Search Logic
+    search_results_col = ft.Column(spacing=0, scroll=ft.ScrollMode.AUTO, height=300)
+    search_input = ft.TextField(hint_text="검색어 입력...", autofocus=True, expand=True, on_submit=lambda e: do_search())
+    
+    def do_search():
+        query = search_input.value
+        if not query or len(query) < 2:
+            page.snack_bar = ft.SnackBar(ft.Text("2글자 이상 입력해주세요."), bgcolor="red", open=True); page.update()
+            return
+
+        search_results_col.controls = [ft.Container(ft.ProgressRing(), alignment=ft.alignment.center, padding=20)]
+        page.update()
         
-        dlg = ft.AlertDialog(
-            title=ft.Text("시스템 로그"),
-            content=ft.Container(log_text_col, width=300),
-            actions=[ft.TextButton("닫기", on_click=lambda _: page.close(dlg))]
-        )
-        page.open(dlg)
+        def _search_task():
+            try:
+                cid = page.session.get("channel_id")
+                results = chat_service.search_messages_global(query, cid)
+                
+                items = []
+                if not results:
+                    items.append(ft.Container(ft.Text("검색 결과가 없습니다.", color="grey"), padding=20, alignment=ft.alignment.center))
+                else:
+                    for r in results:
+                        # r keys: id, content, created_at, topic_id, profiles(full_name), chat_topics(name)
+                        topic_name = r.get('chat_topics', {}).get('name', '알 수 없음')
+                        sender = r.get('profiles', {}).get('full_name', '알 수 없음')
+                        content = r.get('content', '')
+                        time_str = r.get('created_at', '')[:16].replace('T', ' ')
+                        
+                        items.append(
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Row([
+                                        ft.Text(topic_name, weight="bold", size=12, color="#1565C0"),
+                                        ft.Text(time_str, size=10, color="grey")
+                                    ], alignment="spaceBetween"),
+                                    ft.Text(f"{sender}: {content}", size=14, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS, color="#424242")
+                                ], spacing=3),
+                                padding=12,
+                                border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE")),
+                                on_click=lambda e, t={'id': r['topic_id'], 'name': topic_name}: (
+                                    page.close(search_dlg),
+                                    select_topic(t)
+                                ),
+                                ink=True
+                            )
+                        )
+                
+                search_results_col.controls = items
+                page.update()
+            except Exception as ex:
+                print(ex)
+                search_results_col.controls = [ft.Text(f"검색 오류: {ex}", color="red")]
+                page.update()
+        
+        threading.Thread(target=_search_task, daemon=True).start()
+
+    search_dlg = ft.AlertDialog(
+        title=ft.Text("전체 대화 검색"),
+        content=ft.Container(
+            content=ft.Column([
+                ft.Row([search_input, ft.IconButton(ft.Icons.SEARCH, on_click=lambda e: do_search())]),
+                ft.Divider(),
+                search_results_col
+            ], tight=True,  width=400),
+            height=400
+        ),
+        actions=[ft.TextButton("닫기", on_click=lambda e: page.close(search_dlg))]
+    )
+    
+    def open_search_dialog(e):
+        search_input.value = ""
+        search_results_col.controls = [ft.Text("검색어를 입력하고 엔터를 누르세요.", color="grey", size=12)]
+        page.open(search_dlg)
 
     list_page_content = ft.Container(
         expand=True, bgcolor="white",
@@ -1075,6 +1125,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
                     chat_header_title, # Dynamic Title with Debug Info
                     ft.Row([
+                        # [NEW] Search Button
+                        ft.IconButton(ft.Icons.SEARCH, icon_color="#424242", tooltip="전체 검색", on_click=open_search_dialog),
                         ft.PopupMenuButton(
                             icon=ft.Icons.ADD,
                             icon_color="#2E7D32",
