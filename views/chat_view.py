@@ -1118,6 +1118,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
         search_results_col.controls = [ft.Text("검색어를 입력하고 엔터를 누르세요.", color="grey", size=12)]
         page.open(search_dlg)
 
+    list_page_content = ft.Container(
+        expand=True, bgcolor="white",
+        content=ft.Column([
             AppHeader(
                 title_text="팀 스레드",
                 on_back_click=lambda _: navigate_to("home"),
