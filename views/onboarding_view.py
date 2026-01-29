@@ -131,6 +131,7 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
 
     # UI Components
     return [
+        ft.SafeArea(expand=True, content=
         ft.Container(
             expand=True,
             bgcolor="white", # Clean White Theme
@@ -187,5 +188,6 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
                 spacing=20
             ),
             padding=20
+        )
         )
     ]

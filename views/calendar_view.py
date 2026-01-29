@@ -946,7 +946,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     
     # [FIX] Return layout without NavigationRail
     return [
-        ft.SafeArea(
+        ft.SafeArea(expand=True, content=
             ft.Column([
                 debug_text,
                 header,

@@ -982,7 +982,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     page.run_task(load_contracts_async)
 
     return [
-        ft.SafeArea(
+        ft.SafeArea(expand=True, content=
             ft.Column([
                 ft.Container(header, bgcolor=AppColors.SURFACE),
                 ft.Container(tabs_row, height=50, bgcolor=AppColors.SURFACE),

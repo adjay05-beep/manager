@@ -69,6 +69,7 @@ def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email)
                 page.update()
     
     return [
+        ft.SafeArea(expand=True, content=
         ft.Container(
             content=ft.Column(
                 [
@@ -111,5 +112,6 @@ def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email)
             expand=True,
             bgcolor="white",
             padding=20
+        )
         )
     ]

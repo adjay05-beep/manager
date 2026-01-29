@@ -125,7 +125,7 @@ def get_profile_controls(page: ft.Page, navigate_to):
         navigate_to("home")
 
     return [
-        ft.SafeArea(
+        ft.SafeArea(expand=True, content=
             ft.Container(
                 expand=True,
                 bgcolor="white",
