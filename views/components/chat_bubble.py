@@ -2,10 +2,12 @@ import flet as ft
 from datetime import datetime
 
 class ChatBubble(ft.Container):
-    def __init__(self, message, current_user_id):
+    def __init__(self, message, current_user_id, selection_mode=False, on_select=None):
         super().__init__()
         self.message = message
         self.current_user_id = current_user_id
+        self.selection_mode = selection_mode
+        self.on_select = on_select
         # [NEW] Optimistic UI Flag
         self.is_sending = message.get("is_sending", False)
         self.build_ui()
@@ -207,7 +209,17 @@ class ChatBubble(ft.Container):
             border=border_side
         )
 
+        # [NEW] Selection Checkbox
+        selection_ctrl = ft.Container()
+        if self.selection_mode:
+            selection_ctrl = ft.Checkbox(
+                value=False,
+                fill_color=AppColors.PRIMARY if hasattr(AppColors, 'PRIMARY') else "green",
+                on_change=lambda e: self.on_select(self.message.get('id'), e.control.value) if self.on_select else None
+            )
+
         display_row = ft.Row([
+            selection_ctrl,
             avatar,
             ft.Column([
                 ft.Text(username, size=11, color="grey", visible=not is_me),
