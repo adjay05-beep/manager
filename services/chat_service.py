@@ -340,3 +340,59 @@ def search_messages_global(query: str, channel_id: int) -> List[Dict[str, Any]]:
     except Exception as e:
         print(f"Service Error (search_messages_global): {e}")
         return []
+
+def add_topic_member(topic_id: str, user_id: str, permission_level: str = "member"):
+    """Add a user to a chat topic."""
+    # Check if already exists to avoid error
+    check = service_supabase.table("chat_topic_members").select("user_id").eq("topic_id", topic_id).eq("user_id", user_id).execute()
+    if not check.data:
+        service_supabase.table("chat_topic_members").insert({
+            "topic_id": topic_id,
+            "user_id": user_id,
+            "permission_level": permission_level
+        }).execute()
+
+def remove_topic_member(topic_id: str, user_id: str):
+    """Remove a user from a chat topic."""
+    service_supabase.table("chat_topic_members").delete()\
+        .eq("topic_id", topic_id).eq("user_id", user_id).execute()
+
+def get_topic_members(topic_id: str) -> List[Dict[str, Any]]:
+    """Get all members of a topic with profile info."""
+    res = service_supabase.table("chat_topic_members")\
+        .select("user_id, permission_level, joined_at, profiles(full_name, email)")\
+        .eq("topic_id", topic_id).execute()
+    
+    members = []
+    if res.data:
+        for m in res.data:
+            p = m.get("profiles") or {}
+            members.append({
+                "user_id": m["user_id"],
+                "permission_level": m["permission_level"],
+                "full_name": p.get("full_name") or "Unknown",
+                "email": p.get("email") or ""
+            })
+    return members
+
+def get_channel_members_not_in_topic(channel_id: int, topic_id: str) -> List[Dict[str, Any]]:
+    """Get channel members who are NOT in the specific topic."""
+    # 1. Get all channel members
+    c_res = service_supabase.table("channel_members").select("user_id, profiles(full_name)")\
+        .eq("channel_id", channel_id).execute()
+    channel_users = c_res.data or []
+    
+    # 2. Get current topic members
+    t_res = service_supabase.table("chat_topic_members").select("user_id").eq("topic_id", topic_id).execute()
+    topic_user_ids = set(m["user_id"] for m in (t_res.data or []))
+    
+    # 3. Filter
+    available = []
+    for u in channel_users:
+        if u["user_id"] not in topic_user_ids:
+            p = u.get("profiles") or {}
+            available.append({
+                "user_id": u["user_id"],
+                "full_name": p.get("full_name") or "Unknown"
+            })
+    return available

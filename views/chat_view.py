@@ -1521,6 +1521,134 @@ def get_chat_controls(page: ft.Page, navigate_to):
         import threading
         threading.Thread(target=run_analysis, daemon=True).start()
 
+    def open_topic_member_management_dialog(e):
+        if not state.get("current_topic_id"): return
+        
+        # Load Data
+        topic_id = state.get("current_topic_id")
+        channel_id = page.session.get("channel_id")
+        
+        # UI Holders
+        members_col = ft.Column(spacing=10)
+        invite_col = ft.Column(spacing=10)
+        
+        # Views (initialized late)
+        members_view = ft.Column(visible=True)
+        invite_view = ft.Column(visible=False)
+
+        def load_members():
+            try:
+                members = chat_service.get_topic_members(topic_id)
+                items = []
+                current_uid = page.session.get("user_id")
+                my_ch_role = page.session.get("user_role")
+                
+                for m in members:
+                    is_me = m['user_id'] == current_uid
+                    can_kick = (my_ch_role in ['owner', 'manager']) and not is_me
+                    
+                    items.append(
+                        ft.Container(
+                            padding=10,
+                            bgcolor="#F5F5F5",
+                            border_radius=8,
+                            content=ft.Row([
+                                ft.Row([
+                                    ft.Icon(ft.Icons.PERSON, size=20, color="grey"),
+                                    ft.Column([
+                                        ft.Text(f"{m['full_name']}", weight="bold"),
+                                        ft.Text(f"{m['email']} • {m['permission_level']}", size=12, color="grey")
+                                    ], spacing=2)
+                                ]),
+                                ft.IconButton(ft.Icons.REMOVE_CIRCLE_OUTLINE, icon_color="red", 
+                                            tooltip="내보내기",
+                                            on_click=lambda e, u=m['user_id']: kick_member(u),
+                                            visible=can_kick)
+                            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                        )
+                    )
+                members_col.controls = items
+                page.update()
+            except Exception as ex:
+                print(f"Load Members Error: {ex}")
+
+        def kick_member(target_id):
+            try:
+                chat_service.remove_topic_member(topic_id, target_id)
+                load_members()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
+
+        def load_candidates():
+            try:
+                candidates = chat_service.get_channel_members_not_in_topic(channel_id, topic_id)
+                items = []
+                for c in candidates:
+                    items.append(
+                        ft.Container(
+                            padding=10, border=ft.border.all(1, "#EEEEEE"), border_radius=8,
+                            content=ft.Row([
+                                ft.Text(f"{c['full_name']}"),
+                                ft.IconButton(ft.Icons.ADD_CIRCLE, icon_color="green", 
+                                            tooltip="초대",
+                                            on_click=lambda e, u=c['user_id']: invite_user(u))
+                            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                        )
+                    )
+                if not items:
+                    items.append(ft.Text("초대할 수 있는 멤버가 없습니다 (모두 가입됨).", color="grey"))
+                invite_col.controls = items
+                page.update()
+            except Exception as ex:
+                print(f"Load Candidates Error: {ex}")
+
+        def invite_user(target_id):
+            try:
+                chat_service.add_topic_member(topic_id, target_id)
+                # Toggle back
+                invite_view.visible = False
+                members_view.visible = True
+                load_members()
+                page.update()
+            except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"초대 실패: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
+
+        def show_invite_view(e):
+            members_view.visible = False
+            invite_view.visible = True
+            load_candidates()
+            page.update()
+        
+        def show_members_view(e):
+            invite_view.visible = False
+            members_view.visible = True
+            page.update()
+
+        members_view.controls = [
+            ft.Text("현재 멤버", size=16, weight="bold"),
+            ft.Container(content=members_col, height=300, scroll=ft.ScrollMode.AUTO),
+            ft.ElevatedButton("멤버 초대하기", on_click=show_invite_view, width=200, bgcolor=AppColors.PRIMARY, color="white")
+        ]
+        
+        invite_view.controls = [
+            ft.Row([
+                ft.IconButton(ft.Icons.ARROW_BACK, on_click=show_members_view),
+                ft.Text("멤버 초대", size=16, weight="bold")
+            ]),
+            ft.Container(content=invite_col, height=300, scroll=ft.ScrollMode.AUTO)
+        ]
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("채팅방 멤버 관리"),
+            content=ft.Container(
+                width=400,
+                content=ft.Column([members_view, invite_view], tight=True)
+            ),
+            actions=[ft.TextButton("닫기", on_click=lambda e: page.close(dlg))]
+        )
+        page.open(dlg)
+        load_members()
+
     chat_page_header = AppHeader(
         title_text="스레드",
         on_back_click=lambda _: back_to_list(),
@@ -1532,6 +1660,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 icon=ft.Icons.MORE_VERT,
                 icon_color=AppColors.TEXT_SECONDARY,
                 items=[
+                    ft.PopupMenuItem(
+                        text="멤버 관리",
+                        icon=ft.Icons.PEOPLE_OUTLINE,
+                        on_click=open_topic_member_management_dialog
+                    ),
                     ft.PopupMenuItem(
                         text="새로 고침",
                         icon=ft.Icons.REFRESH,
