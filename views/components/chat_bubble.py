@@ -210,13 +210,28 @@ class ChatBubble(ft.Container):
         )
 
         # [NEW] Selection Checkbox
+        self.selection_checkbox = None
         selection_ctrl = ft.Container()
         if self.selection_mode:
-            selection_ctrl = ft.Checkbox(
+            self.selection_checkbox = ft.Checkbox(
                 value=False,
                 fill_color=AppColors.PRIMARY if hasattr(AppColors, 'PRIMARY') else "green",
                 on_change=lambda e: self.on_select(self.message.get('id'), e.control.value) if self.on_select else None
             )
+            selection_ctrl = self.selection_checkbox
+            
+            # Make the bubble clickable to toggle selection
+            def toggle_select(e):
+                if self.selection_checkbox:
+                    self.selection_checkbox.value = not self.selection_checkbox.value
+                    self.selection_checkbox.update()
+                    if self.on_select:
+                        self.on_select(self.message.get('id'), self.selection_checkbox.value)
+            
+            # Attach click handler to the bubble container
+            bubble.on_click = toggle_select
+            bubble.ink = True # feedback
+
 
         display_row = ft.Row([
             selection_ctrl,
