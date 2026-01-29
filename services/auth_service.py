@@ -153,6 +153,18 @@ class AuthService:
         except:
             return None
 
+    def refresh_session(self, refresh_token_str):
+        """Explicitly refresh session using refresh_token."""
+        try:
+            res = supabase.auth.refresh_session(refresh_token_str)
+            if res.user:
+                self.current_user = res.user
+                return res
+            return None
+        except Exception as e:
+            print(f"Token Refresh Failed: {e}")
+            return None
+
     def recover_session(self, access_token, refresh_token):
         """Recover session from stored tokens"""
         try:

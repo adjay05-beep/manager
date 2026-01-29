@@ -27,11 +27,15 @@ def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_
             # We construct a simple session dict to avoid storing complex objects
             sess_data = {
                 "access_token": token,
-                "refresh_token": "", # We might not have refresh token here if just access_token passed, but that's ok for now
+                "refresh_token": "", 
                 "user": user_data
             }
-            # If we have a real session object from auto-login, we might want refresh token. 
-            # But for now, ensuring access_token is enough for RLS.
+            
+            # [FIX] Capture Refresh Token for Stability
+            current_sess = auth_service.get_session()
+            if current_sess and hasattr(current_sess, "refresh_token"):
+                 sess_data["refresh_token"] = current_sess.refresh_token
+            
             page.client_storage.set("supa_session", json.dumps(sess_data))
 
         # Explicitly pass token to ensure RLS works on Mobile/Web
@@ -123,12 +127,52 @@ def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_
 
 
 def get_login_controls(page: ft.Page, navigate_to):
-    # [Auto-Login Check] - DISABLED by user request
-    # Only "Remember Me" (pre-fill) is active.
-    # if not page.session.get("user_id"):
-    #     ... (Removed for stability)
+    # [Auto-Login & Recovery Check]
+    # 1. Check if we have a stored session
+    stored_session_json = page.client_storage.get("supa_session")
+    if stored_session_json:
+        try:
+            sess_data = json.loads(stored_session_json)
+            access_token = sess_data.get("access_token")
+            refresh_token = sess_data.get("refresh_token")
+            
+            # Attempt Recovery
+            if access_token:
+                log_info("Attempting Session Recovery...")
+                
+                # A. Try recovering with existing pairs
+                # recover_session calls set_session, which validates/refreshes internally if possible
+                user = auth_service.recover_session(access_token, refresh_token if refresh_token else "dummy")
+                
+                if user:
+                    log_info("Session Recovery Successful.")
+                    handle_successful_login(page, sess_data["user"], navigate_to, access_token)
+                    return []
+                
+                # B. If A failed (likely expired), try explicit Refresh if we have a token
+                if refresh_token:
+                    log_info("Access Token Invalid. Trying Explicit Refresh...")
+                    res = auth_service.refresh_session(refresh_token)
+                    if res and res.user:
+                        log_info("Session Refreshed Successfully!")
+                        
+                        # Update Storage with new tokens
+                        sess_data["access_token"] = res.session.access_token
+                        sess_data["refresh_token"] = res.session.refresh_token
+                        page.client_storage.set("supa_session", json.dumps(sess_data))
+                        
+                        # Proceed
+                        handle_successful_login(page, sess_data["user"], navigate_to, res.session.access_token)
+                        return []
+                        
+                log_info("Recovery Failed. Require Login.")
+                page.client_storage.remove("supa_session")
+                
+        except Exception as recovery_err:
+            log_error(f"Recovery Error: {recovery_err}")
+            page.client_storage.remove("supa_session")
 
-    # Already logged in check
+    # Already logged in check (Memory Session)
     if page.session.get("user_id"):
         navigate_to("home")
         return []

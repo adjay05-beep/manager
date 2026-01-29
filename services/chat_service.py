@@ -5,6 +5,7 @@ Handles chat topics, categories, and messages using Supabase.
 """
 from typing import List, Dict, Any
 from db import supabase, service_supabase
+from utils.network import retry_operation
 
 # Constants
 CURRENT_USER_ID = "00000000-0000-0000-0000-000000000001"
@@ -189,6 +190,7 @@ def get_storage_signed_url(filename: str, bucket: str = "uploads") -> str:
         print(f"Service Error (get_storage_signed_url): {e}")
         raise e
 
+@retry_operation(max_retries=3, delay=1.0)
 def upload_file_server_side(filename: str, file_content: bytes, bucket: str = "uploads", content_type: str = None):
     """Upload file directly from server side (Desktop mode)."""
     options = {"content-type": content_type} if content_type else None
