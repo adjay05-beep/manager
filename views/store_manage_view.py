@@ -403,17 +403,17 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
             ft.Container(
                 expand=True,
                 bgcolor=AppColors.SURFACE,
-                content=ft.Column([
-                    # Header
-                    header,
-                    
-                    ft.Container(
-                        content=current_store_settings, 
-                        # expand=True removed to allow scrolling
-                    ),
-                    
-                    msg
-                ], scroll=ft.ScrollMode.AUTO, expand=True)
+                content=ft.ListView(
+                    controls=[
+                        # Header
+                        header,
+                        
+                        ft.Container(
+                            content=current_store_settings, 
+                        ),
+                        
+                        msg
+                    ], expand=True, spacing=0)
             )
         )
     ]

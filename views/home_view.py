@@ -225,81 +225,79 @@ def get_home_controls(page: ft.Page, navigate_to):
             ft.Container(
                 expand=True,
                 bgcolor=AppColors.BACKGROUND,
-                content=ft.Column([
-                    # === HEADER WITH STORE SELECTOR ===
-                    ft.Container(
-                        padding=AppLayout.HEADER_PADDING,
-                        bgcolor=AppColors.SURFACE,
-                        border=ft.border.only(bottom=ft.border.BorderSide(1, AppColors.BORDER_LIGHT)),
-                        content=ft.Row([
-                            # Left: Profile Avatar + Store Info
-                            ft.Row([
-                                ft.Container(
-                                    content=ft.Icon(ft.Icons.PERSON, color=AppColors.SURFACE, size=24),
-                                    width=45, height=45, bgcolor="#E0E0E0", border_radius=22.5,
-                                    alignment=ft.alignment.center,
-                                    on_click=lambda _: navigate_to("profile"),
-                                    tooltip="내 프로필"
-                                ),
-                                ft.Column([
-                                    ft.Text(
-                                        page.session.get("channel_name") or "매장",
-                                        style=AppTextStyles.HEADER_TITLE
+                content=ft.ListView(
+                    controls=[
+                        # === HEADER WITH STORE SELECTOR ===
+                        ft.Container(
+                            padding=AppLayout.HEADER_PADDING,
+                            bgcolor=AppColors.SURFACE,
+                            border=ft.border.only(bottom=ft.border.BorderSide(1, AppColors.BORDER_LIGHT)),
+                            content=ft.Row([
+                                # Left: Profile Avatar + Store Info
+                                ft.Row([
+                                    ft.Container(
+                                        content=ft.Icon(ft.Icons.PERSON, color=AppColors.SURFACE, size=24),
+                                        width=45, height=45, bgcolor="#E0E0E0", border_radius=22.5,
+                                        alignment=ft.alignment.center,
+                                        on_click=lambda _: navigate_to("profile"),
+                                        tooltip="내 프로필"
                                     ),
-                                    ft.Text(
-                                        f"{display_name}님",
-                                        style=AppTextStyles.BODY_SMALL
-                                    )
-                                ], spacing=0, alignment=ft.MainAxisAlignment.CENTER),
-                            ], spacing=10), # End Left Row
+                                    ft.Column([
+                                        ft.Text(
+                                            page.session.get("channel_name") or "매장",
+                                            style=AppTextStyles.HEADER_TITLE
+                                        ),
+                                        ft.Text(
+                                            f"{display_name}님",
+                                            style=AppTextStyles.BODY_SMALL
+                                        )
+                                    ], spacing=0, alignment=ft.MainAxisAlignment.CENTER),
+                                ], spacing=10), # End Left Row
 
-                        # Right: Actions
-                        ft.Row([
-                            ft.IconButton(
-                                ft.Icons.ADD_BUSINESS,
-                                icon_color="#1565C0",
-                                # symbol=False,  # [FIX] Removed invalid arg
-                                tooltip="새 매장 추가",
-                                icon_size=35, # [FIX] Typo fixed
-                                on_click=lambda _: navigate_to("onboarding"),
-                                visible=True
-                            ) if len(user_channels) > 1 else ft.Container(),
-                            
-                            ft.Container(
-                                content=store_selector,
-                                visible=len(user_channels) > 1,
-                                width=120
-                            ) if len(user_channels) > 1 else ft.IconButton(
-                                ft.Icons.ADD_BUSINESS,
-                                icon_color="#1565C0",
-                                tooltip="새 매장 추가",
-                                icon_size=35, # [FIX] 130% larger
-                                on_click=lambda _: navigate_to("onboarding")
-                            ),
-                            
-                            ft.IconButton(
-                                ft.Icons.LOGOUT,
-                                icon_color="#E53935",
-                                tooltip="로그아웃",
-                                icon_size=35, # [FIX] 130% larger
-                                on_click=perform_logout
-                            )
-                        ], spacing=0, alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.START)
+                            # Right: Actions
+                            ft.Row([
+                                ft.IconButton(
+                                    ft.Icons.ADD_BUSINESS,
+                                    icon_color="#1565C0",
+                                    tooltip="새 매장 추가",
+                                    icon_size=35,
+                                    on_click=lambda _: navigate_to("onboarding"),
+                                    visible=True
+                                ) if len(user_channels) > 1 else ft.Container(),
+                                
+                                ft.Container(
+                                    content=store_selector,
+                                    visible=len(user_channels) > 1,
+                                    width=120
+                                ) if len(user_channels) > 1 else ft.IconButton(
+                                    ft.Icons.ADD_BUSINESS,
+                                    icon_color="#1565C0",
+                                    tooltip="새 매장 추가",
+                                    icon_size=35,
+                                    on_click=lambda _: navigate_to("onboarding")
+                                ),
+                                
+                                ft.IconButton(
+                                    ft.Icons.LOGOUT,
+                                    icon_color="#E53935",
+                                    tooltip="로그아웃",
+                                    icon_size=35,
+                                    on_click=perform_logout
+                                )
+                            ], spacing=0, alignment=ft.MainAxisAlignment.END, vertical_alignment=ft.CrossAxisAlignment.START)
 
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.START) # [FIX] Align Tops
-                ),
-                
-                ft.Divider(color="#EEEEEE", height=1),
-                
-                # === MAIN CONTENT ===
-                ft.Container(
-                    padding=20,
-                    content=grid,
-                    # Grid container doesn't need expand inside if the parent Column handles scrolling of content
-                    # But changing it to expand=False allows the Column to measure its content.
-                    # Wait, if Column has scroll, children should generally not have expand=True unconstrained.
-                    # ResponsiveRow calculates height based on width.
-                )
-            ], scroll=ft.ScrollMode.AUTO, expand=True)
-        ))
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, vertical_alignment=ft.CrossAxisAlignment.START) 
+                    ),
+                    
+                    ft.Divider(color="#EEEEEE", height=1),
+                    
+                    # === MAIN CONTENT ===
+                    ft.Container(
+                        padding=20,
+                        content=grid,
+                    )
+                ], expand=True, spacing=0)
+            )
+            )
+        )
     ]
