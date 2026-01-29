@@ -1362,6 +1362,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
     # [AI Calendar Feature]
     def open_ai_calendar_dialog(e):
         from utils.logger import log_error, log_info
+        # [FIX] Local imports to resolve scope issues safely
+        from services import ai_service, calendar_service
+        from datetime import datetime, timedelta, time
 
         if not state.get("current_topic_id"): return
         
