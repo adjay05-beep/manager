@@ -968,6 +968,6 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                         grid
                     ], spacing=0, expand=True)
                 )
-            ], expand=True, spacing=0),
-        expand=True)
+            ], expand=True, spacing=0)
+        )
     ]

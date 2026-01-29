@@ -41,8 +41,7 @@ jobs:
         flet publish main.py 
 
     - name: Deploy to GitHub Pages
-      uses: P3TERX/gh-pages-deploy@v0.1.6
+      uses: peaceiris/actions-gh-pages@v3
       with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: ./dist
-        keep_files: true
-        force_orphan: true
