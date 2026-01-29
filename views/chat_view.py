@@ -478,13 +478,38 @@ def get_chat_controls(page: ft.Page, navigate_to):
     def load_messages_thread():
         if not state["current_topic_id"] or not state["is_active"]: return
         try:
-            messages = chat_service.get_messages(state["current_topic_id"])
+            # 1. Fetch DB Messages
+            db_messages = chat_service.get_messages(state["current_topic_id"])
             
-            new_controls = []
-            # [REFACTOR] Use ChatBubble Component
             from views.components.chat_bubble import ChatBubble
-            for m in messages:
+            
+            # 2. Extract Existing Pending Messages (Optimistic UI Preservation)
+            pending_bubbles = []
+            if message_list_view.controls and isinstance(message_list_view.controls, list):
+                for ctrl in message_list_view.controls:
+                    # Check if it's a ChatBubble and is_sending is True
+                    if isinstance(ctrl, ChatBubble) and getattr(ctrl, "is_sending", False):
+                        # [Deduplication] Check if this message has "landed" in the DB
+                        # We check the last 10 messages for matching content and user
+                        is_landed = False
+                        p_content = ctrl.message.get("content")
+                        
+                        for db_m in reversed(db_messages[-10:]): 
+                            if db_m.get("content") == p_content and \
+                               db_m.get("user_id") == current_user_id:
+                                is_landed = True
+                                break
+                        
+                        if not is_landed:
+                            pending_bubbles.append(ctrl)
+            
+            # 3. Build New Control List
+            new_controls = []
+            for m in db_messages:
                 new_controls.append(ChatBubble(m, current_user_id))
+            
+            # 4. Append Pending Messages at the End
+            new_controls.extend(pending_bubbles)
             
             message_list_view.controls = new_controls
             page.update()
@@ -513,14 +538,41 @@ def get_chat_controls(page: ft.Page, navigate_to):
         if not final_content and not final_image_url: return
         if not state["current_topic_id"]: return
         
+        # [OPTIMISTIC UI] 1. Inject Local Message Immediately
+        from views.components.chat_bubble import ChatBubble
+        from datetime import datetime
+        import time
+        
+        # Construct Temporary Message
+        temp_msg = {
+            "id": f"temp_{time.time()}",
+            "content": final_content,
+            "image_url": final_image_url,
+            "user_id": current_user_id,
+            "created_at": datetime.now().isoformat(),
+            "is_sending": True, # Flag for Bubble Opacity/Icon
+            "profiles": {"full_name": "나", "username": "Me"} 
+        }
+        
+        # Append to View
+        if not message_list_view.controls:
+            message_list_view.controls = []
+        message_list_view.controls.append(ChatBubble(temp_msg, current_user_id))
+        
+        # Clear Inputs Immediately (Instant Feel)
+        msg_input.value = ""
+        msg_input.focus()
+        state["pending_image_url"] = None
+        pending_container.visible = False
+        pending_container.content = ft.Container()
+        page.update()
+        
+        # 2. Background Send
         def _do_send():
             try:
                 chat_service.send_message(state["current_topic_id"], final_content, final_image_url, current_user_id)
-                msg_input.value = ""
-                state["pending_image_url"] = None
-                pending_container.visible = False
-                pending_container.content = ft.Container()
-                page.update()
+                # Realtime will likely trigger update, but we call load just in case
+                # The load_messages_thread will merge/remove the temp message once DB has it
                 load_messages_thread()
             except Exception as ex:
                 page.snack_bar = ft.SnackBar(ft.Text(f"전송 실패: {ex}"), bgcolor="red", open=True); page.update()

@@ -6,6 +6,8 @@ class ChatBubble(ft.Container):
         super().__init__()
         self.message = message
         self.current_user_id = current_user_id
+        # [NEW] Optimistic UI Flag
+        self.is_sending = message.get("is_sending", False)
         self.build_ui()
 
     def build_ui(self):
@@ -26,7 +28,13 @@ class ChatBubble(ft.Container):
                 dt = datetime.fromisoformat(created_at)
                 time_str = dt.strftime("%H:%M")
             except: pass
-
+            
+        # [NEW] Sending Status Indicator
+        status_indicator = None
+        if self.is_sending:
+            status_indicator = ft.Icon(ft.Icons.ACCESS_TIME_ROUNDED, size=12, color="#9E9E9E", tooltip="전송 중...")
+            time_str = "" # Hide time while sending if preferred, or keep it. Let's keep it empty or "..."
+            
         # Avatar
         avatar = ft.CircleAvatar(
             content=ft.Text(username[:1], size=10, color="white"),
@@ -34,6 +42,35 @@ class ChatBubble(ft.Container):
             radius=16,
             visible=not is_me
         )
+
+        # Bubble Content
+        bubble_items = []
+        border_side = None
+        
+        if is_me:
+            bg_color = "white" 
+            text_color = "black"
+            align = ft.MainAxisAlignment.END
+            border_side = ft.border.all(1, "#E0E0E0")
+        else:
+            # ... (rest same)
+            bg_color = "#F0F0F0" # Light Grey
+            text_color = "black"
+            align = ft.MainAxisAlignment.START
+            border_side = None
+        
+        # ... (File Type Detection Logic - Already Implemented, assume preserved if I don't touch execution block) ...
+        # Wait, I am replacing the START of build_ui. The file rendering logic is further down.
+        # I need to be careful not to overwrite the file logic I just added.
+        # The file logic starts at `if img_url:`.
+        
+        # Let's target lines 4-36 (Init and start of build_ui)
+        pass
+
+    # [RESTARTING STRATEGY]
+    # I will replace lines 4-37.
+    # Lines 4-37 covers __init__ and the start of build_ui up to Avatar creation.
+
 
         # Bubble Content
         bubble_items = []
@@ -174,7 +211,9 @@ class ChatBubble(ft.Container):
             ft.Column([
                 ft.Text(username, size=11, color="grey", visible=not is_me),
                 ft.Row([
-                    ft.Text(time_str, size=10, color="grey") if is_me else ft.Container(),
+                    # [FIX] Add Status Indicator for 'Me'
+                    ft.Row([status_indicator] + ([ft.Text(time_str, size=10, color="grey")] if time_str else []), spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER) if (is_me and status_indicator) else (ft.Text(time_str, size=10, color="grey") if is_me else ft.Container()),
+                    
                     bubble,
                     ft.Text(time_str, size=10, color="grey") if not is_me else ft.Container(),
                 ], vertical_alignment="end", spacing=4)
@@ -182,4 +221,6 @@ class ChatBubble(ft.Container):
         ], alignment="end" if is_me else "start", vertical_alignment="start")
 
         self.content = display_row
+        # [NEW] Opacity for Pending Messages
+        self.opacity = 0.6 if self.is_sending else 1.0
         self.padding = ft.padding.symmetric(vertical=5)
