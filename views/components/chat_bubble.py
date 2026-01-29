@@ -1,5 +1,6 @@
 import flet as ft
 from datetime import datetime
+from views.styles import AppColors
 
 class ChatBubble(ft.Container):
     def __init__(self, message, current_user_id, selection_mode=False, on_select=None):
