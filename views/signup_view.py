@@ -127,13 +127,24 @@ def get_signup_controls(page: ft.Page, navigate_to):
         try:
             res = auth_service.verify_otp(state["email"], code)
             if res:
-                verify_status.value = "인증 성공! 로그인 페이지로 이동합니다."
-                verify_status.color = "green"
-                update_view()
-                # Wait and nav
-                import time
-                time.sleep(1.5)
-                navigate_to("login")
+                # [FIX] Show Success Dialog instead of immediate navigation
+                def close_and_go(e):
+                    page.close(dlg)
+                    navigate_to("login")
+
+                dlg = ft.AlertDialog(
+                    title=ft.Text("회원가입 완료! 🎉", size=20, weight="bold"),
+                    content=ft.Text("회원가입이 성공적으로 완료되었습니다.\n로그인 후 이용해주세요.", size=16),
+                    actions=[
+                        ft.ElevatedButton("확인 (로그인하러 가기)", on_click=close_and_go, bgcolor="#00C73C", color="white")
+                    ],
+                    actions_alignment=ft.MainAxisAlignment.END,
+                    on_dismiss=lambda e: navigate_to("login"),
+                    modal=True,
+                    shape=ft.RoundedRectangleBorder(radius=10)
+                )
+                page.open(dlg)
+                page.update()
             else:
                 verify_status.value = "인증 실패: 코드를 확인하세요."
                 verify_status.color = "red"
@@ -144,7 +155,9 @@ def get_signup_controls(page: ft.Page, navigate_to):
              update_view()
         finally:
             state["loading"] = False
-            update_view()
+            # update_view() # Can conflict with dialog if it rebuilds page
+            try: page.update()
+            except: pass
 
     def do_verify(e):
         code = otp_tf.value

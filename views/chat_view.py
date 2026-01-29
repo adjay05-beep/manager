@@ -103,7 +103,40 @@ def get_chat_controls(page: ft.Page, navigate_to):
     # ... inside load topics ...
     # chat_header_title.controls[1].value = f"Topics: {len(topics)}"
     msg_input = ft.TextField(hint_text="메시지를 입력하세요...", expand=True, multiline=True, max_lines=3)
-    root_view = ft.Column(expand=True, spacing=0)
+    
+    # [NEW] Image Viewer Overlay
+    image_viewer = ft.Stack(visible=False, expand=True)
+
+    def close_image_viewer(e):
+        image_viewer.visible = False
+        image_viewer.controls.clear()
+        page.update()
+
+    def show_image_viewer(src):
+        image_viewer.controls = [
+            ft.Container(
+                expand=True,
+                bgcolor="black",
+                content=ft.Stack([
+                    ft.Container(
+                        content=ft.Image(src=src, fit=ft.ImageFit.CONTAIN),
+                        alignment=ft.alignment.center,
+                        on_click=close_image_viewer, # Click background to close
+                        expand=True
+                    ),
+                    ft.Container(
+                        content=ft.IconButton(ft.Icons.CLOSE, icon_color="white", icon_size=30, on_click=close_image_viewer),
+                        top=50, right=20,
+                    )
+                ], expand=True)
+            )
+        ]
+        image_viewer.visible = True
+        page.update()
+
+    # Original Layout
+    chat_main_layout = ft.Column(expand=True, spacing=0)
+    root_view = ft.Stack([chat_main_layout, image_viewer], expand=True)
 
     async def load_topics_thread(update_ui=True, show_all=False):
         # [DEBUG] Start
@@ -565,7 +598,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     m,
                     current_user_id,
                     selection_mode=state.get("selection_mode"),
-                    on_select=on_msg_select
+                    on_select=on_msg_select,
+                    on_image_click=show_image_viewer
                 ))
             
             # 4. Append Pending Messages at the End

@@ -3,12 +3,13 @@ from datetime import datetime
 from views.styles import AppColors
 
 class ChatBubble(ft.Container):
-    def __init__(self, message, current_user_id, selection_mode=False, on_select=None):
+    def __init__(self, message, current_user_id, selection_mode=False, on_select=None, on_image_click=None):
         super().__init__()
         self.message = message
         self.current_user_id = current_user_id
         self.selection_mode = selection_mode
         self.on_select = on_select
+        self.on_image_click = on_image_click
         # [NEW] Optimistic UI Flag
         self.is_sending = message.get("is_sending", False)
         self.build_ui()
@@ -103,8 +104,7 @@ class ChatBubble(ft.Container):
             video_exts = ["mp4", "mov", "avi", "wmv", "mkv", "webm"]
             
             if ext in image_exts:
-                bubble_items.append(
-                    ft.Image(
+                img_widget = ft.Image(
                         src=img_url,
                         width=200,
                         height=200,
@@ -113,35 +113,43 @@ class ChatBubble(ft.Container):
                         repeat=ft.ImageRepeat.NO_REPEAT,
                         gapless_playback=True
                     )
-                )
+                if self.on_image_click:
+                    bubble_items.append(
+                        ft.Container(content=img_widget, on_click=lambda e: self.on_image_click(img_url))
+                    )
+                else:
+                    bubble_items.append(img_widget)
             elif ext in video_exts:
                 # [NEW] Video Card with Modal Player
                 def play_video(e):
                     try:
                         # Modal Video Player using Flet's Native Video Control
-                        # Note: Requires Flet 0.21.0+
                         video_media = ft.VideoMedia(img_url)
                         player = ft.Video(
                             expand=True,
                             playlist=[video_media],
                             playlist_mode=ft.PlaylistMode.SINGLE,
                             fill_color=ft.Colors.BLACK,
-                            aspect_ratio=16/9,
+                            aspect_ratio=None, # Auto
                             autoplay=True,
                             filter_quality=ft.FilterQuality.HIGH,
                             muted=False,
                             show_controls=True
                         )
                         
+                        # [FIX] Larger Dialog Size
+                        w = 600
+                        try: w = min(e.page.width - 20, 600)
+                        except: pass
+
                         dlg_content = ft.Container(
                             content=player,
-                            width=350, # Mobile friendly width
-                            height=200,
+                            width=w, 
+                            height=w * 0.56, # 16:9 approx
                             bgcolor="black",
                             alignment=ft.alignment.center
                         )
                         
-                        # Fullscreen dialog on mobile?
                         dlg = ft.AlertDialog(
                             content=dlg_content,
                             content_padding=0,
@@ -152,22 +160,21 @@ class ChatBubble(ft.Container):
                         e.page.update()
                     except Exception as ex:
                         print(f"Video Error: {ex}")
-                        # Fallback to External Browser
                         e.page.launch_url(img_url)
 
                 card = ft.Container(
                     content=ft.Row([
-                        ft.Icon(ft.Icons.PLAY_CIRCLE_FILL, color="#E53935", size=32),
+                        ft.Icon(ft.Icons.PLAY_CIRCLE_FILL, color="#E53935", size=40),
                         ft.Column([
-                            ft.Text("동영상 재생", weight="bold", size=13, color="#212121"),
-                            ft.Text(f"{ext.upper()} 파일", size=10, color="grey")
-                        ], spacing=0, alignment="center")
-                    ], alignment="start", spacing=10),
-                    padding=ft.padding.symmetric(horizontal=12, vertical=12),
+                            ft.Text("동영상 재생", weight="bold", size=14, color="#212121"),
+                            ft.Text(f"{ext.upper()} 파일", size=12, color="grey")
+                        ], spacing=2, alignment="center")
+                    ], alignment="start", spacing=15),
+                    padding=ft.padding.symmetric(horizontal=15, vertical=15),
                     bgcolor="#FAFAFA" if is_me else "white",
                     border=ft.border.all(1, "#E0E0E0"),
-                    border_radius=10,
-                    width=220,
+                    border_radius=12,
+                    width=280, # [FIX] Larger Preview Width
                     on_click=play_video,
                     ink=True
                 )
