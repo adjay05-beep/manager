@@ -100,10 +100,11 @@ def DebugUploadView(page: ft.Page):
         def load_server_logs(e):
             from utils.logger import get_logs
             logs = get_logs()
-            log("--- SERVER LOGS START ---")
+            log_control.controls.clear()
+            log("--- SYSTEM LOGS REFRESHED ---")
             for l in logs:
-                log_control.controls.append(ft.Text(str(l), size=12, font_family="Consolas", color="green"))
-            log("--- SERVER LOGS END ---")
+                color = "red" if "ERROR" in l else "blue" if "INFO" in l else "black"
+                log_control.controls.append(ft.Text(str(l), size=12, font_family="Consolas", color=color))
             page.update()
 
         def list_upload_folder(e):
@@ -123,21 +124,21 @@ def DebugUploadView(page: ft.Page):
 
         picker = ft.FilePicker(on_result=on_upload_result)
         page.overlay.append(picker)
-        # [FIX] Do not call page.update() here. Let main.py do it.
+        
+        # Auto-load logs on entry
+        load_server_logs(None)
         
         return [
-            ft.Text("디버그 업로드 도구", size=24, weight="bold"),
-            ft.Text("강력한 로그 추적 기능이 포함되어 있습니다.", size=12, color="grey"),
+            ft.Text("시스템 진단 & 로그", size=24, weight="bold"),
+            ft.Text("AI 분석 실패 원인을 여기서 확인하세요.", size=12, color="grey"),
             ft.Divider(),
             ft.Row([
-                ft.ElevatedButton("파일 선택 및 테스트 업로드", on_click=lambda _: picker.pick_files(), bgcolor="blue", color="white"),
-                ft.ElevatedButton("서버 디스크 쓰기 테스트", on_click=check_disk_write),
-                ft.ElevatedButton("Supabase 연결 테스트", on_click=check_supabase_connect),
+                ft.ElevatedButton("새로 고침 (로그)", on_click=load_server_logs, bgcolor="blue", color="white", icon=ft.Icons.REFRESH),
+                ft.ElevatedButton("파일 업로드 테스트", on_click=lambda _: picker.pick_files()),
+                ft.ElevatedButton("Disk Write Test", on_click=check_disk_write),
+                ft.ElevatedButton("Supabase Check", on_click=check_supabase_connect),
             ], wrap=True),
-            ft.Row([
-                ft.ElevatedButton("📜 서버 로그 불러오기", on_click=load_server_logs, bgcolor="#424242", color="white"),
-                ft.ElevatedButton("📂 업로드 폴더 목록 확인", on_click=list_upload_folder, bgcolor="#424242", color="white"),
-            ], wrap=True),
+            ft.Container(height=10),
             ft.Container(height=20),
             ft.Text("실시간 로그:", weight="bold"),
             ft.Container(
