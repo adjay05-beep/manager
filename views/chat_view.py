@@ -1361,6 +1361,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
     # [AI Calendar Feature]
     # [AI Calendar Feature]
     def open_ai_calendar_dialog(e):
+        from utils.logger import log_error, log_info
+
         if not state.get("current_topic_id"): return
         
         # [NEW] Cancel Flag
@@ -1368,6 +1370,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
         
         def on_cancel(e):
             is_cancelled[0] = True
+            log_info("AI Analysis Cancelled by User")
             page.close(loading_dlg)
             
         # 1. Show Loading with Cancel
@@ -1386,6 +1389,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             if not is_cancelled[0]: # If still running
                 is_cancelled[0] = True
                 try:
+                    log_error("AI Analysis Timeout (Client-side 15s Limit)")
                     page.close(loading_dlg)
                     page.snack_bar = ft.SnackBar(ft.Text("응답 시간이 초과되었습니다. (강제 종료)"), bgcolor="red")
                     page.snack_bar.open = True
@@ -1396,22 +1400,28 @@ def get_chat_controls(page: ft.Page, navigate_to):
         
         def run_analysis():
             try:
+                log_info(f"AI START: TopicID={state.get('current_topic_id')}, SelectionMode={state.get('selection_mode')}")
+                
                 # 2. Fetch Messages
                 if state.get("selection_mode") and state.get("selected_ids"):
                     full_msgs = chat_service.get_messages(state["current_topic_id"], limit=100)
                     msgs = [m for m in full_msgs if str(m['id']) in state["selected_ids"]]
                     
                     if not msgs:
+                        log_info("AI Aborted: No messages selected.")
                         page.snack_bar = ft.SnackBar(ft.Text("선택된 메시지가 범위 내에 없거나 로드되지 않았습니다."), bgcolor="orange"); page.snack_bar.open=True; page.update(); page.close(loading_dlg); return
                 else:
                     msgs = chat_service.get_messages(state["current_topic_id"], limit=50)
                 
+                log_info(f"AI Processing {len(msgs)} messages...")
+
                 # 3. Analyze
                 result = {}
                 try:
                     result = ai_service.analyze_chat_for_calendar(msgs)
                 except Exception as api_err:
                      if is_cancelled[0]: return
+                     log_error(f"AI Service Critical Failure: {api_err}")
                      print(f"AI API Error: {api_err}")
                      # [UX Fix] Continue even if AI fails, so user can enter manually
                      result = {
@@ -1430,6 +1440,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 d_str = result.get("date")
                 t_str = result.get("time")
                 
+                log_info(f"AI Result: Summary='{summary}', Date='{d_str}'")
+
                 default_date = datetime.now()
                 if d_str:
                     try: default_date = datetime.strptime(d_str, "%Y-%m-%d")
@@ -1491,6 +1503,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                 toggle_selection_mode(False) # Turn off selection mode
                                 page.update()
                             except Exception as ex:
+                                log_error(f"Event Save Failed: {ex}")
                                 page.snack_bar = ft.SnackBar(ft.Text(f"등록 실패: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
                                 
                         page.run_task(do_save)
@@ -1524,6 +1537,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             except Exception as ex:
                 try: page.close(loading_dlg)
                 except: pass
+                log_error(f"AI Dialog System Error: {ex}")
                 print(f"AI Error: {ex}")
                 # Fallback to Editor even on Outer Exception? 
                 # If outer exception happens, 'msg' might be undefined or 'result' undefined.
