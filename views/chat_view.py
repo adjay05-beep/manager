@@ -1465,9 +1465,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         page.close(loading_dlg)
                     except: pass
                     
-                    tf_summary = ft.TextField(label="요약 (제목)", value=summary, autofocus=True)
-                    tf_date = ft.TextField(label="날짜", value=default_date.strftime("%Y-%m-%d"), read_only=True)
-                    tf_time = ft.TextField(label="시간", value=default_time.strftime("%H:%M"), read_only=True)
+                    tf_summary = ft.TextField(label="제목 (요약)", value=summary, autofocus=True, filled=True, border_radius=8, text_size=16)
+                    tf_date = ft.TextField(label="날짜", value=default_date.strftime("%Y-%m-%d"), read_only=True, expand=True, filled=True, border_radius=8, text_size=14)
+                    tf_time = ft.TextField(label="시간", value=default_time.strftime("%H:%M"), read_only=True, expand=True, filled=True, border_radius=8, text_size=14)
                     
                     def on_date_change(e):
                         if e.control.value: tf_date.value = e.control.value.strftime("%Y-%m-%d"); page.update()
@@ -1513,25 +1513,28 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         page.run_task(do_save)
 
                     dlg = ft.AlertDialog(
-                        title=ft.Text("일정 등록"),
+                        title=ft.Text("일정 등록", weight="bold", size=20),
                         content=ft.Container(
-                            width=300,
+                            width=400, # Increased from 300
                             content=ft.Column([
                                 tf_summary,
+                                ft.Container(height=10),
                                 ft.Row([
-                                    ft.IconButton(ft.Icons.CALENDAR_TODAY, on_click=lambda _: page.open(dp)),
+                                    ft.IconButton(ft.Icons.CALENDAR_MONTH, on_click=lambda _: page.open(dp), icon_color="#5C6BC0"),
                                     tf_date
-                                ]),
+                                ], alignment=ft.MainAxisAlignment.CENTER),
                                 ft.Row([
-                                    ft.IconButton(ft.Icons.ACCESS_TIME, on_click=lambda _: page.open(tp)),
+                                    ft.IconButton(ft.Icons.ACCESS_TIME, on_click=lambda _: page.open(tp), icon_color="#5C6BC0"),
                                     tf_time
-                                ])
-                            ])
+                                ], alignment=ft.MainAxisAlignment.CENTER)
+                            ], tight=True, spacing=12) # tight=True eliminates vertical whitespace
                         ),
                         actions=[
-                            ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
-                            ft.ElevatedButton("등록", on_click=start_save, bgcolor=AppColors.PRIMARY, color="white")
-                        ]
+                            ft.TextButton("취소", on_click=lambda _: page.close(dlg), style=ft.ButtonStyle(color="grey")),
+                            ft.ElevatedButton("등록", on_click=start_save, bgcolor=AppColors.PRIMARY, color="white", style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)))
+                        ],
+                        actions_alignment=ft.MainAxisAlignment.END,
+                        shape=ft.RoundedRectangleBorder(radius=12)
                     )
                     page.open(dlg)
                     page.update()
