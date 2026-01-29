@@ -195,7 +195,7 @@ def update_last_read(topic_id: str, user_id: str):
     now_utc = datetime.now(timezone.utc).isoformat()
     service_supabase.table("chat_user_reading").upsert({"topic_id": topic_id, "user_id": user_id, "last_read_at": now_utc}).execute()
 
-def send_message(topic_id: str, content: str = None, image_url: str = None, user_id: str = CURRENT_USER_ID):
+def send_message(topic_id: str, content: str = None, image_url: str = None, user_id: str = None):
     """Send a message to a topic."""
     if not content and not image_url: return
     
