@@ -1,0 +1,124 @@
+    # [AI Calendar Feature]
+    def open_ai_calendar_dialog(e):
+        if not state.get("current_topic_id"): return
+        
+        # 1. Show Loading
+        loading_dlg = ft.AlertDialog(content=ft.Row([ft.ProgressRing(), ft.Text("AI가 대화를 분석 중입니다...")], alignment="center", spacing=20), modal=True)
+        page.open(loading_dlg)
+        page.update()
+        
+        def run_analysis():
+            try:
+                # 2. Fetch Messages
+                if state["selection_mode"] and state["selected_ids"]:
+                    full_msgs = chat_service.get_messages(state["current_topic_id"], limit=100)
+                    msgs = [m for m in full_msgs if str(m['id']) in state["selected_ids"]]
+                    
+                    if not msgs:
+                        page.snack_bar = ft.SnackBar(ft.Text("선택된 메시지가 범위 내에 없거나 로드되지 않았습니다."), bgcolor="orange"); page.snack_bar.open=True; page.update(); page.close(loading_dlg); return
+                else:
+                    msgs = chat_service.get_messages(state["current_topic_id"], limit=50)
+                
+                # 3. Analyze
+                result = ai_service.analyze_chat_for_calendar(msgs)
+                
+                # 4. Prepare Dialog Default Values
+                summary = result.get("summary", "")
+                d_str = result.get("date")
+                t_str = result.get("time")
+                
+                default_date = datetime.now()
+                if d_str:
+                    try: default_date = datetime.strptime(d_str, "%Y-%m-%d")
+                    except: pass
+                    
+                default_time = time(9, 0)
+                if t_str:
+                    try: 
+                        h, m = map(int, t_str.split(':'))
+                        default_time = time(h, m)
+                    except: pass
+                    
+                # 5. Show Editor Dialog
+                def show_editor():
+                    page.close(loading_dlg)
+                    
+                    tf_summary = ft.TextField(label="요약 (제목)", value=summary, autofocus=True)
+                    tf_date = ft.TextField(label="날짜", value=default_date.strftime("%Y-%m-%d"), read_only=True)
+                    tf_time = ft.TextField(label="시간", value=default_time.strftime("%H:%M"), read_only=True)
+                    
+                    def on_date_change(e):
+                        if e.control.value: tf_date.value = e.control.value.strftime("%Y-%m-%d"); page.update()
+                    dp = ft.DatePicker(on_change=on_date_change, value=default_date)
+                    
+                    def on_time_change(e):
+                        if e.control.value: tf_time.value = e.control.value.strftime("%H:%M"); page.update()
+                    tp = ft.TimePicker(on_change=on_time_change, value=default_time, time_picker_entry_mode=ft.TimePickerEntryMode.DIAL_ONLY)
+                    
+                    page.overlay.extend([dp, tp])
+                    
+                    def start_save(e):
+                        if not tf_summary.value: tf_summary.error_text = "내용을 입력하세요."; tf_summary.update(); return
+                        
+                        async def do_save():
+                            try:
+                                d_val = datetime.strptime(tf_date.value, "%Y-%m-%d")
+                                t_val = datetime.strptime(tf_time.value, "%H:%M").time()
+                                dt_start = datetime.combine(d_val.date(), t_val)
+                                dt_end = dt_start + timedelta(hours=1)
+                                
+                                payload = {
+                                    "title": tf_summary.value,
+                                    "start_date": dt_start.strftime("%Y-%m-%d %H:%M:%S"),
+                                    "end_date": dt_end.strftime("%Y-%m-%d %H:%M:%S"),
+                                    "is_all_day": False,
+                                    "color": "#448AFF",
+                                    "created_by": current_user_id,
+                                    "user_id": current_user_id,
+                                    "channel_id": page.session.get("channel_id"), 
+                                    "description": "AI Generated from Chat Topic: " + str(state["current_topic_id"])
+                                }
+                                await calendar_service.create_event(payload)
+                                page.snack_bar = ft.SnackBar(ft.Text("📅 캘린더에 등록되었습니다!"), bgcolor="green"); page.snack_bar.open = True
+                                page.close(dlg)
+                                # Turn off selection mode
+                                toggle_selection_mode(False)
+                                page.update()
+                            except Exception as ex:
+                                page.snack_bar = ft.SnackBar(ft.Text(f"등록 실패: {ex}"), bgcolor="red"); page.snack_bar.open = True
+                                page.update()
+                        
+                        page.run_task(do_save)
+
+                    dlg = ft.AlertDialog(
+                        title=ft.Text("AI 일정 등록"),
+                        content=ft.Container(
+                            height=300,
+                            content=ft.Column([
+                                tf_summary,
+                                ft.Row([
+                                    ft.IconButton(ft.Icons.CALENDAR_MONTH, on_click=lambda _: page.open(dp)),
+                                    tf_date,
+                                ]),
+                                ft.Row([
+                                    ft.IconButton(ft.Icons.ACCESS_TIME, on_click=lambda _: page.open(tp)),
+                                    tf_time
+                                ])
+                            ])
+                        ),
+                        actions=[
+                            ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
+                            ft.ElevatedButton("등록", on_click=start_save, bgcolor=AppColors.PRIMARY, color="white")
+                        ]
+                    )
+                    page.open(dlg)
+                
+                show_editor()
+                
+            except Exception as ex:
+                page.close(loading_dlg)
+                print(f"AI Error: {ex}")
+                page.snack_bar = ft.SnackBar(ft.Text(f"AI 분석 오류: {ex}"), bgcolor="red"); page.snack_bar.open=True
+                page.update()
+                
+        page.run_task(run_analysis)
