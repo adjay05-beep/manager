@@ -11,6 +11,7 @@ DEBUG_MODE = True
 
 def get_chat_controls(page: ft.Page, navigate_to):
     # [FIX] Stability: Use Global FilePicker and Robust Lifecycle Management
+    from views.components.chat_bubble import ChatBubble
     
     state = {
         "current_topic_id": None, 
@@ -51,7 +52,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
     message_list_view = ft.ListView(expand=True, spacing=5, padding=10)
     chat_header_title = ft.Column([
         ft.Text("팀 스레드", weight="bold", size=20, color="#212121"),
-        ft.Text("Init...", size=10, color="red") # Debug Text
+        ft.Text("", size=10, color="red", visible=False) # Debug Text Hidden
     ], spacing=0)
 
     # ... inside load topics ...
@@ -94,7 +95,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             log_info(f"Loading topics for user {current_user_id} in channel {current_channel_id}")
             
             # [FIX] Async wrappers for Blocking Service Calls
-            chat_header_title.controls[1].value = "Debug: Fetching Cats..."
+            # chat_header_title.controls[1].value = "Debug: Fetching Cats..."
             if update_ui: page.update()
             
             categories_data = await asyncio.to_thread(chat_service.get_categories, current_channel_id)
@@ -102,11 +103,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
             categories = [c['name'] for c in categories_data] if categories_data else ["공지", "일반", "중요", "개별 업무"]
 
             if show_all:
-                chat_header_title.controls[1].value = "Debug: Fetching All Topics..."
+                # chat_header_title.controls[1].value = "Debug: Fetching All Topics..."
                 if update_ui: page.update()
                 topics = await asyncio.to_thread(chat_service.get_all_topics, current_channel_id)
             else:
-                chat_header_title.controls[1].value = "Debug: Fetching User Topics..."
+                # chat_header_title.controls[1].value = "Debug: Fetching User Topics..."
                 if update_ui: page.update()
                 topics = await asyncio.to_thread(chat_service.get_topics, current_user_id, current_channel_id)
                 
@@ -473,7 +474,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             # 1. Fetch DB Messages
             db_messages = chat_service.get_messages(state["current_topic_id"])
             
-            from views.components.chat_bubble import ChatBubble
+            # from views.components.chat_bubble import ChatBubble (Moved to top)
             
             # 2. Extract Existing Pending Messages (Optimistic UI Preservation)
             pending_bubbles = []
@@ -531,7 +532,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
         if not state["current_topic_id"]: return
         
         # [OPTIMISTIC UI] 1. Inject Local Message Immediately
-        from views.components.chat_bubble import ChatBubble
+        # from views.components.chat_bubble import ChatBubble
         from datetime import datetime
         import time
         
