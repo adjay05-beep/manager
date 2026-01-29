@@ -1379,6 +1379,21 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.open(loading_dlg)
         page.update()
         
+        # [NEW] Force Timeout Thread (Safeguard)
+        import threading, time
+        def force_timeout_check():
+            time.sleep(15) # 15s Safety Timeout
+            if not is_cancelled[0]: # If still running
+                is_cancelled[0] = True
+                try:
+                    page.close(loading_dlg)
+                    page.snack_bar = ft.SnackBar(ft.Text("응답 시간이 초과되었습니다. (강제 종료)"), bgcolor="red")
+                    page.snack_bar.open = True
+                    page.update()
+                except: pass
+        
+        threading.Thread(target=force_timeout_check, daemon=True).start()
+        
         def run_analysis():
             try:
                 # 2. Fetch Messages
