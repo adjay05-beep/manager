@@ -408,12 +408,12 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                     header,
                     
                     ft.Container(
-                        content=current_store_settings,
-                        expand=True 
+                        content=current_store_settings, 
+                        # expand=True removed to allow scrolling
                     ),
                     
                     msg
-                ], scroll=ft.ScrollMode.AUTO)
+                ], scroll=ft.ScrollMode.AUTO, expand=True)
             )
         )
     ]

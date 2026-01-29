@@ -22,7 +22,7 @@ def get_order_controls(page: ft.Page, navigate_to):
                         ft.Icon(ft.Icons.INVENTORY_2_OUTLINED, size=64, color="grey"),
                         ft.Text("발주/재고 관리 기능 준비 중입니다.", size=16, color="grey"),
                         ft.ElevatedButton("홈으로 돌아가기", on_click=lambda _: navigate_to("home"), height=40, bgcolor="#1565C0", color="white")
-                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=20)
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=20, scroll=ft.ScrollMode.AUTO, expand=True)
                 )
             ])
         )

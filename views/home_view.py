@@ -295,10 +295,11 @@ def get_home_controls(page: ft.Page, navigate_to):
                 ft.Container(
                     padding=20,
                     content=grid,
-                    expand=True,
-                    # Ensure grid can scroll if needed, though home screen usually fits
-                    # But responsive row needs width context.
+                    # Grid container doesn't need expand inside if the parent Column handles scrolling of content
+                    # But changing it to expand=False allows the Column to measure its content.
+                    # Wait, if Column has scroll, children should generally not have expand=True unconstrained.
+                    # ResponsiveRow calculates height based on width.
                 )
-            ], scroll=ft.ScrollMode.AUTO)
+            ], scroll=ft.ScrollMode.AUTO, expand=True)
         ))
     ]

@@ -64,6 +64,6 @@ def get_closing_controls(page: ft.Page, navigate_to):
                         shape=ft.RoundedRectangleBorder(radius=8)
                     )
                 )
-            ])
+            ], scroll=ft.ScrollMode.AUTO, expand=True)
         )
     ]
