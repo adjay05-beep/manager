@@ -1385,13 +1385,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
         # [NEW] Force Timeout Thread (Safeguard)
         import threading, time
         def force_timeout_check():
-            time.sleep(15) # 15s Safety Timeout
+            time.sleep(45) # Increased to 45s due to potential cold start
             if not is_cancelled[0]: # If still running
                 is_cancelled[0] = True
                 try:
-                    log_error("AI Analysis Timeout (Client-side 15s Limit)")
+                    log_error("AI Analysis Timeout (Client-side 45s Limit)")
                     page.close(loading_dlg)
-                    page.snack_bar = ft.SnackBar(ft.Text("응답 시간이 초과되었습니다. (강제 종료)"), bgcolor="red")
+                    page.snack_bar = ft.SnackBar(ft.Text("AI 분석 시간이 초과되었습니다. (서버 응답 지연)"), bgcolor="red")
                     page.snack_bar.open = True
                     page.update()
                 except: pass
@@ -1402,7 +1402,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try:
                 log_info(f"AI START: TopicID={state.get('current_topic_id')}, SelectionMode={state.get('selection_mode')}")
                 
-                # 2. Fetch Messages
+                # ...
                 if state.get("selection_mode") and state.get("selected_ids"):
                     full_msgs = chat_service.get_messages(state["current_topic_id"], limit=100)
                     msgs = [m for m in full_msgs if str(m['id']) in state["selected_ids"]]

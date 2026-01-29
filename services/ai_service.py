@@ -64,7 +64,7 @@ def analyze_chat_for_calendar(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "temperature": 0.3,
                 "response_format": {"type": "json_object"}
             },
-            timeout=10
+            timeout=45
         )
         
         response.raise_for_status()
