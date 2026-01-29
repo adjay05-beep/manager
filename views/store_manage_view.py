@@ -351,6 +351,15 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
 
     # === LAYOUT CONSTRUCTION ===
     
+    header = ft.Container(
+        content=ft.Row([
+            ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="#212121", on_click=lambda _: navigate_to("home")),
+            ft.Text("매장 설정", weight="bold", size=20, color="#212121"),
+            ft.Container(width=40) 
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        padding=ft.padding.only(left=10, top=10, right=10)
+    )
+    
     # Store Settings Only
     current_store_settings = ft.Container(
         padding=20,

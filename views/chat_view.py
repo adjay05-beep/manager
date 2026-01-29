@@ -1143,11 +1143,6 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                     icon=ft.Icons.CATEGORY_OUTLINED,
                                     on_click=open_manage_categories_dialog
                                 ),
-                                ft.PopupMenuItem(
-                                    text="로그 보기 (Debug)",
-                                    icon=ft.Icons.BUG_REPORT,
-                                    on_click=show_debug_logs
-                                ),
                             ]
                         ),
                         ft.OutlinedButton(
