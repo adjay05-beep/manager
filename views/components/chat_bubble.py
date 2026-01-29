@@ -108,6 +108,7 @@ class ChatBubble(ft.Container):
                         fit=ft.ImageFit.COVER,
                         border_radius=8,
                         repeat=ft.ImageRepeat.NO_REPEAT,
+                        gapless_playback=True
                     )
                 )
             elif ext in video_exts:
