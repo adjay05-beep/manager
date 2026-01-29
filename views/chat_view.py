@@ -1386,9 +1386,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
         page.update()
         
         # [NEW] Force Timeout Thread (Safeguard)
-        import threading, time
+        import threading
+        import time as tm
         def force_timeout_check():
-            time.sleep(45) # Increased to 45s due to potential cold start
+            tm.sleep(45) # Increased to 45s due to potential cold start
             if not is_cancelled[0]: # If still running
                 is_cancelled[0] = True
                 try:
