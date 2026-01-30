@@ -31,10 +31,8 @@ def main(page: ft.Page):
     page.chat_file_picker = ft.FilePicker()
     page.overlay.append(page.chat_file_picker)
 
-    # Global AudioRecorder (Singleton for WeChat-style Voice Memo)
-    if not hasattr(page, "audio_recorder"):
-        page.audio_recorder = ft.AudioRecorder()
-        page.overlay.append(page.audio_recorder)
+    # AudioRecorder removed for stability in this environment
+    pass
     
     
     # Persistent Navigation Bar
@@ -58,7 +56,6 @@ def main(page: ft.Page):
         ),
         bgcolor="white",
         indicator_color="#E3F2FD",
-        surface_tint_color="white",
         shadow_color="black",
         elevation=5
     )

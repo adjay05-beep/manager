@@ -885,13 +885,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     page.update()
 
     # [FIX] STRICT LOCAL LIFECYCLE
-    # Reverting to Global Picker failed (race condition). 
-    # We now create a new FilePicker for THIS VIEW INSTANCE and add it to the visual tree (hidden).
+    # To avoid "Unknown control: FilePicker", we MUST add it to overlay, NOT the visual tree.
     local_file_picker = ft.FilePicker(
         on_result=on_chat_file_result,
         on_upload=on_chat_upload_progress
     )
-    # We will add 'local_file_picker' to the chat_page controls list below.
+    if local_file_picker not in page.overlay:
+        page.overlay.append(local_file_picker)
 
     def update_pending_ui(public_url):
         if not public_url: return
@@ -944,10 +944,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
         pending_container.visible = False
         page.update()
     
-    # Bind Helper handlers only when needed (idempotent?)
-    # Flet Event Handlers are multicast, but rewriting them is okay.
-    page.chat_file_picker.on_result = on_chat_file_result
-    page.chat_file_picker.on_upload = on_chat_upload_progress
+    # Bind handlers to the local picker (global page.chat_file_picker is a backup)
+    local_file_picker.on_result = on_chat_file_result
+    local_file_picker.on_upload = on_chat_upload_progress
 
     def confirm_delete_topic(tid):
         def delete_it(e):
@@ -1739,8 +1738,6 @@ def get_chat_controls(page: ft.Page, navigate_to):
     chat_page = ft.Container(
         expand=True, bgcolor="white",
         content=ft.Column([
-            # [FIX] Embed Picker in View Tree
-            local_file_picker,
             chat_page_header,
             ft.Container(content=message_list_view, expand=True, bgcolor="#F5F5F5"),
             ft.Container(
