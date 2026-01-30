@@ -40,9 +40,10 @@ def analyze_chat_for_calendar(messages: List[Dict[str, Any]]) -> Dict[str, Any]:
     1. **Summary**: Create a concise, one-line summary of the main task or event discussed (max 10 words). Korean language.
     2. **Date**: Identify the specific date mentioned (YYYY-MM-DD). If none, use {today_str}.
     3. **Time**: Identify the specific time mentioned (HH:MM 24-hour format). If none, return null.
+    4. **Description**: Provide a detailed summary of the conversation content (bullet points preferred). 
 
-    Return ONLY a JSON object with keys "summary", "date", and "time".
-    Example: {{"summary": "체험단 2명 방문", "date": "2024-02-15", "time": "19:00"}}
+    Return ONLY a JSON object with keys "summary", "description", "date", and "time".
+    Example: {{"summary": "체험단 2명 방문 예약", "description": "- 2월 15일 19시 방문 예정\n- 메뉴: A세트 준비\n- 알러지: 땅콩 주의", "date": "2024-02-15", "time": "19:00"}}
     """
 
     user_prompt = f"Conversation:\n{conversation_text}"

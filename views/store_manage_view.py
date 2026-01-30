@@ -362,7 +362,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
     # === LAYOUT CONSTRUCTION ===
 
     header = AppHeader(
-        title_text="매장 설정",
+        title_text="설정",
         on_back_click=lambda _: navigate_to("home")
     )
     

@@ -9,7 +9,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
     channel_id = page.session.get("channel_id")
     
     # UI State
-    current_tab = "인수인계"
+    current_tab = "업무 일지"
     grouped_data = {}
     POLL_INTERVAL = 10 # Seconds
 
@@ -48,7 +48,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
 
     def render_feed():
         list_view.controls.clear()
-        target_cat = "handover" if current_tab == "인수인계" else "order"
+        target_cat = "handover" if current_tab == "업무 일지" else "order"
         
         # Sort dates descending
         sorted_dates = sorted(grouped_data.keys(), reverse=True)
@@ -133,7 +133,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
         txt = input_tf.value
         if not txt.strip(): return
         input_tf.value = ""; input_tf.update()
-        target_cat = "handover" if current_tab == "인수인계" else "order"
+        target_cat = "handover" if current_tab == "업무 일지" else "order"
         await handover_service.add_handover_entry(user_id, channel_id, target_cat, txt)
         await fetch_and_update()
 
@@ -150,7 +150,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
 
     tabs_row = ft.Row([
         ft.Container(content=ft.Text(t, size=16), padding=ft.padding.symmetric(horizontal=12, vertical=8), border_radius=20, on_click=on_tab_change)
-        for t in ["인수인계", "발주 일지"]
+        for t in ["업무 일지", "발주 일지"]
     ], alignment=ft.MainAxisAlignment.CENTER)
 
     input_area = ft.Container(content=ft.Row([input_tf, ft.IconButton(ft.Icons.SEND_ROUNDED, on_click=lambda e: page.run_task(submit_entry))]), padding=10)

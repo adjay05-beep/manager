@@ -12,6 +12,7 @@ from views.work_view import get_work_controls
 from views.profile_edit_view import get_profile_edit_controls
 from views.onboarding_view import get_onboarding_controls
 from views.store_manage_view import get_store_manage_controls
+from views.handover_view import get_handover_controls
 
 def main(page: ft.Page):
     page.title = "The Manager"
@@ -41,7 +42,7 @@ def main(page: ft.Page):
 
     page.navigation_bar = ft.NavigationBar(
         destinations=[
-            ft.NavigationBarDestination(icon=ft.Icons.CHAT_BUBBLE_OUTLINE, selected_icon=ft.Icons.CHAT_BUBBLE, label="팀"),
+            ft.NavigationBarDestination(icon=ft.Icons.CHAT_BUBBLE_OUTLINE, selected_icon=ft.Icons.CHAT_BUBBLE, label="메신저"),
             ft.NavigationBarDestination(icon=ft.Icons.MIC_NONE, selected_icon=ft.Icons.MIC, label="음성"),
             ft.NavigationBarDestination(icon=ft.Icons.HOME_OUTLINED, selected_icon=ft.Icons.HOME, label="홈"),
             ft.NavigationBarDestination(icon=ft.Icons.CHECK_CIRCLE_OUTLINE, selected_icon=ft.Icons.CHECK_CIRCLE, label="마감"),
@@ -118,6 +119,8 @@ def main(page: ft.Page):
             elif route == "debug_upload":
                 from views.debug_upload_view import DebugUploadView
                 controls = DebugUploadView(page)
+            elif route == "handover":
+                controls = get_handover_controls(page, navigate_to)
             else:
                 controls = [ft.Text("Not Found")]
             

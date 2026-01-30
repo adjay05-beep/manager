@@ -210,12 +210,12 @@ def get_login_controls(page: ft.Page, navigate_to):
         label_style=ft.TextStyle(color="grey")
     )
 
-    remember_checkbox = ft.Checkbox(
-        label="이메일 기억하기",  # [SECURITY] 라벨 변경
+    from views.components.custom_checkbox import CustomCheckbox
+    remember_checkbox = CustomCheckbox(
+        label="이메일 기억하기",
         value=remember_email_checked,
-        fill_color="#1565C0",
-        check_color="white",
-        label_style=ft.TextStyle(color="grey")
+        on_change=None,
+        label_style=ft.TextStyle(color="grey", size=14)
     )
     
     error_text = ft.Text("", color="red", size=12)

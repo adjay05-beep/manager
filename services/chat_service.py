@@ -191,8 +191,8 @@ def get_messages(topic_id: str, limit: int = 50) -> List[Dict[str, Any]]:
 
 def update_last_read(topic_id: str, user_id: str):
     """Update last read timestamp for a user on a topic."""
-    from datetime import datetime, timezone
-    now_utc = datetime.now(timezone.utc).isoformat()
+    import datetime
+    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
     service_supabase.table("chat_user_reading").upsert({"topic_id": topic_id, "user_id": user_id, "last_read_at": now_utc}).execute()
 
 def send_message(topic_id: str, content: str = None, image_url: str = None, user_id: str = None):
@@ -359,8 +359,9 @@ def remove_topic_member(topic_id: str, user_id: str):
 
 def get_topic_members(topic_id: str) -> List[Dict[str, Any]]:
     """Get all members of a topic with profile info."""
+    # [FIX] Remove 'joined_at' as it might not exist in some DB versions
     res = service_supabase.table("chat_topic_members")\
-        .select("user_id, permission_level, joined_at, profiles(full_name, email)")\
+        .select("user_id, permission_level, profiles(full_name, username)")\
         .eq("topic_id", topic_id).execute()
     
     members = []
@@ -370,8 +371,8 @@ def get_topic_members(topic_id: str) -> List[Dict[str, Any]]:
             members.append({
                 "user_id": m["user_id"],
                 "permission_level": m["permission_level"],
-                "full_name": p.get("full_name") or "Unknown",
-                "email": p.get("email") or ""
+                "full_name": p.get("full_name") or p.get("username") or "Unknown",
+                "email": p.get("username") or "" # Use username as fallback if email not in profiles
             })
     return members
 
@@ -400,3 +401,30 @@ def get_channel_members_not_in_topic(channel_id: int, topic_id: str) -> List[Dic
                 "full_name": p.get("full_name") or "Unknown"
             })
     return available
+
+def update_last_read(topic_id, user_id):
+    """Update the last_read_at timestamp for a user in a topic."""
+    try:
+        supabase.table("chat_user_reading").upsert({
+            "topic_id": topic_id,
+            "user_id": user_id,
+            "last_read_at": datetime.now(timezone.utc).isoformat()
+        }).execute()
+    except Exception as e:
+        print(f"Update Read Error: {e}")
+
+def check_new_messages(topic_id, last_msg_id=None):
+    """Check if there are any messages newer than last_msg_id."""
+    try:
+        if not last_msg_id:
+            res = service_supabase.table("chat_messages").select("id").eq("topic_id", topic_id).limit(1).execute()
+            return len(res.data) > 0
+        
+        res = service_supabase.table("chat_messages").select("id").eq("topic_id", topic_id).order("id", desc=True).limit(1).execute()
+        if res.data:
+            latest_id = res.data[0]['id']
+            return str(latest_id) != str(last_msg_id)
+        return False
+    except Exception as e:
+        print(f"Check Update Error: {e}")
+        return False

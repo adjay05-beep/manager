@@ -10,7 +10,7 @@ import re
 from utils.logger import log_debug, log_error, log_info
 
 def get_work_controls(page: ft.Page, navigate_to):
-    # Initializing Work View
+    from views.components.custom_checkbox import CustomCheckbox
     
     # 0. Common Variables & Styles
     channel_id = page.session.get("channel_id")
@@ -53,7 +53,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     day_schedule = {}
     for day_idx in range(7):
         day_schedule[day_idx] = {
-            "enabled": ft.Checkbox(label=days_map[day_idx], value=False),
+            "enabled": CustomCheckbox(label=days_map[day_idx], value=False),
             "start": ft.TextField(value="09:00", width=60, color=black_text, label_style=ft.TextStyle(color=grey_text), text_size=12, height=40, border_color="#E0E0E0", border_radius=8, content_padding=10),
             "end": ft.TextField(value="18:00", width=60, color=black_text, label_style=ft.TextStyle(color=grey_text), text_size=12, height=40, border_color="#E0E0E0", border_radius=8, content_padding=10)
         }
@@ -63,7 +63,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     uniform_end = ft.TextField(label="종료", value="18:00", width=80, color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
     
     # Separate checkboxes for Uniform Mode to avoid parent conflict
-    uniform_day_checks = [ft.Checkbox(label=days_map[i], value=False) for i in range(7)]
+    uniform_day_checks = [CustomCheckbox(label=days_map[i], value=False) for i in range(7)]
 
     uniform_ui = ft.Column([
         ft.Text("근무 시간:", size=12, color=black_text, weight="bold"),
@@ -160,7 +160,7 @@ def get_work_controls(page: ft.Page, navigate_to):
         # Initialize checkboxes based on current work_days
         current_days = contract.get('work_days', [])
         # Create NEW checkboxes for the dialog
-        e_day_checks = [ft.Checkbox(label=days_map[i], value=(i in current_days)) for i in range(7)]
+        e_day_checks = [CustomCheckbox(label=days_map[i], value=(i in current_days)) for i in range(7)]
         
         # Initialize time from existing schedule (take first day found or default)
         ws = contract.get('work_schedule', {})

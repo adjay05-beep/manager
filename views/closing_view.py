@@ -1,20 +1,21 @@
 import flet as ft
 from utils.logger import log_debug
+from views.components.custom_checkbox import CustomCheckbox
 
 def get_closing_controls(page: ft.Page, navigate_to):
     log_debug(f"Entering Closing View. User: {page.session.get('user_id')}")
     checklist = ft.Column([
         ft.Container(
-            content=ft.Checkbox(label="주방 가스 밸브 차단 확인", label_style=ft.TextStyle(color="black")),
+            content=CustomCheckbox(label="주방 가스 밸브 차단 확인", label_style=ft.TextStyle(color="black")),
             padding=15, bgcolor="#EEEEEE", border_radius=10
         ),
         ft.Container(
-            content=ft.Checkbox(label="홀 에어컨 및 조명 OFF 확인", label_style=ft.TextStyle(color="black")),
+            content=CustomCheckbox(label="홀 에어컨 및 조명 OFF 확인", label_style=ft.TextStyle(color="black")),
             padding=15, bgcolor="#EEEEEE", border_radius=10
         ),
     ], spacing=10)
     
-    is_confirmed = ft.Ref[ft.Checkbox]()
+    is_confirmed = ft.Ref[CustomCheckbox]()
     complete_button = ft.Ref[ft.ElevatedButton]()
     
     def toggle_confirm(e):
@@ -26,7 +27,7 @@ def get_closing_controls(page: ft.Page, navigate_to):
 
     header = ft.Row([
         ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color="black", on_click=lambda _: navigate_to("home")),
-        ft.Text("마감 안전 점검", size=24, weight="bold", color="#0A1929")
+        ft.Text("체크리스트", size=24, weight="bold", color="#0A1929")
     ])
 
     return [
@@ -44,12 +45,11 @@ def get_closing_controls(page: ft.Page, navigate_to):
                 ft.Text("Safety Checklist", color="grey", size=14),
                 checklist,
                 ft.Container(height=40),
-                ft.Checkbox(
+                CustomCheckbox(
                     ref=is_confirmed,
                     label="마감 확인 (위 내용을 모두 확인했습니다)",
                     value=False, # Initially unchecked
                     on_change=toggle_confirm,
-                    fill_color="#00C73C",
                     label_style=ft.TextStyle(color="black")
                 ),
                 ft.ElevatedButton(

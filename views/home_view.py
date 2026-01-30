@@ -125,8 +125,8 @@ def get_home_controls(page: ft.Page, navigate_to):
     # === GRID LAYOUT ===
     grid = ft.Column([
         ft.Row([
-            action_btn("팀 스레드", "images/icon_chat_3d.png?v=6", "chat"),
-            action_btn("마감 점검", "images/icon_closing_3d.png?v=6", "closing"),
+            action_btn("메신저", "images/icon_chat_3d.png?v=6", "chat"),
+            action_btn("체크리스트", "images/icon_closing_3d.png?v=6", "closing"),
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=15),
         ft.Row([
             action_btn("음성 메모", "images/icon_voice_3d.png?v=6", "voice"),
@@ -186,14 +186,33 @@ def get_home_controls(page: ft.Page, navigate_to):
             border=ft.border.all(1, AppColors.SURFACE)
         )
 
+    # === ICON-ONLY BUTTON (for items without custom image) ===
+    def action_btn_icon(label, icon, route, icon_color="#1565C0"):
+        return ft.Container(
+            content=ft.Column([
+                ft.Icon(icon, size=60, color=icon_color),
+                ft.Text(label, style=AppTextStyles.SECTION_TITLE),
+            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            height=180,
+            col={"xs": 6, "sm": 4, "md": 3},
+            bgcolor=AppColors.SURFACE,
+            border_radius=25,
+            on_click=lambda _: navigate_to(route),
+            alignment=ft.alignment.center,
+            ink=True,
+            shadow=ft.BoxShadow(blur_radius=15, color=ft.Colors.with_opacity(0.05, "black")),
+            border=ft.border.all(1, AppColors.SURFACE)
+        )
+
     # === GRID LAYOUT ===
     # Collect all items
     # [FIX] Revert to simple relative paths, REMOVE query string
     menu_items = [
-        action_btn("팀 스레드", "images/icon_chat_3d.png", "chat"),
-        action_btn("마감 점검", "images/icon_closing_3d.png", "closing"),
+        action_btn("메신저", "images/icon_chat_3d.png", "chat"),
+        action_btn("체크리스트", "images/icon_closing_3d.png", "closing"),
         action_btn("음성 메모", "images/icon_voice_3d.png", "voice"),
         action_btn("캘린더", "images/icon_calendar_3d.png", "calendar"),
+        action_btn_icon("업무 일지", ft.Icons.ASSIGNMENT_TURNED_IN, "handover", "#FF9800"),
     ]
 
     # RBAC: Show "직원 관리" for owners
