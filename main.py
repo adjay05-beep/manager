@@ -32,8 +32,9 @@ def main(page: ft.Page):
     page.chat_file_picker = ft.FilePicker()
     page.overlay.append(page.chat_file_picker)
 
-    # AudioRecorder removed for stability in this environment
-    pass
+    # Global AudioRecorder for voice memos
+    page.audio_recorder = ft.AudioRecorder()
+    page.overlay.append(page.audio_recorder)
     
     
     # Persistent Navigation Bar

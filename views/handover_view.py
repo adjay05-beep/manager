@@ -50,8 +50,8 @@ def get_handover_controls(page: ft.Page, navigate_to):
         list_view.controls.clear()
         target_cat = "handover" if current_tab == "업무 일지" else "order"
         
-        # Sort dates descending
-        sorted_dates = sorted(grouped_data.keys(), reverse=True)
+        # Sort dates ascending (oldest first, latest at bottom)
+        sorted_dates = sorted(grouped_data.keys(), reverse=False)
 
         for d_str in sorted_dates:
             items = grouped_data[d_str].get(target_cat, [])

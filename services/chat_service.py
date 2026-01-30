@@ -192,8 +192,15 @@ def get_messages(topic_id: str, limit: int = 50) -> List[Dict[str, Any]]:
 def update_last_read(topic_id: str, user_id: str):
     """Update last read timestamp for a user on a topic."""
     import datetime
-    now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    service_supabase.table("chat_user_reading").upsert({"topic_id": topic_id, "user_id": user_id, "last_read_at": now_utc}).execute()
+    try:
+        now_utc = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        service_supabase.table("chat_user_reading").upsert({
+            "topic_id": topic_id, 
+            "user_id": user_id, 
+            "last_read_at": now_utc
+        }).execute()
+    except Exception as e:
+        log_error(f"Update Read Error: {e}")
 
 def send_message(topic_id: str, content: str = None, image_url: str = None, user_id: str = None):
     """Send a message to a topic."""
@@ -256,70 +263,97 @@ def get_unread_counts(user_id: str, topics: List[Dict[str, Any]]) -> Dict[str, i
     if not topics:
         return {}
 
-    try:
-        # 1. Get user's read status map (single query)
-        read_map = get_user_read_status(user_id)
+    from db import service_supabase
+    
+    # [FIX] Heartbeat Trigger: ensures client is active
+    if hasattr(service_supabase, "check_connection"):
+        service_supabase.check_connection()
 
-        # 2. Get topic IDs
-        topic_ids = [t['id'] for t in topics]
+    for attempt in range(2): # Simple retry for transient disconnects
+        try:
+            # 1. Get user's read status map
+            read_map = get_user_read_status(user_id)
+            
+            # 2. Get topic IDs
+            topic_ids = [t['id'] for t in topics]
 
-        # 3. Find the oldest read timestamp to minimize data fetch
-        oldest_read = None
-        never_read_topics = []
-        for tid in topic_ids:
-            last_read = read_map.get(tid)
-            if not last_read:
-                never_read_topics.append(tid)
-            elif oldest_read is None or last_read < oldest_read:
-                oldest_read = last_read
+            # 3. Find the oldest read timestamp to minimize data fetch
+            oldest_read = None
+            never_read_topics = []
+            for tid in topic_ids:
+                last_read = read_map.get(tid)
+                if not last_read:
+                    never_read_topics.append(tid)
+                elif oldest_read is None or last_read < oldest_read:
+                    oldest_read = last_read
 
-        counts = {}
+            counts = {}
 
-        # 4. For never-read topics, check if they have any messages
-        if never_read_topics:
-            # Single query to check which topics have messages
-            res = service_supabase.table("chat_messages")\
-                .select("topic_id")\
-                .in_("topic_id", never_read_topics)\
-                .limit(500)\
-                .execute()
-
-            if res.data:
-                topics_with_messages = set(m['topic_id'] for m in res.data)
+            # 4. For never-read topics, check if they have any messages
+            if never_read_topics:
+                # Query counts for never-read topics
                 for tid in never_read_topics:
-                    if tid in topics_with_messages:
-                        counts[tid] = 99  # Indicate "many unread"
+                    res = service_supabase.table("chat_messages")\
+                        .select("id", count="exact")\
+                        .eq("topic_id", tid)\
+                        .neq("user_id", user_id)\
+                        .execute()
+                    if res.count and res.count > 0:
+                        counts[tid] = res.count
 
-        # 5. For read topics, fetch messages newer than oldest_read (single query)
-        read_topic_ids = [tid for tid in topic_ids if tid not in never_read_topics]
-        if read_topic_ids and oldest_read:
-            res = service_supabase.table("chat_messages")\
-                .select("topic_id, created_at")\
-                .in_("topic_id", read_topic_ids)\
-                .gt("created_at", oldest_read)\
-                .order("created_at", desc=True)\
-                .limit(1000)\
-                .execute()
+            # 5. For read topics, fetch messages newer than oldest_read (single query)
+            read_topic_ids = [tid for tid in topic_ids if tid not in never_read_topics]
+            if read_topic_ids and oldest_read:
+                res = service_supabase.table("chat_messages")\
+                    .select("topic_id, created_at")\
+                    .in_("topic_id", read_topic_ids)\
+                    .gt("created_at", oldest_read)\
+                    .neq("user_id", user_id)\
+                    .order("created_at", desc=True)\
+                    .limit(3000)\
+                    .execute()
 
-            if res.data:
-                # Count messages per topic that are newer than user's last read
-                from collections import defaultdict
-                topic_messages = defaultdict(list)
-                for m in res.data:
-                    topic_messages[m['topic_id']].append(m['created_at'])
+                if res.data:
+                    # Count messages per topic that are newer than user's last read
+                    from collections import defaultdict
+                    topic_messages = defaultdict(list)
+                    for m in res.data:
+                        topic_messages[m['topic_id']].append(m['created_at'])
 
-                for tid in read_topic_ids:
-                    last_read = read_map.get(tid)
-                    if last_read and tid in topic_messages:
-                        # Count messages newer than last_read
-                        unread = sum(1 for msg_time in topic_messages[tid] if msg_time > last_read)
-                        if unread > 0:
-                            counts[tid] = min(unread, 99)  # Cap at 99
+                    for tid in read_topic_ids:
+                        last_read = read_map.get(tid)
+                        if last_read and tid in topic_messages:
+                            try:
+                                # Robust Comparison using datetime objects
+                                from datetime import datetime
+                                # Standardize to +00:00 for fromisoformat
+                                lr_dt = datetime.fromisoformat(last_read.replace('Z', '+00:00'))
+                                
+                                unread = 0
+                                for msg_time in topic_messages[tid]:
+                                    m_dt = datetime.fromisoformat(msg_time.replace('Z', '+00:00'))
+                                    if m_dt > lr_dt:
+                                        unread += 1
+                                
+                                if unread > 0:
+                                    counts[tid] = unread
+                            except Exception as parse_ex:
+                                log_error(f"Unread Parse Error for {tid}: {parse_ex}")
+                                # Fallback to string comparison if parse fails
+                                unread = sum(1 for msg_time in topic_messages[tid] if msg_time > last_read)
+                                if unread > 0: counts[tid] = unread
 
-        return counts
-    except Exception as e:
-        log_error(f"Service Error (get_unread_counts): {e}")
-        return {}
+            # [Iteration 21] Return string keys for best compatibility
+            return {str(k): v for k, v in counts.items()}
+        except Exception as e:
+            if attempt == 0:
+                log_info(f"Retrying unread counts after error: {e}")
+                if hasattr(service_supabase, "check_connection"):
+                    service_supabase.check_connection()
+                continue
+            log_error(f"Service Error (get_unread_counts): {e}")
+            return {}
+    return {}
 
 def search_messages_global(query: str, channel_id: int) -> List[Dict[str, Any]]:
     """
@@ -376,12 +410,12 @@ def get_topic_members(topic_id: str) -> List[Dict[str, Any]]:
             })
     return members
 
-def get_channel_members_not_in_topic(channel_id: int, topic_id: str) -> List[Dict[str, Any]]:
+def get_channel_members_not_in_topic(channel_id: int, topic_id: str, ignore_user_id: str = None) -> List[Dict[str, Any]]:
     """Get channel members who are NOT in the specific topic."""
     if not channel_id or not topic_id: return []
     
     # 1. Get all channel members
-    c_res = service_supabase.table("channel_members").select("user_id, profiles(full_name)")\
+    c_res = service_supabase.table("channel_members").select("user_id, profiles(full_name, username)")\
         .eq("channel_id", channel_id).execute()
     channel_users = c_res.data or []
     
@@ -391,27 +425,30 @@ def get_channel_members_not_in_topic(channel_id: int, topic_id: str) -> List[Dic
     
     # 3. Filter
     available = []
+    
+    # [Targeted Debug] Check Ignore ID
+    # ign_debug = str(ignore_user_id).strip() if ignore_user_id else "None"
+    # log_info(f"DEBUG_SERVICE: Filtering with IgnoreID='{ign_debug}'")
+
     for u in channel_users:
         u_id = u["user_id"]
-        # Ensure exact match (UUIDs should be strings)
+        
+        # Ensure exact match
         if u_id not in topic_user_ids:
+            # Explicit Ignore
+            current_candidate_id = str(u_id).strip()
+            
+            if ignore_user_id and current_candidate_id == str(ignore_user_id).strip():
+                continue
+                
             p = u.get("profiles") or {}
             available.append({
                 "user_id": u_id,
-                "full_name": p.get("full_name") or "Unknown"
+                "full_name": p.get("full_name") or "Unknown",
+                "username": p.get("username")
             })
     return available
 
-def update_last_read(topic_id, user_id):
-    """Update the last_read_at timestamp for a user in a topic."""
-    try:
-        supabase.table("chat_user_reading").upsert({
-            "topic_id": topic_id,
-            "user_id": user_id,
-            "last_read_at": datetime.now(timezone.utc).isoformat()
-        }).execute()
-    except Exception as e:
-        print(f"Update Read Error: {e}")
 
 def check_new_messages(topic_id, last_msg_id=None):
     """Check if there are any messages newer than last_msg_id."""

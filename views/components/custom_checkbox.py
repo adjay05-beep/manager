@@ -1,8 +1,8 @@
 import flet as ft
 
 class CustomCheckbox(ft.Container):
-    def __init__(self, label="", value=False, on_change=None, label_style=None):
-        super().__init__()
+    def __init__(self, label="", value=False, on_change=None, label_style=None, **kwargs):
+        super().__init__(**kwargs)
         self.label_text = label
         self.value = value
         self.on_change = on_change

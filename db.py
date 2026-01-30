@@ -43,6 +43,24 @@ class SupabaseClient:
         # Manual Storage Client using httpx (Stable in all environments)
         self.storage = ManualStorageManager(f"{url}/storage/v1", self.headers, self._http_client)
 
+    def check_connection(self):
+        """Verify and refresh the HTTP client if it's dead/disconnected."""
+        try:
+            # Simple health check call to Supabase Auth
+            resp = self._http_client.get(f"{self.url}/auth/v1/health")
+            if resp.status_code >= 500:
+                raise httpx.HTTPError("Server side error")
+        except (httpx.HTTPError, Exception) as e:
+            log_info(f"Supabase Client: Connectivity issue detected ({e}). Re-initializing...")
+            try:
+                self._http_client.close()
+            except: pass
+            self._http_client = httpx.Client(headers=self.headers, timeout=300.0)
+            self.auth.http_client = self._http_client
+            self.rest.session = self._http_client # SyncPostgrestClient uses .session
+            self.storage.client = self._http_client
+            log_info("Supabase Client: Re-initialized.")
+
     def get_realtime_client(self):
         if not AsyncRealtimeClient:
             print("ERROR: AsyncRealtimeClient not available. Please check dependencies.")

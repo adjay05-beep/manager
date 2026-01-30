@@ -11,6 +11,8 @@ class ChatBubble(ft.Container):
         self.on_select = on_select
         self.on_image_click = on_image_click
         self.is_sending = message.get("is_sending", False)
+        # Assign key for programmatic scrolling
+        self.key = str(message.get("id"))
         
         # [ROBUST ID COMPARISON] Handles UUID vs String
         self.is_me = str(message.get("user_id")).strip().lower() == str(self.current_user_id).strip().lower()

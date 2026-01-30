@@ -25,7 +25,14 @@ class ThreadSafeState:
             "pending_file_name": None,
             "is_active": True,
             "selection_mode": False,
-            "selected_ids": set()
+            "selected_ids": set(),
+            "last_read_at": None,
+            "is_near_bottom": True,
+            "scrolled_to_unread": False,
+            "topic_id_for_unread": None,
+            "last_loaded_msg_id": None,
+            "is_loading_messages": False,
+            "is_loading_topics": False
         }
 
     def get(self, key, default=None):
@@ -72,6 +79,11 @@ def get_chat_controls(page: ft.Page, navigate_to):
     state = ThreadSafeState()
     # [RBAC] Get User from Session
     current_user_id = page.session.get("user_id")
+    current_channel_id = page.session.get("channel_id")
+    
+    # [FIX] State-Based Context: Store for background reliability
+    state["uid"] = current_user_id
+    state["cid"] = current_channel_id
     
     # [CRITICAL FIX] If no user session, show error UI instead of silently failing
     if not current_user_id:
@@ -98,7 +110,59 @@ def get_chat_controls(page: ft.Page, navigate_to):
     
     # Initialize UI Controls
     topic_list_container = ft.Column(expand=True, spacing=0)
-    message_list_view = ft.ListView(expand=True, spacing=5, padding=10, auto_scroll=True)
+    def on_chat_scroll(e: ft.OnScrollEvent):
+        # If user is within 50px of bottom, consider "near bottom" (More precise)
+        is_bottom = (e.max_scroll_extent - e.pixels) < 50
+        if is_bottom != state.get("is_near_bottom"):
+            state["is_near_bottom"] = is_bottom
+            # [Iteration 20] Mark as read ONLY when user reaches bottom (Honest Read)
+            if is_bottom:
+                tid = state.get("current_topic_id")
+                uid = current_user_id
+                if tid and uid:
+                    # file_log_info(f"SCROLL: Reached bottom of {tid}. Marking as read.")
+                    threading.Thread(target=lambda: chat_service.update_last_read(tid, uid), daemon=True).start()
+            
+        # If user reached bottom, hide floating button
+        if state["is_near_bottom"] and floating_new_msg_container.visible:
+            floating_new_msg_container.visible = False
+            floating_new_msg_container.update()
+
+    def scroll_to_bottom_manual(e=None):
+        try:
+            message_list_view.scroll_to(offset=-1, duration=500)
+            floating_new_msg_container.visible = False
+            floating_new_msg_container.update()
+            # [Iteration 20] Explicitly mark as read when user clicks "New Message" alarm
+            tid = state.get("current_topic_id")
+            if tid:
+                threading.Thread(target=lambda: chat_service.update_last_read(tid, current_user_id), daemon=True).start()
+        except: pass
+
+    message_list_view = ft.ListView(
+        expand=True, 
+        spacing=5, 
+        padding=10, 
+        auto_scroll=False, 
+        on_scroll=on_chat_scroll
+    )
+    
+    floating_new_msg_container = ft.Container(
+        content=ft.Container(
+            content=ft.Row([
+                ft.Icon(ft.Icons.ARROW_DOWNWARD, size=16, color="white"),
+                ft.Text("새 메시지", size=12, weight="bold", color="white"),
+            ], alignment=ft.MainAxisAlignment.CENTER, spacing=5),
+            bgcolor="#2E7D32", # Green
+            padding=ft.padding.symmetric(horizontal=15, vertical=8),
+            border_radius=20,
+            on_click=scroll_to_bottom_manual,
+            shadow=ft.BoxShadow(blur_radius=5, spread_radius=1, color="#33000000")
+        ),
+        alignment=ft.alignment.bottom_center,
+        padding=ft.padding.only(bottom=20),
+        visible=False
+    )
     # chat_header_title removed (Refactored to AppHeader)
 
     # ... inside load topics ...
@@ -140,26 +204,31 @@ def get_chat_controls(page: ft.Page, navigate_to):
     root_view = ft.Stack([chat_main_layout, image_viewer], expand=True)
 
     async def load_topics_thread(update_ui=True, show_all=False):
-        # [DEBUG] Start
-        try:
-            pass
-            # chat_header_title.controls[1].value = "Debug: Starting..."
-            # [FIX] Remove instant update to prevent race with Main Thread init
-        except: pass
+        # [FIX] Thread Synchronization: prevent overlapping reloads
+        if state.get("is_loading_topics"): return
+        state["is_loading_topics"] = True
 
-        if not state["is_active"]: return
-        if not current_user_id:
-            # chat_header_title.controls[1].value = "Error: No Session"
-            page.update()
-            log_info("Chat ERROR: No user session found - cannot load topics")
-            page.snack_bar = ft.SnackBar(ft.Text("세션이 만료되었습니다."), bgcolor="red", open=True); page.update()
+        if not state.get("is_active"): 
+            state["is_loading_topics"] = False
             return
             
         try:
-            # chat_header_title.controls[1].value = "Debug: Checking DB..."
+            # [FIX] Absolute Session Data: Use closure-scoped variables for reliability
+            # These are captured when Chat View/Messenger List is first opened
+            uid = page.session.get("user_id") if (hasattr(page, "session") and page.session) else current_user_id
+            cid = page.session.get("channel_id") if (hasattr(page, "session") and page.session) else current_channel_id
+            
+            if not uid or not cid:
+                # If we still don't have IDs, this thread cannot proceed correctly
+                log_info(f"Chat WARNING: load_topics_thread skipped (Missing IDs). UID={uid}, CID={cid}")
+                return
+            
+            # [DIAGNOSTIC] Log every background refresh attempt
+            # file_log_info(f"Background Sync: UID={uid}, CID={cid}")
+            
             if update_ui: page.update()
             
-            log_info(f"Loading topics (Mode: {'ALL' if show_all else 'Members Only'}) for {current_user_id}")
+            log_info(f"Loading topics for {uid} in {cid}")
             
             # [DIAGNOSTIC] Log database connection status
             log_info(f"Database URL: {service_supabase.url[:30]}...")
@@ -183,22 +252,19 @@ def get_chat_controls(page: ft.Page, navigate_to):
             categories = [c['name'] for c in categories_data] if categories_data else ["공지", "일반", "중요", "개별 업무"]
 
             if show_all:
-                # chat_header_title.controls[1].value = "Debug: Fetching All Topics..."
-                if update_ui: page.update()
-                topics = await asyncio.to_thread(chat_service.get_all_topics, current_channel_id)
+                topics = await asyncio.to_thread(chat_service.get_all_topics, cid)
             else:
-                # chat_header_title.controls[1].value = "Debug: Fetching User Topics..."
-                if update_ui: page.update()
-                topics = await asyncio.to_thread(chat_service.get_topics, current_user_id, current_channel_id)
+                topics = await asyncio.to_thread(chat_service.get_topics, uid, cid)
                 
-            log_info(f"Topics fetched: {len(topics)} topics for user {current_user_id}")
+            log_info(f"Topics fetched: {len(topics)}")
+            # file_log_info(f"DEBUG_TOPICS: Topic IDs: {[t['id'] for t in topics]}")
             if len(topics) == 0:
                 log_info("WARNING: No topics returned from database - user may need to create one or check membership")
             sorted_topics = sorted(topics, key=lambda x: (x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
             
             # [FIX] Efficient Unread Count Fetching
-            unread_counts = await asyncio.to_thread(chat_service.get_unread_counts, current_user_id, topics)
-            log_info(f"Unread Counts calculated for {len(topics)} topics")
+            unread_counts = await asyncio.to_thread(chat_service.get_unread_counts, uid, topics)
+            log_info(f"Unreads for {uid}: {sum(unread_counts.values()) if unread_counts else 0}")
 
             new_controls = []
             if state["edit_mode"]:
@@ -340,23 +406,32 @@ def get_chat_controls(page: ft.Page, navigate_to):
                             bgcolor="#FAFAFA"
                         )
                     )
-                    # Render Items
                     for t in grouped[cat_name]:
-                        tid = t['id']; is_priority = t.get('is_priority', False); unread_count = unread_counts.get(tid, 0)
+                        tid = t['id']; is_priority = t.get('is_priority', False); 
+                        # [Iteration 21] Robust lookup (handles both int and str keys)
+                        unread_count = unread_counts.get(tid, unread_counts.get(str(tid), 0))
                         badge = ft.Container(
-                            content=ft.Text(str(unread_count), size=10, color="white", weight="bold"),
-                            bgcolor="#FF5252", padding=ft.padding.symmetric(horizontal=8, vertical=4), border_radius=10
+                            content=ft.Text(str(unread_count), size=11, color="white", weight="bold"),
+                            bgcolor="#FF5252", 
+                            padding=ft.padding.symmetric(horizontal=8, vertical=4), 
+                            border_radius=12,
+                            alignment=ft.alignment.center
                         ) if unread_count > 0 else ft.Container()
+                        
                         prio_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, size=20, color="#FF5252") if is_priority else ft.Container()
 
                         list_view_ctrls.append(
                             ft.Container(
                                 content=ft.Row([
                                     ft.Row([prio_icon, ft.Text(t['name'], size=16, weight="bold", color="#424242")], spacing=10),
-                                    ft.Row([badge, ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")], spacing=5)
+                                    ft.Row([
+                                        badge, # [SYNC CHECK] Badge must be visible here
+                                        ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=14, color="#BDBDBD")
+                                    ], spacing=10)
                                 ], alignment="spaceBetween"),
-                                padding=ft.padding.symmetric(horizontal=20, vertical=12),
-                                bgcolor="white", border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
+                                padding=ft.padding.symmetric(horizontal=20, vertical=15),
+                                bgcolor="white", 
+                                border=ft.border.only(bottom=ft.border.BorderSide(1, "#F5F5F5")),
                                 on_click=lambda e, topic=t: select_topic(topic)
                             )
                         )
@@ -383,21 +458,19 @@ def get_chat_controls(page: ft.Page, navigate_to):
             topic_list_container.controls = new_controls
             
             # [DEBUG] Show detailed count
-            ctrl_count = len(list_view_ctrls) if 'list_view_ctrls' in locals() else "N/A"
-            # chat_header_title.controls[1].value = f"Debug: {len(topics)} topics, {ctrl_count} items. Mode: {state.get('view_mode')}"
-            if update_ui: page.update()
+            if update_ui: 
+                topic_list_container.update()
+                page.update()
         except Exception as ex:
             log_info(f"Load Topics Critical Error: {ex}")
-            # chat_header_title.controls[1].value = f"Error: {str(ex)[:20]}"
-            if update_ui: page.update()
-            try:
-                page.snack_bar = ft.SnackBar(
-                    ft.Text(f"데이터 로딩 오류: {ex}", color="white"),
-                    bgcolor="red",
-                    open=True
-                )
-                page.update()
-            except: pass
+            if update_ui: 
+                try:
+                    page.snack_bar = ft.SnackBar(ft.Text(f"데이터 로딩 오류: {ex}"), bgcolor="red", open=True)
+                    page.update()
+                except: pass
+        finally:
+            # [FIX] Always release lock
+            state["is_loading_topics"] = False
 
     def load_topics(update_ui=True, show_all=False):
         # Fire and forget task to keep UI responsive
@@ -538,7 +611,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
     render_context = {"last_id": 0}
 
     def load_messages_thread():
-        if not state["current_topic_id"] or not state["is_active"]: return
+        # [FIX] Thread Synchronization: prevent overlapping reloads
+        if state.get("is_loading_messages") or not state["current_topic_id"] or not state["is_active"]: return
+        state["is_loading_messages"] = True
         
         # Increment Render ID
         render_context["last_id"] += 1
@@ -546,7 +621,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
         
         sel_mode = bool(state.get("selection_mode"))
         render_user_id = page.session.get("user_id")
-        print(f"DEBUG_CHAT: [Thread {my_id}] RenderStart. User={render_user_id}, Topic={state['current_topic_id']}", flush=True)
+        tid = state["current_topic_id"]
+        # print(f"DEBUG_CHAT: [Thread {my_id}] RenderStart. User={render_user_id}, Topic={tid}", flush=True)
 
         try:
             # 1. Fetch DB Messages
@@ -589,34 +665,137 @@ def get_chat_controls(page: ft.Page, navigate_to):
             
             # 5. Atomic Update UI (Only if we are the LATEST thread)
             if my_id == render_context["last_id"]:
-                message_list_view.controls = new_controls
-                print(f"DEBUG_CHAT: [Thread {my_id}] UI Updated with {len(new_controls)} controls. SelectionMode pushed: {sel_mode}")
+                # [FIX] Ghost Scroll Guard: message_was_added should ONLY be True 
+                # if we already had messages loaded (old_last_id is not None)
+                old_last_id = state.get("last_loaded_msg_id")
+                new_last_id = db_messages[-1].get("id") if db_messages else None
+                message_was_added = (old_last_id is not None and new_last_id is not None and str(new_last_id) != str(old_last_id))
                 
-                # [Smart Scroll]
+                # Update UI
+                message_list_view.controls = new_controls
+                # print(f"DEBUG_CHAT: [Thread {my_id}] UI Updated. NewMsg={message_was_added} (Old={old_last_id}, New={new_last_id})")
+                
+                # [Smart Scroll Logic]
                 if new_controls:
-                    try:
-                        message_list_view.scroll_to(offset=-1, duration=200)
-                    except: pass
+                    last_read = state.get("last_read_at")
+                    unread_key = None
+                    
+                    # Case A: Initial Entry
+                    if not state.get("scrolled_to_unread"):
+                        if last_read:
+                            try:
+                                from datetime import datetime
+                                # Standardize last_read
+                                lr_dt = datetime.fromisoformat(last_read.replace('Z', '+00:00'))
+                                
+                                # Identify first unread message using robust datetime comparison
+                                for m in db_messages:
+                                    m_time = m.get("created_at", "")
+                                    if m_time:
+                                        m_dt = datetime.fromisoformat(m_time.replace('Z', '+00:00'))
+                                        # Buffer of 1ms to prevent overlap glitches
+                                        if m_dt.timestamp() > (lr_dt.timestamp() + 0.001):
+                                            unread_key = str(m.get("id"))
+                                            break
+                            except Exception as ts_ex:
+                                print(f"DEBUG_CHAT: Timestamp Parse Error on Entry: {ts_ex}")
+                        
+                        # print(f"DEBUG_CHAT: [Thread {my_id}] Room Entry Scroll. UnreadKey={unread_key}, LastRead={last_read}")
+                        
+                        state["scrolled_to_unread"] = True
+                        page.update() # First Layout Pass
+                        
+                        # Increased wait + Retry for better stability on varied latencies
+                        import time
+                        time.sleep(0.4) 
+                        
+                        if unread_key and db_messages:
+                            # 1. If unreads exist -> Scroll to first unread
+                            try: 
+                                print(f"DEBUG_CHAT: [Thread {my_id}] Scrolling to Key: {unread_key}")
+                                message_list_view.scroll_to(key=unread_key, duration=500)
+                                # [RETRY] Wait and scroll again if needed (Double-sync)
+                                time.sleep(0.1)
+                                message_list_view.scroll_to(key=unread_key, duration=100)
+                            except Exception as scroll_ex: 
+                                print(f"DEBUG_CHAT: Scroll to Key Error: {scroll_ex}")
+                        elif db_messages:
+                            # 2. If NO unreads -> Scroll to bottom (Triple-Tap Mastery)
+                            try: 
+                                print(f"DEBUG_CHAT: [Thread {my_id}] Room Entry Bottom Scroll (Triple-Tap)")
+                                message_list_view.scroll_to(offset=-1, duration=300)
+                                time.sleep(0.3) # Wait for first move
+                                message_list_view.scroll_to(offset=-1, duration=100)
+                                time.sleep(0.2) # Wait for second move
+                                message_list_view.scroll_to(offset=-1, duration=50) # Final anchor
+                                
+                                # We now rely on on_chat_scroll to trigger the update when the scroll actually lands at bottom.
+                            except Exception as scroll_ex: 
+                                print(f"DEBUG_CHAT: Scroll to Bottom Error: {scroll_ex}")
+                    
+                    # Case B: New message arrived while room is active
+                    elif message_was_added:
+                        is_me = (db_messages and db_messages[-1].get("user_id") == current_user_id)
+                        
+                        if is_me:
+                            # 1. ALWAYS auto-scroll if it's MY message
+                            try: 
+                                # print(f"DEBUG_CHAT: Auto-Scroll (Self).")
+                                message_list_view.scroll_to(offset=-1, duration=300)
+                                # [Iteration 22] Strict Honest Read: Sending logic does NOT mark as read.
+                            except: pass
+                        else:
+                            # 2. OTHERS' message: NEVER auto-scroll. Show Alarm.
+                            # Even if at bottom, we show the alarm to signify "New Content"
+                            # This follows the user's "No auto-scroll" requirement.
+                            # print(f"DEBUG_CHAT: Alarm Triggered (Others). No Auto-Scroll.")
+                            floating_new_msg_container.visible = True
+                            floating_new_msg_container.update()
+                
+                # Save last loaded ID
+                if db_messages:
+                    state["last_loaded_msg_id"] = db_messages[-1].get("id")
                 
                 page.update()
             else:
-                print(f"DEBUG_CHAT: [Thread {my_id}] Ignored (Stale). Latest is {render_context['last_id']}")
+                # print(f"DEBUG_CHAT: [Thread {my_id}] Ignored (Stale). Latest is {render_context['last_id']}")
+                pass
+            
+            state["is_loading_messages"] = False # Unlock
 
         except Exception as ex:
+            state["is_loading_messages"] = False # Unlock on error
             print(f"DEBUG_CHAT: [Thread {my_id}] Error: {ex}")
             log_info(f"Load Messages Error: {ex}")
 
     def select_topic(topic):
-        state["current_topic_id"] = topic['id']
+        tid = topic['id']
+        state["current_topic_id"] = tid
+        state["scrolled_to_unread"] = False # Reset for new room entry
+        state["last_loaded_msg_id"] = None  # [FIX] Clear for ghost scroll guard
+        state["last_read_at"] = None        # [FIX] Clear to prevent stale entry scroll
+        
+        # [PRE-LOAD] Fetch last_read_at before we update it
+        def fetch_read_and_load():
+            try:
+                read_map = chat_service.get_user_read_status(current_user_id)
+                state["last_read_at"] = read_map.get(tid)
+                
+                # Trigger message load
+                load_messages_thread()
+                
+                # We don't mark as read just by entering. User must scroll to bottom.
+                
+                # Background refresh topics so list gets updated (unread counts)
+                threading.Thread(target=lambda: load_topics(update_ui=False), daemon=True).start()
+            except Exception as ex:
+                log_info(f"Select Topic Thread Error: {ex}")
+                load_messages_thread()
+
         if 'chat_page_header' in locals():
             chat_page_header.content.controls[1].value = topic['name']
         else:
-             # Fallback if variable scope issue (though likely fine due to closure)
-             # But wait, chat_page_header is defined later?
-             # Python Update: In nested functions, if variable is assigned later in the outer scope, it is accessible.
-             # However, we must ensure it is initialized.
-             # Actually, since select_topic is called via User Action, chat_page_header will be defined by then.
-             chat_page_header.content.controls[1].value = topic['name']
+            chat_page_header.content.controls[1].value = topic['name']
         msg_input.disabled = False
         state["view_mode"] = "chat"
         update_layer_view()
@@ -624,7 +803,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
         message_list_view.controls = [ft.Container(ft.ProgressRing(color="#2E7D32"), alignment=ft.alignment.center, padding=50)]
         page.update()
 
-        threading.Thread(target=lambda: (chat_service.update_last_read(topic['id'], current_user_id), load_messages_thread()), daemon=True).start()
+        threading.Thread(target=fetch_read_and_load, daemon=True).start()
 
     def load_messages():
         threading.Thread(target=load_messages_thread, daemon=True).start()
@@ -1554,6 +1733,13 @@ def get_chat_controls(page: ft.Page, navigate_to):
             topic_id = state.get("current_topic_id")
             channel_id = page.session.get("channel_id")
             
+            # [Iteration 25] Fetch Topic Creator
+            try:
+                topic_info = service_supabase.table("chat_topics").select("created_by").eq("id", topic_id).single().execute()
+                creator_id = topic_info.data.get("created_by") if topic_info.data else None
+            except:
+                creator_id = None
+
             # UI Holders
             members_col = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
             invite_col = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
@@ -1576,6 +1762,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
                     for m in members:
                         is_me = m['user_id'] == current_uid
+                        
+                        # [Iteration 24 Fix] User WANTS to see themselves in Member List.
+                        # if is_me: continue
+
                         can_kick = (my_ch_role in ['owner', 'manager']) and not is_me
                         
                         items.append(
@@ -1587,7 +1777,17 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                     ft.Row([
                                         ft.Icon(ft.Icons.PERSON, size=20, color="grey"),
                                         ft.Column([
-                                            ft.Text(f"{m['full_name']}", weight="bold"),
+                                            ft.Row([
+                                                ft.Text(f"{m['full_name']}", weight="bold"),
+                                                ft.Container(
+                                                    content=ft.Text("👑 방장", size=10, color="orange", weight="bold"),
+                                                    padding=ft.padding.symmetric(horizontal=4, vertical=2),
+                                                    # Use Hex for opacity to avoid 'ft.colors' attribute error. #1A = ~10% alpha, FF9800 = Orange
+                                                    bgcolor="#1AFF9800",
+                                                    border_radius=4,
+                                                    visible=(m['user_id'] == creator_id)
+                                                )
+                                            ], spacing=5),
                                             ft.Text(f"{m['email']} • {m['permission_level']}", size=12, color="grey")
                                         ], spacing=2)
                                     ]),
@@ -1636,14 +1836,43 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
             def load_candidates():
                 try:
-                    candidates = chat_service.get_channel_members_not_in_topic(channel_id, topic_id)
+                    current_uid = str(page.session.get("user_id")).strip()
+                    
+                    # [Iteration 25 Fix] Pass current_uid to service to force-filter it out at source
+                    candidates = chat_service.get_channel_members_not_in_topic(channel_id, topic_id, ignore_user_id=current_uid)
                     items = []
+                    
                     for c in candidates:
+                        # Double-check (though service handles it now)
+                        if str(c['user_id']).strip() == current_uid: continue
+
+                        # [Iteration 26] Disambiguation Logic
+                        candidate_name = c['full_name']
+                        disambig_info = ""
+                        if c.get("username"):
+                            disambig_info = f" (@{c['username']})"
+                        else:
+                            # Fallback to ID suffix if no unique username
+                            try:
+                                short_id = str(c['user_id']).strip()[-4:] # Last 4 chars
+                                disambig_info = f" (#{short_id})"
+                            except: 
+                                disambig_info = ""
+
                         items.append(
                             ft.Container(
                                 padding=10, border=ft.border.all(1, "#EEEEEE"), border_radius=8,
                                 content=ft.Row([
-                                    ft.Text(f"{c['full_name']}"),
+                                    ft.Row([
+                                        ft.Icon(ft.Icons.PERSON_OUTLINE, size=20, color="grey"),
+                                        ft.Column([
+                                            ft.Row([
+                                                ft.Text(f"{candidate_name}", weight="bold"),
+                                                ft.Text(f"{disambig_info}", size=12, color="grey")
+                                            ], spacing=5),
+                                            # ft.Text(f"ID: {can_id}", size=10, color="grey") # Optional debug
+                                        ], spacing=2)
+                                    ]),
                                     ft.IconButton(ft.Icons.ADD_CIRCLE, icon_color="green", 
                                                 tooltip="초대",
                                                 on_click=lambda e, u=c['user_id']: invite_user(u))
@@ -1787,7 +2016,14 @@ def get_chat_controls(page: ft.Page, navigate_to):
         expand=True, bgcolor="white",
         content=ft.Column([
             chat_page_header,
-            ft.Container(content=message_list_view, expand=True, bgcolor="#F5F5F5"),
+            ft.Container(
+                content=ft.Stack([
+                    message_list_view,
+                    floating_new_msg_container
+                ]), 
+                expand=True, 
+                bgcolor="#F5F5F5"
+            ),
             ft.Container(
                 content=ft.Stack([
                     input_row_container,
@@ -1797,8 +2033,25 @@ def get_chat_controls(page: ft.Page, navigate_to):
         ])
     )
     def back_to_list():
+        # [FIX] Final read update on exit to prevent "unread" badge if message arrived just before exit
+        tid = state.get("current_topic_id")
+        if tid:
+            try:
+                # [Iteration 20] Only update last_read on exit if user was actually at the bottom
+                if state.get("is_near_bottom"):
+                    chat_service.update_last_read(tid, current_user_id)
+            except: pass
+            
         state["view_mode"] = "list"
+        state["current_topic_id"] = None
+        state["last_loaded_msg_id"] = None
         update_layer_view()
+        # [FIX] Refresh topics to clear unread counts immediately
+        def delayed_refresh():
+            import time
+            time.sleep(0.1) # Brief delay for DB propagation
+            load_topics(True)
+        threading.Thread(target=delayed_refresh, daemon=True).start()
 
     def update_layer_view():
         root_view.controls = [list_page] if state["view_mode"] == "list" else [chat_page]
@@ -1821,34 +2074,88 @@ def get_chat_controls(page: ft.Page, navigate_to):
         # 1. Start Polling Task (Reliable fallback)
         async def polling_loop():
             file_log_info("POLLING LOOP STARTED")
+            # Wait a few seconds for UI to settle before even considering auto-cleanup
+            await asyncio.sleep(5)
+            count = 0
             while state["is_active"]:
-                if not root_view.page:
+                # [FIX] Safer page check - only stop if page is explicitly gone AND it was previously there
+                if hasattr(page, "is_running") and not page.is_running:
                     state["is_active"] = False
                     break
                 
                 try:
                     curr_tid = state.get("current_topic_id")
                     last_id = state.get("last_loaded_msg_id")
+                    view_mode = state.get("view_mode")
                     
+                    # A. Current Room Check
                     if curr_tid:
-                        # [VERBOSE] Log 1 in 10 times or just on change?
-                        # file_log_info(f"POLLING CHECK: {curr_tid}")
-                        if chat_service.check_new_messages(curr_tid, last_id):
-                             file_log_info(f"POLLING: New message detected for {curr_tid}! Reloading.")
-                             load_messages()
+                        if not state.get("is_loading_messages"):
+                            if chat_service.check_new_messages(curr_tid, last_id):
+                                 file_log_info(f"POLLING: New message detected for {curr_tid}! Reloading.")
+                                 load_messages()
+                    
+                    # B. Background Topic Refresh (Real-time Badges)
+                    # [Iteration 10] Optimize refresh based on view mode
+                    # If in list: Refresh every loop (~3.3s)
+                    # If in chat: Refresh every 6 loops (~20s) - background sync
+                    should_refresh_topics = False
+                    if view_mode == "list":
+                        should_refresh_topics = True
+                    elif count % 6 == 0:
+                        should_refresh_topics = True
+                        
+                    if should_refresh_topics:
+                        do_ui = (view_mode == "list")
+                        # file_log_info(f"POLLING: Triggering topic refresh. UI={do_ui}")
+                        page.run_task(load_topics_thread, update_ui=do_ui, show_all=False)
+                    
+                    count += 1
                 except Exception as poll_ex:
                     file_log_info(f"POLLING ERROR: {repr(poll_ex)}")
                 
-                await asyncio.sleep(3)
+                await asyncio.sleep(3.3)
         
-        # 2. Start Realtime Connection (Disabled for now due to library incompatibility)
+        # 2. Start Realtime Connection
         async def connection_loop():
-            file_log_info("CONNECTION LOOP STARTED (Passive Mode)")
-            # await asyncio.sleep(2)
-            # ... (Realtime implementation temporarily disabled to prevent logs spam/crash)
-            # The polling loop is the primary mechanism now.
+            file_log_info("CONNECTION LOOP STARTED")
             while state["is_active"]:
-                await asyncio.sleep(10)
+                try:
+                    rt = supabase.get_realtime_client()
+                    if not rt:
+                        await asyncio.sleep(60)
+                        continue
+                    
+                    await rt.connect()
+                    
+                    # [FIX] Spec change in realtime-py 2.x: use .on_postgres_changes
+                    channel = rt.channel("chat-sync")
+                    
+                    async def on_new_msg(payload):
+                        # file_log_info("REALTIME: Topic update detected!")
+                        # page.run_task(load_topics_thread, update_ui=True)
+                        pass
+
+                    channel.on_postgres_changes(
+                        event="INSERT",
+                        schema="public",
+                        table="chat_messages",
+                        callback=on_new_msg
+                    )
+                    
+                    await channel.subscribe()
+                    file_log_info("REALTIME: Subscribed to chat_messages")
+                    
+                    # Keep alive while active
+                    while state["is_active"]:
+                        await asyncio.sleep(10)
+                        
+                except Exception as rt_ex:
+                    file_log_info(f"REALTIME ERROR: {rt_ex}")
+                    await asyncio.sleep(30) # Prevent tight loop on error
+                finally:
+                    try: await rt.disconnect()
+                    except: pass
 
         # Run both
         await asyncio.gather(polling_loop(), connection_loop())

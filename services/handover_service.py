@@ -8,12 +8,12 @@ class HandoverService:
         return res.data or []
 
     async def add_handover_entry(self, user_id, channel_id, category, content):
-        data = {"user_id": user_id, "channel_id": channel_id, "content": content, "category": category, "created_at": datetime.now().isoformat()}
+        data = {"user_id": user_id, "channel_id": channel_id, "content": content, "category": category, "created_at": datetime.utcnow().isoformat() + 'Z'}
         await asyncio.to_thread(lambda: service_supabase.table("handovers").insert(data).execute())
         return True
 
     async def update_handover(self, handover_id, content):
-        res = await asyncio.to_thread(lambda: service_supabase.table("handovers").update({"content": content, "updated_at": datetime.now().isoformat()}).eq("id", handover_id).execute())
+        res = await asyncio.to_thread(lambda: service_supabase.table("handovers").update({"content": content, "updated_at": datetime.utcnow().isoformat() + 'Z'}).eq("id", handover_id).execute())
         return bool(res.data)
 
     async def delete_handover(self, handover_id):
