@@ -55,7 +55,7 @@ if (flet.noCdn) {
 _flutter.loader.load({
     config: flutterConfig,
     serviceWorkerSettings: {
-        serviceWorkerVersion: "1832090574",
+        serviceWorkerVersion: "4252275541",
     },
     onEntrypointLoaded: async function (engineInitializer) {
         loading.classList.add('main_done');

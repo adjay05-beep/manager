@@ -1189,6 +1189,9 @@ class CompiledApp {
       Object: Object,
       Array: Array,
       Reflect: Reflect,
+      s: [
+        "([ \r\n\t]+)|([!-\\[\\]-‧‪-퟿豈-￿][̀-ͯ]*|[\ud800-\udbff][\udc00-\udfff][̀-ͯ]*|\\\\verb\\*([^]).*?\\3|\\\\verb([^*a-zA-Z]).*?\\4|\\\\operatorname\\*|\\\\[a-zA-Z@]+[ \r\n\t]*|\\\\[^\ud800-\udfff])",
+      ],
       S: new Proxy({}, { get(_, prop) { return prop; } }),
 
     };
