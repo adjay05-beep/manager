@@ -3,6 +3,8 @@ import os
 from services.auth_service import auth_service
 from db import service_supabase, url
 from postgrest import SyncPostgrestClient
+from views.components.app_header import AppHeader
+from views.styles import AppColors, AppLayout, AppButtons
 
 def get_profile_edit_controls(page: ft.Page, navigate_to):
     user = auth_service.get_user()
@@ -67,21 +69,24 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
             page.update()
 
     return [
-        ft.Container(
+        ft.SafeArea(
             expand=True,
-            bgcolor="white",
+            content=ft.Container(
+                expand=True,
+                bgcolor="white",
             padding=20,
             content=ft.Column([
-                ft.Container(height=40),
-                ft.Text("프로필 수정", size=30, weight="bold", color="#0A1929"),
-                ft.Text("이름을 수정할 수 있습니다.", color="black"),
+                AppHeader("프로필 수정", on_back_click=page.go_back),
+                ft.Container(height=20),
+                ft.Text("이름을 수정할 수 있습니다.", color="black", text_align="center"),
                 ft.Container(height=20),
                 name_tf,
                 role_display,
                 ft.Container(height=20),
-                ft.ElevatedButton("저장하기", on_click=save, bgcolor="#00C73C", color="white", width=300, height=45),
-                ft.TextButton("취소", on_click=lambda _: navigate_to("home")),
+                ft.ElevatedButton("저장하기", on_click=save, style=AppButtons.PRIMARY(), width=300, height=AppButtons.HEIGHT_MD),
+                ft.TextButton("취소", on_click=lambda _: navigate_to("home"), height=AppButtons.HEIGHT_MD),
                 msg
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+            )
         )
     ]

@@ -1,47 +1,191 @@
 import flet as ft
 
-class AppColors:
-    # Primary Palette
-    PRIMARY = "#1565C0"       # Deep Blue
-    SECONDARY = "#00BCD4"     # Cyan
-    ACCENT = "#2E7D32"        # Green
-    DANGER = "#E53935"        # Red
-    WARNING = "#FF9800"       # Orange
+# [PROFESSIONAL] Commercial-Grade Design System
 
-    # Backgrounds
-    BACKGROUND = "#F5F5F5"    # Light Grey (Page BG)
-    SURFACE = "#FFFFFF"       # White (Cards, Headers)
-    SURFACE_VARIANT = "#FAFAFA" 
+class AppColors:
+    # Essential Palette (Premium Deep Themes)
+    PRIMARY = ft.Colors.BLUE_700      # Deep Professional Blue
+    PRIMARY_LIGHT = ft.Colors.BLUE_400
+    PRIMARY_DARK = ft.Colors.BLUE_900
+    
+    SECONDARY = ft.Colors.CYAN_700
+    ACCENT = ft.Colors.INDIGO_ACCENT_400
+    
+    # Semantic Colors
+    ERROR = ft.Colors.RED_ACCENT_700
+    SUCCESS = ft.Colors.GREEN_700
+    WARNING = ft.Colors.AMBER_700
+    INFO = ft.Colors.BLUE_GREY_600
+
+    # Neutral Palette (Sleek Light/Dark)
+    BG_DARK = "#121212"
+    SURFACE_DARK = "#1E1E1E"
+    
+    BG_LIGHT = "#F8FAFC"
+    SURFACE_LIGHT = "#FFFFFF"
+    
+    BORDER_LIGHT = ft.Colors.with_opacity(0.1, ft.Colors.GREY)
+    
+    # Aliases for compatibility
+    BORDER = BORDER_LIGHT
+    SURFACE = SURFACE_LIGHT
+    SURFACE_VARIANT = "#F0F2F5" # Light grey for variant
     
     # Text
-    TEXT_PRIMARY = "#212121"  # Almost Black
-    TEXT_SECONDARY = "#757575" # Grey
-    TEXT_HINT = "#BDBDBD"     # Light Grey
+    TEXT_MAIN = ft.Colors.with_opacity(0.87, ft.Colors.BLACK)
+    TEXT_MUTE = ft.Colors.with_opacity(0.60, ft.Colors.BLACK)
     
-    # Borders
-    BORDER = "#E0E0E0"
-    BORDER_LIGHT = "#F0F0F0"
+    TEXT_MAIN_DARK = ft.Colors.with_opacity(0.87, ft.Colors.WHITE)
+    TEXT_MUTE_DARK = ft.Colors.with_opacity(0.60, ft.Colors.WHITE)
+
+    # Text Aliases (Compatibility)
+    TEXT_PRIMARY = TEXT_MAIN
+    TEXT_SECONDARY = TEXT_MUTE
+    TEXT_PRIMARY_DARK = TEXT_MAIN_DARK
+    TEXT_SECONDARY_DARK = TEXT_MUTE_DARK
+
+class AppShadows:
+    # Soft, layered shadows for depth
+    SMALL = ft.BoxShadow(
+        spread_radius=1,
+        blur_radius=10,
+        color=ft.Colors.with_opacity(0.05, ft.Colors.BLACK),
+        offset=ft.Offset(0, 2),
+    )
+    MEDIUM = ft.BoxShadow(
+        spread_radius=1,
+        blur_radius=20,
+        color=ft.Colors.with_opacity(0.1, ft.Colors.BLACK),
+        offset=ft.Offset(0, 4),
+    )
+    GLOW = ft.BoxShadow(
+        spread_radius=1,
+        blur_radius=15,
+        color=ft.Colors.with_opacity(0.3, AppColors.PRIMARY),
+        offset=ft.Offset(0, 0),
+    )
+
+class AppGradients:
+    # Modern Linear Gradients
+    PRIMARY_LINEAR = ft.LinearGradient(
+        begin=ft.alignment.top_left,
+        end=ft.alignment.bottom_right,
+        colors=[AppColors.PRIMARY, ft.Colors.BLUE_900],
+    )
+    SURFACE_GLASS = ft.LinearGradient(
+        begin=ft.alignment.top_left,
+        end=ft.alignment.bottom_right,
+        colors=[ft.Colors.with_opacity(0.1, ft.Colors.WHITE), ft.Colors.with_opacity(0.05, ft.Colors.WHITE)],
+    )
+
+class AppAnimations:
+    # Consistent micro-interactions
+    FAST = ft.Animation(300, ft.AnimationCurve.DECELERATE)
+    SMOOTH = ft.Animation(600, ft.AnimationCurve.EASE_OUT)
+    BOUNCE = ft.Animation(500, ft.AnimationCurve.BOUNCE_OUT)
 
 class AppTextStyles:
-    # Headers
-    HEADER_TITLE = ft.TextStyle(size=20, weight=ft.FontWeight.BOLD, color=AppColors.TEXT_PRIMARY)
-    SECTION_TITLE = ft.TextStyle(size=16, weight=ft.FontWeight.BOLD, color=AppColors.TEXT_PRIMARY)
-    SUBTITLE = ft.TextStyle(size=14, weight=ft.FontWeight.BOLD, color=AppColors.TEXT_SECONDARY)
-    
-    # Body
-    BODY_LARGE = ft.TextStyle(size=16, color=AppColors.TEXT_PRIMARY)
-    BODY = ft.TextStyle(size=14, color=AppColors.TEXT_PRIMARY)
-    BODY_SMALL = ft.TextStyle(size=12, color=AppColors.TEXT_SECONDARY)
-    CAPTION = ft.TextStyle(size=11, color=AppColors.TEXT_HINT)
+    @staticmethod
+    def header(page: ft.Page, size=24, bold=True):
+        color = AppColors.TEXT_MAIN_DARK if page.theme_mode == ft.ThemeMode.DARK else AppColors.TEXT_MAIN
+        return ft.TextStyle(size=size, weight=ft.FontWeight.BOLD if bold else ft.FontWeight.NORMAL, color=color)
+
+    @staticmethod
+    def body(page: ft.Page, size=14, mute=False):
+        if page.theme_mode == ft.ThemeMode.DARK:
+            color = AppColors.TEXT_MUTE_DARK if mute else AppColors.TEXT_MAIN_DARK
+        else:
+            color = AppColors.TEXT_MUTE if mute else AppColors.TEXT_MAIN
+        return ft.TextStyle(size=size, color=color)
+
+    @staticmethod
+    def caption(page: ft.Page, size=12):
+        color = AppColors.TEXT_MUTE_DARK if page.theme_mode == ft.ThemeMode.DARK else AppColors.TEXT_MUTE
+        return ft.TextStyle(size=size, color=color)
+
+    # Simplified access for legacy views
+    CAPTION = ft.TextStyle(size=12, color=ft.Colors.GREY_500)
+    BODY_SMALL = ft.TextStyle(size=12)
+    HEADER_TITLE = ft.TextStyle(size=20, weight=ft.FontWeight.BOLD)
 
 class AppLayout:
-    # Spacing
-    PAGE_PADDING = 0 # Use within SafeArea
-    CONTENT_PADDING = 20 # Standard padding for content containers
-    HEADER_PADDING = ft.padding.only(left=10, right=10, top=10, bottom=10)
+    # Spacing Tokens (Step of 4 or 8)
+    XS = 4
+    SM = 8
+    MD = 16
+    LG = 24
+    XL = 32
     
-    # Sizing
-    HEADER_HEIGHT = 60
+    HEADER_PADDING = 16 # Standard header padding
+    CONTENT_PADDING = 16 # Standard content padding
     
-    # Borders
-    STANDARD_BORDER_RADIUS = 10
+    BORDER_RADIUS_SM = 8
+    
+    BORDER_RADIUS_SM = 8
+    BORDER_RADIUS_MD = 12
+    BORDER_RADIUS_LG = 16
+    
+    # Standard Container Style
+    @staticmethod
+    def card_style(page: ft.Page):
+        is_dark = page.theme_mode == ft.ThemeMode.DARK
+        return {
+            "bgcolor": AppColors.SURFACE_DARK if is_dark else AppColors.SURFACE_LIGHT,
+            "border_radius": AppLayout.BORDER_RADIUS_MD,
+            "padding": AppLayout.MD,
+            "shadow": AppShadows.MEDIUM if not is_dark else None,
+            "border": ft.border.all(1, ft.Colors.with_opacity(0.1, ft.Colors.GREY)) if is_dark else None
+        }
+
+class AppButtons:
+    """
+    Standard Button Styles for Consistency.
+    Usage: ft.ElevatedButton("Text", style=AppButtons.PRIMARY, ...)
+    """
+    
+    # Base Shapes
+    ROUNDED_SM = ft.RoundedRectangleBorder(radius=8)
+    ROUNDED_MD = ft.RoundedRectangleBorder(radius=12)
+    
+    # standard height for touch targets
+    HEIGHT_SM = 36
+    HEIGHT_MD = 48
+    
+    @staticmethod
+    def _base_style(bgcolor, color, radius=8):
+        return ft.ButtonStyle(
+            bgcolor=bgcolor,
+            color=color,
+            shape=ft.RoundedRectangleBorder(radius=radius),
+            padding=ft.padding.symmetric(horizontal=16, vertical=12),
+            elevation=0, # Flat modern look
+            overlay_color=ft.Colors.with_opacity(0.1, "white"),
+        )
+
+    # Pre-defined Styles (Properties to be spread or used directly where supported)
+    # Note: Flet ButtonStyle is complex to merge, so we provide helper methods or standard dicts.
+    
+    @classmethod
+    def PRIMARY(cls):
+        return cls._base_style(AppColors.PRIMARY, ft.Colors.WHITE, 12)
+
+    @classmethod
+    def SECONDARY(cls):
+        return cls._base_style(AppColors.SURFACE_VARIANT, AppColors.TEXT_MAIN, 12)
+        
+    @classmethod
+    def SUCCESS(cls):
+        return cls._base_style(AppColors.SUCCESS, ft.Colors.WHITE, 12)
+
+    @classmethod
+    def DANGER(cls):
+        return cls._base_style(AppColors.ERROR, ft.Colors.WHITE, 12)
+    
+    @classmethod
+    def OUTLINE(cls):
+        return ft.ButtonStyle(
+            color=AppColors.TEXT_MAIN,
+            shape=ft.RoundedRectangleBorder(radius=12),
+            side=ft.BorderSide(1, AppColors.BORDER_LIGHT),
+            padding=ft.padding.symmetric(horizontal=16, vertical=12),
+        )

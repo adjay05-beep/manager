@@ -2,6 +2,8 @@ import flet as ft
 from services.channel_service import channel_service
 from services.auth_service import auth_service
 from db import service_supabase
+from views.components.app_header import AppHeader
+from views.styles import AppColors, AppLayout
 import os
 
 def get_profile_controls(page: ft.Page, navigate_to):
@@ -132,15 +134,7 @@ def get_profile_controls(page: ft.Page, navigate_to):
                 bgcolor="white",
                 content=ft.Column([
                     # Header
-                    ft.Container(
-                        padding=ft.padding.symmetric(horizontal=10, vertical=10),
-                        content=ft.Row([
-                            ft.IconButton(ft.Icons.ARROW_BACK, icon_color="black", on_click=lambda _: navigate_to("home")),
-                            ft.Text("내 프로필", size=20, weight="bold", expand=True, color="black"),
-                            ft.TextButton("로그아웃", icon=ft.Icons.LOGOUT, icon_color="red", style=ft.ButtonStyle(color="red"), on_click=perform_logout)
-                        ])
-                    ),
-                    ft.Divider(color="#EEEEEE", height=1),
+                    AppHeader("내 프로필", on_back_click=page.go_back),
                     
                     profile_card,
                     ft.Divider(color="#EEEEEE", thickness=5),

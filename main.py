@@ -43,18 +43,22 @@ def main(page: ft.Page):
 
     page.navigation_bar = ft.NavigationBar(
         destinations=[
-            ft.NavigationBarDestination(icon=ft.Icons.CHAT_BUBBLE_OUTLINE, selected_icon=ft.Icons.CHAT_BUBBLE, label="메신저"),
-            ft.NavigationBarDestination(icon=ft.Icons.MIC_NONE, selected_icon=ft.Icons.MIC, label="음성"),
             ft.NavigationBarDestination(icon=ft.Icons.HOME_OUTLINED, selected_icon=ft.Icons.HOME, label="홈"),
-            ft.NavigationBarDestination(icon=ft.Icons.CHECK_CIRCLE_OUTLINE, selected_icon=ft.Icons.CHECK_CIRCLE, label="마감"),
+            ft.NavigationBarDestination(icon=ft.Icons.CHAT_BUBBLE_OUTLINE, selected_icon=ft.Icons.CHAT_BUBBLE, label="메신저"),
             ft.NavigationBarDestination(icon=ft.Icons.CALENDAR_MONTH_OUTLINED, selected_icon=ft.Icons.CALENDAR_MONTH, label="일정"),
+            ft.NavigationBarDestination(icon=ft.Icons.DESCRIPTION_OUTLINED, selected_icon=ft.Icons.DESCRIPTION, label="업무일지"),
+            ft.NavigationBarDestination(icon=ft.Icons.CHECK_CIRCLE_OUTLINE, selected_icon=ft.Icons.CHECK_CIRCLE, label="마감"),
+            ft.NavigationBarDestination(icon=ft.Icons.MIC_NONE, selected_icon=ft.Icons.MIC, label="음성"),
+            ft.NavigationBarDestination(icon=ft.Icons.SETTINGS_OUTLINED, selected_icon=ft.Icons.SETTINGS, label="설정"),
         ],
         on_change=lambda e: navigate_to(
-            "chat" if e.control.selected_index == 0 else
-            "order" if e.control.selected_index == 1 else
-            "home" if e.control.selected_index == 2 else 
-            "closing" if e.control.selected_index == 3 else
-            "calendar"
+            "home" if e.control.selected_index == 0 else
+            "chat" if e.control.selected_index == 1 else
+            "calendar" if e.control.selected_index == 2 else
+            "handover" if e.control.selected_index == 3 else
+            "closing" if e.control.selected_index == 4 else
+            "voice" if e.control.selected_index == 5 else
+            "store_info"
         ),
         bgcolor="white",
         indicator_color="#E3F2FD",
@@ -62,80 +66,145 @@ def main(page: ft.Page):
         elevation=5
     )
 
-    def navigate_to(route):
+    # Optimized Route Management
+    page.history_stack = []
+
+    def navigate_to(route, is_back=False):
+        # Prevent redundant navigation to same route
+        if page.route == route and page.controls:
+             return
+             
+        log_info(f"Navigating to: {route} (Back: {is_back})")
+        
+        # History Management
+        if not is_back and page.route:
+            page.history_stack.append(page.route)
+        
+        # If navigating to a root distinct from stack, we might want to clear stack or handle differently.
+        # For simple back behavior, just appending is fine for now.
+        # Root pages (bottom nav) typically act as fresh start points or parallel stacks.
+        # For simplicity in this request: 
+        if route in ["home", "chat", "order", "closing", "calendar"]:
+             # If jumping between main tabs, maybe clear stack? 
+             # Standard behavior depends on app. Let's keep stack linear for now unless it grows too large.
+             # User requested "Back button on all pages", implying linear history flow or sub-pages.
+             # If I go Home -> Profile -> Back, I expect Home.
+             pass
+
+        page.route = route
         page.clean()
         
+        # Reset splash if it was lingering
+        if getattr(page, "splash", None):
+            page.splash = None
+
         # Hide Nav Bar on Auth Pages
-        # [FIX] Clear any existing drawer to preventing lingering/conflict
         page.drawer = None
-        
-        if route in ["login", "signup", "create_profile", "edit_profile"]:
-            page.navigation_bar.visible = False
+        if route in ["login", "signup", "create_profile", "edit_profile", "/"]:
+            if page.navigation_bar:
+                page.navigation_bar.visible = False
+            page.history_stack.clear() # Clear history on logout/login
         else:
-            page.navigation_bar.visible = True
-            # Sync Nav Bar State (5 Items)
-            if route == "chat": page.navigation_bar.selected_index = 0
-            elif route == "order": page.navigation_bar.selected_index = 1
-            elif route == "home": page.navigation_bar.selected_index = 2
-            elif route == "closing": page.navigation_bar.selected_index = 3
-            elif route == "calendar": page.navigation_bar.selected_index = 4
-            else: 
-                # If route is not explicitly mapped to a nav bar item, select None
-                page.navigation_bar.selected_index = None
+            if page.navigation_bar:
+                page.navigation_bar.visible = True
+                # Sync Nav Bar State
+                mapping = {
+                    "home": 0, 
+                    "chat": 1, 
+                    "calendar": 2, 
+                    "handover": 3, 
+                    "closing": 4, 
+                    "voice": 5, 
+                    "order": 5, # Map order to voice tab for now if needed, or separate. 
+                    "store_info": 6,
+                    "store_manage": 6
+                }
+                page.navigation_bar.selected_index = mapping.get(route)
 
         try:
-            if route == "login" or route == "/":
+            controls = []
+            # [FIX] Robust Route Matching (ignore leading slashes)
+            clean_route = route.lstrip('/') if route != '/' and route.lstrip('/') else route
+            # Handle empty string case if route was "/" -> clean_route "/"
+            if route == "/": clean_route = "/"
+            
+            # Log normalized route for debugging
+            # log_info(f"Route: {route} -> Clean: {clean_route}")
+
+            controls = []
+            if clean_route in ["login", "/"]:
                 controls = get_login_controls(page, navigate_to)
-            elif route == "signup":
+            elif clean_route == "signup":
                 controls = get_signup_controls(page, navigate_to)
-            elif route == "onboarding":
+            elif clean_route == "onboarding":
                 controls = get_onboarding_controls(page, navigate_to)
-            elif route == "create_profile":
-                user_id = page.session.get("user_id")
-                user_email = page.session.get("user_email")
-                if not user_email:
-                    user_email = "unknown@example.com"
-                controls = get_create_profile_controls(page, navigate_to, user_id, user_email)
-            elif route == "edit_profile":
+            elif clean_route == "create_profile":
+                uid = page.session.get("user_id")
+                email = page.session.get("user_email") or "unknown@example.com"
+                controls = get_create_profile_controls(page, navigate_to, uid, email)
+            elif clean_route == "edit_profile":
                 controls = get_profile_edit_controls(page, navigate_to)
-            elif route == "home":
+            elif clean_route == "home":
                 controls = get_home_controls(page, navigate_to)
-            elif route == "chat":
+            elif clean_route == "chat":
                 controls = get_chat_controls(page, navigate_to)
-            elif route == "calendar":
+            elif clean_route == "calendar":
                 controls = get_calendar_controls(page, navigate_to)
-            elif route == "voice" or route == "order":
+            elif clean_route in ["voice", "order"]:
                 from views.voice_view import get_voice_controls
                 controls = get_voice_controls(page, navigate_to)
-            elif route == "closing":
-                # Direct link support, but now part of Work tab usually
+            elif clean_route == "closing":
                 controls = get_closing_controls(page, navigate_to)
-            elif route == "work":
+            elif clean_route == "work":
                 controls = get_work_controls(page, navigate_to)
-            elif route == "store_info" or route == "store_manage":
+            elif clean_route in ["store_info", "store_manage"]:
                 controls = get_store_manage_controls(page, navigate_to)
-            elif route == "profile":
+            elif clean_route == "profile":
                 from views.profile_view import get_profile_controls
                 controls = get_profile_controls(page, navigate_to)
-            elif route == "debug_upload":
+            elif clean_route == "debug_upload":
                 from views.debug_upload_view import DebugUploadView
                 controls = DebugUploadView(page)
-            elif route == "handover":
+            elif clean_route == "handover":
                 controls = get_handover_controls(page, navigate_to)
             else:
-                controls = [ft.Text("Not Found")]
+                controls = [ft.Text(f"Page {route} not found", size=20)]
             
-            page.add(*controls)
+            # Critical: If route changed during control generation (e.g. auto-login), stop here.
+            if page.route != route:
+                return
+
+            if controls:
+                page.add(*controls)
             page.update()
+            
         except Exception as e:
             import traceback
             err_msg = traceback.format_exc()
             log_error(f"Navigation Error ({route}): {err_msg}")
-            print(f"Navigation Error: {err_msg}")
             page.clean()
-            page.add(ft.Text(f"오류가 발생했습니다: {e}", color="red"))
+            page.add(ft.Text(f"시스템 고침이 필요합니다: {e}", color="red", weight="bold"))
+            page.add(ft.ElevatedButton("재시도", on_click=lambda _: navigate_to("login")))
             page.update()
 
+    def go_back(e=None):
+        if page.history_stack:
+            prev_route = page.history_stack.pop()
+            navigate_to(prev_route, is_back=True)
+            # navigate_to appends next route, so we passed is_back=True to avoid re-appending the one we are leaving (which is current).
+            # Wait, navigate_to logic: "if not is_back and page.route: stack.append(page.route)"
+            # If we are at C (stack [A, B]), go_back pops B.
+            # navigate_to(B, is_back=True).
+            # page.route was C. Stack is [A].
+            # New route B.
+            # Correct.
+        else:
+            # If no history, maybe go Home?
+            if page.route != "home":
+                navigate_to("home", is_back=True)
+
+    page.go_back = go_back
+    
     navigate_to("login")
 
 if __name__ == "__main__":

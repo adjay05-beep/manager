@@ -5,7 +5,7 @@ from db import service_supabase
 from postgrest import SyncPostgrestClient
 import os
 from utils.logger import log_debug, log_error, log_info
-from views.styles import AppColors, AppTextStyles, AppLayout
+from views.styles import AppColors, AppTextStyles, AppLayout, AppButtons
 from views.components.app_header import AppHeader
 
 def get_store_manage_controls(page: ft.Page, navigate_to):
@@ -143,10 +143,8 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         "새 초대 코드 생성 (10분)", 
         icon=ft.Icons.REFRESH, 
         visible=(role in ["owner", "manager"]), 
-        color="white", 
-        bgcolor="#1565C0",
+        style=AppButtons.PRIMARY(),
         height=40,
-        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=30)),
         on_click=generate_new_code
     )
 
@@ -341,7 +339,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         page.open(dlg_transfer)
 
     def load_members():
-        print(f"DEBUG_VIEW: Inside load_members. Role={role}")
+        # Log members
         if role != "owner": return
         try:
             # [Fix] Pass token for RLS
@@ -388,7 +386,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                         content_padding=ft.padding.symmetric(horizontal=10, vertical=0),
                         text_size=13,
                         text_style=ft.TextStyle(weight=ft.FontWeight.BOLD),
-                        dense=True,
+                        # Removed fixed height to prevent clipping in Flet 0.28.3
                         border_radius=8,
                         on_change=lambda e, uid=uid: update_member_role(uid, e.control.value),
                         disabled=is_me # Technically redundant if owner is filtered above, but keeps logic safe
@@ -498,7 +496,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         )
         page.open(dlg)
 
-    print(f"DEBUG_VIEW: Checking Role for initial load. role={role}")
+    # Log state
     if role == "owner":
         load_members()
 
@@ -510,7 +508,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
 
     header = AppHeader(
         title_text="설정",
-        on_back_click=lambda _: navigate_to("home")
+        on_back_click=page.go_back
     )
     
     # Store Settings Only
@@ -523,7 +521,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
             ft.Text("매장 이름 수정", style=AppTextStyles.BODY_SMALL),
             ft.Row([
                 ft.Container(store_name_tf, expand=True),
-                ft.ElevatedButton("저장", on_click=save_store_changes, visible=(role=="owner"), bgcolor="#00C73C", color="white"),
+                ft.ElevatedButton("저장", on_click=save_store_changes, visible=(role=="owner"), style=AppButtons.SUCCESS()),
             ]),
             
             ft.Container(height=20),

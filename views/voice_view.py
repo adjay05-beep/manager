@@ -148,6 +148,7 @@ def get_voice_controls(page: ft.Page, navigate_to):
 
         state["is_listening"] = True
         update_mic_ui(True, "🎤 말씀하세요...")
+        print("DEBUG: start_web_speech - starting JavaScript execution")
 
         js_code = """
         (function() {
@@ -311,7 +312,22 @@ def get_voice_controls(page: ft.Page, navigate_to):
             res = await audio_recorder.stop_recording_async()
             state["is_recording"] = False
             update_mic_ui(False)
+
             if res:
+                # [FIX] blob URL 감지 - 웹 브라우저에서 AudioRecorder 사용 시 발생
+                if res.startswith("blob:"):
+                    print(f"DEBUG: Blob URL detected: {res}")
+                    # blob URL은 서버에서 접근 불가 → Web Speech API 사용 안내
+                    page.snack_bar = ft.SnackBar(
+                        ft.Text("브라우저에서는 Web Speech API를 사용합니다. 다시 시도해주세요."),
+                        bgcolor="orange"
+                    )
+                    page.snack_bar.open = True
+                    page.update()
+                    # Web Speech API로 재시도
+                    await start_web_speech()
+                    return
+
                 await process_recording(res)
         except Exception as e:
             status_text.value = f"Stop Error: {e}"
@@ -356,50 +372,32 @@ def get_voice_controls(page: ft.Page, navigate_to):
             pass
 
     def toggle_rec(e):
-        # [FIX] 항상 Web Speech API를 먼저 시도 (브라우저 환경 자동 감지)
-        # page.web이 클라우드 배포에서 신뢰할 수 없으므로 JS로 직접 확인
-        if not state["is_listening"] and not state["is_recording"]:
-            page.run_task(try_speech_recognition)
-        elif state["is_recording"]:
-            # 데스크톱 녹음 중지
+        # [FIX] 녹음 중이면 중지, 아니면 시작
+        if state["is_recording"]:
             page.run_task(stop_recording)
+        elif state["is_listening"]:
+            # Web Speech 진행 중 - 무시
+            pass
+        else:
+            # 새로 시작 - 항상 Web Speech API 먼저 시도
+            page.run_task(start_voice_input)
 
-    async def try_speech_recognition():
-        """Web Speech API를 먼저 시도하고, 실패 시 AudioRecorder 사용"""
+    async def start_voice_input():
+        """음성 입력 시작 - Web Speech API 우선, 실패 시 AudioRecorder"""
+        print(f"DEBUG: start_voice_input called, page.web={page.web}")
+
+        # 항상 Web Speech API를 먼저 시도
         try:
-            # JavaScript로 브라우저 환경 및 Web Speech API 지원 확인
-            check_js = """
-            (function() {
-                if (typeof window === 'undefined') return 'no_window';
-                if (window.SpeechRecognition || window.webkitSpeechRecognition) return 'supported';
-                return 'not_supported';
-            })()
-            """
-            result = await page.run_javascript_async(check_js)
-            print(f"DEBUG: Speech API check result: {result}")
-
-            if result == "supported":
-                await start_web_speech()
-            else:
-                # Web Speech API 미지원 - AudioRecorder 사용 시도
-                if audio_recorder:
-                    await start_desktop_recording()
-                else:
-                    page.snack_bar = ft.SnackBar(
-                        ft.Text("음성 인식을 사용할 수 없습니다. 파일 업로드를 이용해주세요."),
-                        bgcolor="orange"
-                    )
-                    page.snack_bar.open = True
-                    page.update()
+            await start_web_speech()
         except Exception as e:
-            print(f"DEBUG: try_speech_recognition error: {e}")
-            # JavaScript 실행 실패 = 데스크톱/네이티브 환경
-            if audio_recorder and not state["is_recording"]:
+            print(f"DEBUG: Web Speech failed: {e}")
+            # Web Speech 실패 시 AudioRecorder 시도 (데스크톱 환경)
+            if audio_recorder and not page.web:
                 await start_desktop_recording()
             else:
                 page.snack_bar = ft.SnackBar(
-                    ft.Text("음성 인식을 시작할 수 없습니다."),
-                    bgcolor="red"
+                    ft.Text("음성 인식 실패. 파일 업로드를 이용해주세요."),
+                    bgcolor="orange"
                 )
                 page.snack_bar.open = True
                 page.update()
@@ -451,14 +449,8 @@ def get_voice_controls(page: ft.Page, navigate_to):
     page.chat_file_picker.on_result = lambda e: page.run_task(lambda: on_picker_result(e))
 
     # Mode Toggle UI
-    def toggle_private_mode(e):
-        state["is_private_mode"] = e.control.value
-        mode_text.value = "나만 보기 (기본)" if state["is_private_mode"] else "매장 전체 공유"
-        mode_text.color = "grey" if state["is_private_mode"] else "blue"
-        page.update()
-
-    mode_switch = ft.Switch(value=True, on_change=toggle_private_mode, active_color="grey")
-    mode_text = ft.Text("나만 보기 (기본)", color="grey", size=12)
+    # Mode Toggle Removed as per request (Default Private)
+    state["is_private_mode"] = True
 
     # Layout Components
     mic_icon = ft.Icon(ft.Icons.MIC, size=40, color="white")
@@ -475,16 +467,7 @@ def get_voice_controls(page: ft.Page, navigate_to):
     )
 
     # 업로드 버튼 (백업용)
-    upload_btn = ft.Container(
-        content=ft.Column([
-            ft.Icon(ft.Icons.UPLOAD_FILE, color="grey", size=20),
-            ft.Text("파일 업로드", size=10, color="grey")
-        ], spacing=2, horizontal_alignment="center"),
-        on_click=pick_file_click,
-        padding=10,
-        border_radius=10,
-        tooltip="음성 파일 업로드 (mp3, wav, m4a)"
-    )
+    # Upload Button Removed
 
     header = AppHeader(
         title_text="음성 메모",
@@ -500,18 +483,18 @@ def get_voice_controls(page: ft.Page, navigate_to):
 
     controls_area = ft.Container(
         content=ft.Column([
-            ft.Row([mode_switch, mode_text], alignment="center"),
-            ft.Row([mic_container, upload_btn], alignment="center", vertical_alignment="center", spacing=20),
+            mic_container,
             status_text
-        ], horizontal_alignment="center", spacing=10),
-        padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30)
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+        padding=20, bgcolor="#F8F9FA", border_radius=ft.border_radius.only(top_left=30, top_right=30),
+        width=float("inf")
     )
 
     load_memos()
     return [
         ft.Container(
             expand=True, bgcolor="white",
-            padding=ft.padding.only(top=50),
+            padding=ft.padding.all(0),
             content=ft.Column([
                 header,
                 ft.Container(memo_list_view, expand=True, padding=20),

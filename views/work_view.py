@@ -2,7 +2,7 @@ import flet as ft
 from datetime import datetime, timedelta
 from db import service_supabase
 import asyncio
-from views.styles import AppColors, AppTextStyles, AppLayout
+from views.styles import AppColors, AppLayout, AppButtons
 from views.components.app_header import AppHeader
 import os
 import calendar as cal_mod
@@ -33,99 +33,179 @@ def get_work_controls(page: ft.Page, navigate_to):
         border=ft.border.all(1, "#EEEEEE")
     )
     
-    # 2. Form Inputs
-    reg_name = ft.TextField(label="이름", width=150, color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
-    reg_type = ft.Dropdown(
-        label="고용 형태", width=120,
-        options=[ft.dropdown.Option("full", "정규직"), ft.dropdown.Option("part", "아르바이트")],
-        value="part", color=black_text, label_style=ft.TextStyle(color=grey_text), border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14
-    )
-    reg_wage_type = ft.Dropdown(
-        label="급여 형태", width=100,
-        options=[ft.dropdown.Option("hourly", "시급"), ft.dropdown.Option("monthly", "월급")],
-        value="hourly", color=black_text, label_style=ft.TextStyle(color=grey_text), border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14
-    )
-    reg_wage = ft.TextField(label="금액 (원)", width=120, value="10320", keyboard_type="number", color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
-    reg_start_date = ft.TextField(label="근무 시작일", width=120, value=datetime.now().strftime("%Y-%m-%d"), color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
-    
-    # Days Schedule
-    days_map = {0: "월", 1: "화", 2: "수", 3: "목", 4: "금", 5: "토", 6: "일"}
-    day_schedule = {}
-    for day_idx in range(7):
-        day_schedule[day_idx] = {
-            "enabled": CustomCheckbox(label=days_map[day_idx], value=False),
-            "start": ft.TextField(value="09:00", width=60, color=black_text, label_style=ft.TextStyle(color=grey_text), text_size=12, height=40, border_color="#E0E0E0", border_radius=8, content_padding=10),
-            "end": ft.TextField(value="18:00", width=60, color=black_text, label_style=ft.TextStyle(color=grey_text), text_size=12, height=40, border_color="#E0E0E0", border_radius=8, content_padding=10)
-        }
-    
-    # Schedule UI Components
-    uniform_start = ft.TextField(label="시작", value="09:00", width=80, color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
-    uniform_end = ft.TextField(label="종료", value="18:00", width=80, color=black_text, label_style=ft.TextStyle(color=grey_text), height=45, border_color="#E0E0E0", border_radius=8, content_padding=10, text_size=14)
-    
-    # Separate checkboxes for Uniform Mode to avoid parent conflict
-    uniform_day_checks = [CustomCheckbox(label=days_map[i], value=False) for i in range(7)]
+    # --- Helper: Section Card ---
+    def section_card(title, content):
+        return ft.Container(
+            content=ft.Column([
+                ft.Text(title, size=14, weight="bold", color=AppColors.PRIMARY),
+                ft.Container(height=5),
+                content
+            ], spacing=5),
+            padding=20,
+            bgcolor="white",
+            border_radius=12,
+            border=ft.border.all(1, "#F0F0F0"),
+            shadow=ft.BoxShadow(spread_radius=1, blur_radius=10, color=ft.Colors.with_opacity(0.05, "black"))
+        )
 
-    uniform_ui = ft.Column([
-        ft.Text("근무 시간:", size=12, color=black_text, weight="bold"),
-        ft.Row([uniform_start, ft.Text("~"), uniform_end], spacing=5),
-        ft.Text("근무 요일:", size=12, color=black_text, weight="bold"),
-        ft.Row(uniform_day_checks, spacing=20, alignment=ft.MainAxisAlignment.START, wrap=False, scroll=ft.ScrollMode.AUTO)
-    ])
-    
-    custom_ui = ft.Column([
-        ft.Text("요일별 시간:", size=12, color=black_text, weight="bold"),
-        ft.Row([
-            ft.Container(
-                content=ft.Row([
-                    day_schedule[i]["enabled"],
-                    day_schedule[i]["start"],
-                    ft.Text("~", size=12),
-                    day_schedule[i]["end"]
-                ], spacing=3, alignment=ft.MainAxisAlignment.START),
-                width=250,  # Fixed width for each day's control set
-                padding=5,
-                border=ft.border.all(1, "#EEEEEE"),
-                border_radius=5
+    # --- Helper: Day Toggle Button ---
+    class DayToggleButton(ft.Container):
+        def __init__(self, text, value=False):
+            super().__init__()
+            self.text = text
+            self._value = value
+            self.width = 40
+            self.height = 40
+            self.border_radius = 20
+            self.alignment = ft.alignment.center
+            self.on_click = self.toggle
+            self.animate = ft.animation.Animation(200, "easeOut")
+            self.update_style()
+        
+        @property
+        def value(self):
+            return self._value
+            
+        @value.setter
+        def value(self, v):
+            self._value = v
+            self.update_style()
+            
+        def toggle(self, e):
+            self._value = not self._value
+            self.update_style()
+            self.update()
+            
+        def update_style(self):
+            self.bgcolor = AppColors.PRIMARY if self._value else "white"
+            self.border = ft.border.all(1, AppColors.PRIMARY) if not self._value else None
+            self.content = ft.Text(
+                self.text, 
+                color="white" if self._value else AppColors.PRIMARY,
+                weight="bold", size=12
             )
-            for i in range(7)
-        ], wrap=True, spacing=10, run_spacing=10)
-    ], visible=False)
+
+    # 2. Form Inputs (Reorganized)
     
-    # Mode Buttons
-    mode_btn_uniform = ft.Container(
-        content=ft.Text("모든 요일 동일", size=12, color="black"),
-        bgcolor="#1A237E", padding=8, border_radius=5, ink=True
+    # [Basic Info]
+    reg_name = ft.TextField(label="이름", expand=True, height=45, text_size=14, border_color="#E0E0E0", content_padding=10, border_radius=8)
+    reg_type = ft.Dropdown(
+        label="고용 형태", width=120, height=45,
+        options=[ft.dropdown.Option("full", "정규직"), ft.dropdown.Option("part", "아르바이트")],
+        value="part", text_size=14, border_color="#E0E0E0", border_radius=8
     )
-    mode_btn_custom = ft.Container(
-        content=ft.Text("요일별 다르게", size=12, color="black"),
-        border=ft.border.all(1, "grey"), padding=8, border_radius=5, ink=True
+    reg_start_date = ft.TextField(label="근무 시작일", width=140, value=datetime.now().strftime("%Y-%m-%d"), height=45, text_size=14, border_color="#E0E0E0", content_padding=10, border_radius=8)
+
+    basic_info_card = section_card("기본 정보", ft.Column([
+        ft.Row([reg_name, reg_type], spacing=10),
+        reg_start_date
+    ]))
+
+    # [Payment Info]
+    reg_wage_type = ft.Dropdown(
+        label="지급 기준", width=110, height=45,
+        options=[ft.dropdown.Option("hourly", "시급"), ft.dropdown.Option("monthly", "월급")],
+        value="hourly", text_size=14, border_color="#E0E0E0", border_radius=8
     )
+    reg_wage = ft.TextField(label="금액", expand=True, value="10320", keyboard_type="number", suffix_text="원", height=45, text_size=14, border_color="#E0E0E0", content_padding=10, border_radius=8)
     
+    pay_info_card = section_card("급여 정보", ft.Row([reg_wage_type, reg_wage], spacing=10))
+
+    # [Schedule Info]
+    days_map = {0: "월", 1: "화", 2: "수", 3: "목", 4: "금", 5: "토", 6: "일"}
+    
+    # Uniform Mode Inputs
+    uniform_start = ft.TextField(label="시작", value="09:00", width=90, text_align="center", height=45, text_size=14, border_color="#E0E0E0", content_padding=5, border_radius=8)
+    uniform_end = ft.TextField(label="종료", value="18:00", width=90, text_align="center", height=45, text_size=14, border_color="#E0E0E0", content_padding=5, border_radius=8)
+    # Replaced CustomCheckbox with DayToggleButton
+    uniform_day_checks = [DayToggleButton(days_map[i]) for i in range(7)]
+
+    uniform_content = ft.Column([
+        ft.Text("근무 시간 설정", size=12, color="grey"),
+        ft.Row([uniform_start, ft.Text("~", size=16, weight="bold"), uniform_end], alignment="center"),
+        ft.Container(height=10),
+        ft.Text("근무 요일 선택", size=12, color="grey"),
+        ft.Row(uniform_day_checks, alignment="center", spacing=10)
+    ], horizontal_alignment="center")
+
+    # Custom Mode Inputs (Legacy Loop adapted)
+    day_schedule = {}
+    custom_rows = []
+    for day_idx in range(7):
+        # Using Switch for cleaner on/off
+        en_chk = ft.Switch(value=False, active_color=AppColors.PRIMARY) 
+        # Compatibility wrapper for submit logic which expects .value
+        # Actually existing code calls day_schedule[i]["enabled"].value
+        
+        start_t = ft.TextField(value="09:00", width=70, height=35, text_size=12, content_padding=5, border_color="#E0E0E0", text_align="center", disabled=True)
+        end_t = ft.TextField(value="18:00", width=70, height=35, text_size=12, content_padding=5, border_color="#E0E0E0", text_align="center", disabled=True)
+        
+        def on_day_switch(e, s=start_t, en=end_t):
+            s.disabled = not e.control.value
+            en.disabled = not e.control.value
+            e.page.update()
+        
+        en_chk.on_change = on_day_switch
+        
+        day_schedule[day_idx] = {
+            "enabled": en_chk, "start": start_t, "end": end_t
+        }
+        
+        custom_rows.append(
+            ft.Row([
+                ft.Text(days_map[day_idx], weight="bold", width=30),
+                en_chk,
+                start_t, ft.Text("~"), end_t
+            ], alignment="spaceBetween")
+        )
+
+    custom_content = ft.Column(custom_rows, spacing=10, visible=False)
+
+    # Mode Switcher (Segmented Control Look)
     schedule_mode_state = {"value": "uniform"}
     
-    def set_mode(mode):
+    btn_uniform = ft.Container(
+        content=ft.Text("간편 설정 (동일 시간)", weight="bold"),
+        alignment=ft.alignment.center, expand=True, padding=10,
+        bgcolor=AppColors.PRIMARY, border_radius=8,
+        on_click=lambda e: set_mode("uniform")
+    )
+    btn_custom = ft.Container(
+        content=ft.Text("상세 설정 (요일별)", color="grey"),
+        alignment=ft.alignment.center, expand=True, padding=10,
+        bgcolor=AppColors.SURFACE_VARIANT, border_radius=8,
+        on_click=lambda e: set_mode("custom")
+    )
 
+    def set_mode(mode):
         schedule_mode_state["value"] = mode
-        if mode == "uniform":
-            uniform_ui.visible = True; custom_ui.visible = False
-            mode_btn_uniform.bgcolor = "#1A237E"; mode_btn_uniform.content.color = "white"; mode_btn_uniform.border = None
-            mode_btn_custom.bgcolor = None; mode_btn_custom.content.color = "black"; mode_btn_custom.border = ft.border.all(1, "grey")
-        else:
-            uniform_ui.visible = False; custom_ui.visible = True
-            mode_btn_custom.bgcolor = "#1A237E"; mode_btn_custom.content.color = "white"; mode_btn_custom.border = None
-            mode_btn_uniform.bgcolor = None; mode_btn_uniform.content.color = "black"; mode_btn_uniform.border = ft.border.all(1, "grey")
-        page.update()
+        is_uni = (mode == "uniform")
         
-    mode_btn_uniform.on_click = lambda e: set_mode("uniform")
-    mode_btn_custom.on_click = lambda e: set_mode("custom")
-    
+        btn_uniform.bgcolor = AppColors.PRIMARY if is_uni else AppColors.SURFACE_VARIANT
+        btn_uniform.content.color = "white" if is_uni else "grey"
+        
+        btn_custom.bgcolor = AppColors.PRIMARY if not is_uni else AppColors.SURFACE_VARIANT
+        btn_custom.content.color = "white" if not is_uni else "grey"
+        
+        uniform_content.visible = is_uni
+        custom_content.visible = not is_uni
+        page.update()
+
+    schedule_card = section_card("근무 일정", ft.Column([
+        ft.Container(
+            content=ft.Row([btn_uniform, btn_custom], spacing=5),
+            padding=5, bgcolor=AppColors.SURFACE_VARIANT, border_radius=10
+        ),
+        ft.Container(height=10),
+        uniform_content,
+        custom_content
+    ]))
+
     # 3. Contract List
     contract_list = ft.Column(spacing=10)
-    
+
     # Edit Dialog Function
     def open_edit_dialog(contract):
-
-        
         # Mode Selection
         edit_mode = ft.RadioGroup(content=ft.Row([
             ft.Radio(value="correction", label="단순 정보 수정"),
@@ -675,29 +755,41 @@ def get_work_controls(page: ft.Page, navigate_to):
         page.run_task(_save)
 
     # 5. Main Layouts
-    contract_content = ft.Column([
-        ft.Container(
-            content=ft.Column([
-                ft.Text("신규 직원 등록", weight="bold", size=18, color="black"),
-                ft.Container(height=10),
-                ft.Row([reg_name, reg_type]),
-                ft.Row([reg_wage_type, reg_wage]),
-                ft.Row([reg_start_date, ft.Text("부터 근무 시작", size=12, color="grey")], vertical_alignment="center"),
-                ft.Text("근무 일정:", size=12, color="black", weight="bold"),
-                ft.Row([mode_btn_uniform, mode_btn_custom], spacing=10),
-                uniform_ui,
-                custom_ui,
-                ft.Container(height=10),
-                ft.ElevatedButton("신규 등록", on_click=save_contract_click, width=300, height=40, bgcolor="#1A237E", color="white")
-            ]),
-            padding=20, bgcolor="white", border_radius=10, shadow=ft.BoxShadow(blur_radius=5, color="#05000000")
+    contract_content = ft.ListView([
+        ft.Text("신규 직원 등록", weight="bold", size=20, color=black_text),
+        ft.Container(height=10),
+        
+        basic_info_card,
+        ft.Container(height=15),
+        
+        pay_info_card,
+        ft.Container(height=15),
+        
+        schedule_card,
+        ft.Container(height=25),
+        
+        ft.ElevatedButton(
+            "직원 등록 완료", 
+            on_click=save_contract_click, 
+            style=AppButtons.PRIMARY(), 
+            height=50,
+            width=float("inf")
         ),
-        ft.Divider(),
-        ft.Text("나의 직원 리스트", weight="bold", color="black"),
+        
+        ft.Divider(height=40, color="transparent"),
+        
+        ft.Text("나의 직원 리스트", weight="bold", size=18, color=black_text),
+        ft.Container(height=10),
         contract_list,
-        ft.Text("요일별 근무 명단", weight="bold", size=16, color="black"),
-        weekly_summary_container
-    ], scroll=ft.ScrollMode.ALWAYS, expand=True)
+        
+        ft.Container(height=30),
+        
+        ft.Text("요일별 근무 명단", weight="bold", size=18, color=black_text),
+        ft.Container(height=10),
+        weekly_summary_container,
+        
+        ft.Container(height=50) # Bottom Padding
+    ], padding=20, expand=True)
     
     labor_content = ft.Column([
         ft.Container(
@@ -828,8 +920,8 @@ def get_work_controls(page: ft.Page, navigate_to):
                     )
                     
                     save_btn = ft.ElevatedButton(
-                        text="입력", color="white", bgcolor="blue",
-                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=5), padding=5),
+                        text="입력", style=AppButtons.PRIMARY(),
+                        width=60, height=36, 
                         on_click=lambda _, n=name, inp=wage_input, evs=emp['events']: page.run_task(on_wage_submit, None, n, inp.value, evs)
                     )
 
@@ -923,7 +1015,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     payroll_content = ft.Column([
         ft.Text("급여 정산", weight="bold", size=18),
         ft.Text("* 상단: 계약 기준 예상 / 하단: 캘린더 실제 기록 기준", size=12, color="grey"),
-        ft.Row([dd_year, ft.Text("년", size=14), dd_month, ft.Text("월", size=14), ft.ElevatedButton("조회", on_click=calc_payroll, height=40, bgcolor="#1565C0", color="white")], vertical_alignment="center"),
+        ft.Row([dd_year, ft.Text("년", size=14), dd_month, ft.Text("월", size=14), ft.ElevatedButton("조회", on_click=calc_payroll, style=AppButtons.PRIMARY(), width=80)], vertical_alignment="center"),
         ft.Divider(),
         payroll_res_col
     ], scroll=ft.ScrollMode.AUTO)
@@ -978,7 +1070,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     # Imports moved to top
     header = AppHeader(
         title_text="직원 관리",
-        on_back_click=lambda _: navigate_to("home")
+        on_back_click=page.go_back
     )
 
     # [FIX] Initial Data Load

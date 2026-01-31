@@ -3,7 +3,7 @@ import mimetypes
 from datetime import datetime
 from dotenv import load_dotenv
 import httpx
-from supabase_auth import SyncGoTrueClient
+from gotrue import SyncGoTrueClient
 from postgrest import SyncPostgrestClient
 try:
     from realtime import AsyncRealtimeClient

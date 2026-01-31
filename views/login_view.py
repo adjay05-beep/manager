@@ -3,222 +3,144 @@ from services.auth_service import auth_service
 from services.channel_service import channel_service
 import json
 from utils.logger import log_debug, log_info, log_error
+from views.styles import AppColors, AppTextStyles, AppLayout, AppGradients, AppShadows
+from components.premium_card import PremiumCard
 
 def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_token: str = None):
-    log_info(f"User logged in: {user_data.get('email')} ({user_data.get('id')})")
-    """
-    Common logic for processing a logged-in user:
-    1. Channel Routing (Smart Login)
-    2. Session Setup
-    3. Navigation
-    """
+    log_info(f"User logged in: {user_data.get('email')}")
     try:
-        # Save session for Auto-Login
-        # [FIX] Use explicit token from login response if available (Render Fix)
-        token = access_token
-        
-        # If no explicit token (Auto-Login case), try to get from session
-        if not token:
-            session = auth_service.get_session()
-            if session:
-                token = session.access_token
+        token = access_token or (auth_service.get_session().access_token if auth_service.get_session() else None)
         
         if token:
-            # We construct a simple session dict to avoid storing complex objects
-            sess_data = {
-                "access_token": token,
-                "refresh_token": "", 
-                "user": user_data
-            }
-            
-            # [FIX] Capture Refresh Token for Stability
+            sess_data = {"access_token": token, "refresh_token": "", "user": user_data}
             current_sess = auth_service.get_session()
             if current_sess and hasattr(current_sess, "refresh_token"):
                  sess_data["refresh_token"] = current_sess.refresh_token
-            
             page.client_storage.set("supa_session", json.dumps(sess_data))
 
-        # Explicitly pass token to ensure RLS works on Mobile/Web
-        channels = channel_service.get_user_channels(user_data['id'], token)
-        page.splash = None
+        channels = []
+        try:
+            channels = channel_service.get_user_channels(user_data['id'], token)
+        except Exception as ch_err:
+            log_error(f"Error fetching channels for login: {ch_err}")
+        
+        if hasattr(page, "splash"):
+            page.splash = None
+        page.update()
         
         if len(channels) == 1:
-            # Case A: Single Channel
             target_ch = channels[0]
             page.session.set("user_id", user_data['id'])
-            page.session.set("user_email", user_data['email'])
             page.session.set("channel_id", target_ch["id"])
             page.session.set("channel_name", target_ch["name"])
             page.session.set("user_role", target_ch["role"])
             navigate_to("home")
             
         elif len(channels) > 1:
-            # Case B: Multi Channel
+            # ... (Rest of multi-channel logic) ...
             def pick_channel(ch):
                 page.close(ch_dialog)
                 page.session.set("user_id", user_data['id'])
-                page.session.set("user_email", user_data['email'])
                 page.session.set("channel_id", ch["id"])
                 page.session.set("channel_name", ch["name"])
                 page.session.set("user_role", ch["role"])
                 navigate_to("home")
 
-            # Create New Store button handler
-            def create_new_store(e):
-                page.close(ch_dialog)
-                navigate_to("onboarding")
-
-            ch_list = ft.Column(spacing=10)
+            ch_list = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
             for ch in channels:
                 ch_list.controls.append(
-                    ft.Container(
+                    PremiumCard(
                         content=ft.Row([
-                            ft.Icon(ft.Icons.STORE, color="white"),
+                            ft.Icon(ft.Icons.STORE_ROUNDED, color=AppColors.PRIMARY),
                             ft.Column([
-                                ft.Text(ch["name"], weight="bold", size=16, color="white"),
-                                ft.Text(f"{ch['role']} • {ch.get('channel_code','Unknown')}", size=12, color="white70")
+                                ft.Text(ch["name"], weight="bold", size=16),
+                                ft.Text(f"{ch['role']} • {ch.get('channel_code','-')}", size=12, color=AppColors.TEXT_MUTE)
                             ], spacing=2)
                         ]),
-                        padding=15,
-                        border_radius=10,
-                        bgcolor="#1A237E",
                         on_click=lambda e, c=ch: pick_channel(c),
-                        ink=True
                     )
                 )
             
-            # Add divider and "Create New Store" button at bottom
-            ch_list.controls.append(ft.Divider(color="white30", height=20))
+            ch_list.controls.append(ft.Divider(height=20))
             ch_list.controls.append(
-                ft.Container(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.ADD_BUSINESS, color="green"),
-                        ft.Text("새 매장 추가하기", weight="bold", size=15, color="green")
-                    ], alignment=ft.MainAxisAlignment.CENTER),
-                    padding=12,
-                    border_radius=10,
-                    bgcolor=ft.Colors.with_opacity(0.05, "green"),
-                    border=ft.border.all(2, "green"),
-                    on_click=create_new_store,
-                    ink=True
+                ft.TextButton(
+                    "새 매장 추가하기",
+                    icon=ft.Icons.ADD_BUSINESS_ROUNDED,
+                    on_click=lambda _: (page.close(ch_dialog), navigate_to("onboarding"))
                 )
             )
 
             ch_dialog = ft.AlertDialog(
-                title=ft.Text("매장 선택 (Multi-Channel)"),
-                content=ft.Container(
-                    content=ch_list,
-                    width=350,
-                    height=min(len(channels) * 90 + 100, 400),  # Dynamic height with max cap
-                ),
-                modal=True
+                title=ft.Text("접속할 매장을 선택하세요", size=18, weight="bold"),
+                content=ft.Container(content=ch_list, width=400, height=300),
             )
             page.open(ch_dialog)
             
         else:
-            # Case C: No Channel
+            # No channels or error: go to onboarding
             page.session.set("user_id", user_data['id'])
             navigate_to("onboarding")
 
-    except Exception as login_logic_err:
-            print(f"Smart Login Error: {login_logic_err}")
-            page.session.set("user_id", user_data['id'])
-            navigate_to("home")
+    except Exception as e:
+        log_error(f"Login Logic Fatal Error: {e}")
+        page.splash = None
+        # In case of absolute failure, clear session and go to login
+        page.session.clear()
+        navigate_to("login")
 
 
 def get_login_controls(page: ft.Page, navigate_to):
-    # [Auto-Login & Recovery Check]
-    # 1. Check if we have a stored session
-    stored_session_json = page.client_storage.get("supa_session")
-    if stored_session_json:
-        try:
-            sess_data = json.loads(stored_session_json)
-            access_token = sess_data.get("access_token")
-            refresh_token = sess_data.get("refresh_token")
-            
-            # Attempt Recovery
-            if access_token:
-                log_info("Attempting Session Recovery...")
-                
-                # A. Try recovering with existing pairs
-                # recover_session calls set_session, which validates/refreshes internally if possible
-                user = auth_service.recover_session(access_token, refresh_token if refresh_token else "dummy")
-                
+    # Auto-Login Logic (Deferred to prevent race condition)
+    def check_auto_login():
+        stored_session_json = page.client_storage.get("supa_session")
+        if stored_session_json:
+            try:
+                sess_data = json.loads(stored_session_json)
+                user = auth_service.recover_session(sess_data.get("access_token"), sess_data.get("refresh_token") or "dummy")
                 if user:
-                    log_info("Session Recovery Successful.")
-                    handle_successful_login(page, sess_data["user"], navigate_to, access_token)
-                    return []
-                
-                # B. If A failed (likely expired), try explicit Refresh if we have a token
-                if refresh_token:
-                    log_info("Access Token Invalid. Trying Explicit Refresh...")
-                    res = auth_service.refresh_session(refresh_token)
-                    if res and res.user:
-                        log_info("Session Refreshed Successfully!")
-                        
-                        # Update Storage with new tokens
-                        sess_data["access_token"] = res.session.access_token
-                        sess_data["refresh_token"] = res.session.refresh_token
-                        page.client_storage.set("supa_session", json.dumps(sess_data))
-                        
-                        # Proceed
-                        handle_successful_login(page, sess_data["user"], navigate_to, res.session.access_token)
-                        return []
-                        
-                log_info("Recovery Failed. Require Login.")
+                    handle_successful_login(page, sess_data["user"], navigate_to, sess_data.get("access_token"))
+            except Exception as e:
+                log_error(f"Auto-login failed: {e}")
                 page.client_storage.remove("supa_session")
-                
-        except Exception as recovery_err:
-            log_error(f"Recovery Error: {recovery_err}")
-            page.client_storage.remove("supa_session")
 
-    # Already logged in check (Memory Session)
-    if page.session.get("user_id"):
-        navigate_to("home")
-        return []
-
-    # [SECURITY] 이메일만 저장 (비밀번호 평문 저장 제거)
-    saved_email = page.client_storage.get("saved_email") or ""
-    remember_email_checked = bool(saved_email)
-
-    # [SECURITY] 저장된 비밀번호가 있다면 마이그레이션을 위해 제거
-    if page.client_storage.get("saved_password"):
-        page.client_storage.remove("saved_password")
+    # Start auto-login check after a small delay
+    import threading
+    threading.Timer(0.1, check_auto_login).start()
 
     email_tf = ft.TextField(
         label="이메일",
-        width=280,
-        text_align=ft.TextAlign.LEFT,
-        border_color="#CCCCCC",
-        cursor_color="#1565C0",
-        color="black",
-        keyboard_type=ft.KeyboardType.EMAIL,
-        value=saved_email,
-        label_style=ft.TextStyle(color="grey")
+        width=320,
+        text_size=14,
+        border_radius=AppLayout.BORDER_RADIUS_MD,
+        bgcolor=ft.Colors.WHITE,
+        value=page.client_storage.get("saved_email") or ""
     )
 
     pw_tf = ft.TextField(
         label="비밀번호",
         password=True,
-        width=280,
-        text_align=ft.TextAlign.LEFT,
-        on_submit=lambda e: perform_login(),
-        border_color="#CCCCCC",
-        cursor_color="#1565C0",
-        color="black",
-        value="",  # [SECURITY] 비밀번호는 저장하지 않음
-        label_style=ft.TextStyle(color="grey")
+        can_reveal_password=True,
+        width=320,
+        text_size=14,
+        border_radius=AppLayout.BORDER_RADIUS_MD,
+        bgcolor=ft.Colors.WHITE,
+        on_submit=lambda _: perform_login()
     )
 
-    from views.components.custom_checkbox import CustomCheckbox
-    remember_checkbox = CustomCheckbox(
-        label="이메일 기억하기",
-        value=remember_email_checked,
-        on_change=None,
-        label_style=ft.TextStyle(color="grey", size=14)
+    print("DEBUG: get_login_controls called")
+    saved_email_val = False
+    try:
+        saved_email_val = bool(page.client_storage.get("saved_email"))
+    except Exception as e:
+        print(f"DEBUG: client_storage error: {e}")
+
+    save_email_check = ft.Checkbox(
+        label="이메일 저장",
+        value=saved_email_val,
+        label_style=ft.TextStyle(size=14, color=AppColors.TEXT_SECONDARY)
     )
-    
-    error_text = ft.Text("", color="red", size=12)
+
+    error_text = ft.Text("", color=AppColors.ERROR, size=12)
     
     def perform_login():
         if not email_tf.value or not pw_tf.value:
@@ -226,82 +148,63 @@ def get_login_controls(page: ft.Page, navigate_to):
             page.update()
             return
 
-        page.splash = ft.ProgressBar()
+        if hasattr(page, "splash"):
+            page.splash = ft.ProgressBar(color=AppColors.PRIMARY)
         page.update()
         
         try:
             res = auth_service.sign_in(email_tf.value, pw_tf.value)
             
-            # [SECURITY] 이메일만 저장 (비밀번호는 저장하지 않음)
-            if remember_checkbox.value:
+            if save_email_check.value:
                 page.client_storage.set("saved_email", email_tf.value)
             else:
                 page.client_storage.remove("saved_email")
             
-            # Extract pure data to avoid RecursionError with Supabase objects
-            user_obj = res.user
-            session_obj = res.session
-            
-            user_data = {
-                "id": user_obj.id,
-                "email": user_obj.email
-            }
-            access_token = session_obj.access_token if session_obj else None
-
-            # handle_successful_login will clear splash
-            handle_successful_login(page, user_data, navigate_to, access_token)
+            user_data = {"id": res.user.id, "email": res.user.email}
+            handle_successful_login(page, user_data, navigate_to, res.session.access_token if res.session else None)
 
         except Exception as e:
             page.splash = None
-            msg = str(e)
-            if "Invalid login credentials" in msg:
-                error_text.value = "로그인 정보가 올바르지 않습니다."
-            else:
-                error_text.value = f"로그인 오류: {msg}"
+            error_text.value = "로그인 정보가 올바르지 않거나 오류가 발생했습니다."
             page.update()
 
-    # Layout (Light Theme)
     login_card = ft.Container(
         content=ft.Column([
-            # ft.Text("THE MANAGER", size=32, weight="bold", color="#0A1929", style=ft.TextStyle(letter_spacing=2)),
-            # ft.Text("Restaurant Management OS", size=14, color="grey"),
-            ft.Image(src="images/logo.png", width=300, fit=ft.ImageFit.CONTAIN),
-            ft.Container(height=30),
+            ft.Image(src="images/logo.png", width=220, fit=ft.ImageFit.CONTAIN),
+            ft.Container(height=AppLayout.MD),
             email_tf,
             pw_tf,
             ft.Container(
-                content=remember_checkbox,
-                alignment=ft.alignment.center,
-                width=280
+                content=ft.Row([save_email_check], alignment=ft.MainAxisAlignment.START),
+                width=320
             ),
-            ft.Container(height=10),
             error_text,
-            ft.Container(height=20),
+            ft.Container(height=AppLayout.SM),
             ft.ElevatedButton(
                 "로그인",
-                width=300,
-                height=45,
-                bgcolor="#1565C0",
-                color="white",
-                on_click=lambda _: perform_login()
+                width=320, height=50,
+                bgcolor=AppColors.PRIMARY, color=ft.Colors.WHITE,
+                on_click=lambda _: perform_login(),
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=AppLayout.BORDER_RADIUS_MD)),
             ),
-            ft.TextButton("계정이 없으신가요? 회원가입", on_click=lambda _: navigate_to("signup"), style=ft.ButtonStyle(color="grey"))
-        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO),
-        padding=40,
-        border_radius=16,
-        bgcolor="white",
-        border=ft.border.all(1, "#DDDDDD"),
-        shadow=ft.BoxShadow(
-            spread_radius=1,
-            blur_radius=10,
-            color=ft.Colors.with_opacity(0.1, "black"),
-            offset=ft.Offset(0, 4),
-        )
+            ft.TextButton(
+                "계정이 없으신가요? 회원가입",
+                on_click=lambda _: navigate_to("signup"),
+                style=ft.ButtonStyle(color=AppColors.TEXT_MUTE)
+            )
+        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        padding=AppLayout.XL,
+        bgcolor=ft.Colors.WHITE,
+        border_radius=AppLayout.BORDER_RADIUS_LG,
+        shadow=AppShadows.MEDIUM,
     )
     
     return [
-        ft.Stack([
-            ft.Container(expand=True, bgcolor="#F5F5F5"),
-            ft.Container(content=login_card, alignment=ft.alignment.center, expand=True)
-        ], expand=True)
+        ft.Container(
+            expand=True,
+            gradient=AppGradients.PRIMARY_LINEAR,
+            content=ft.Stack([
+                ft.Container(content=login_card, alignment=ft.alignment.center)
+            ])
+        )
     ]

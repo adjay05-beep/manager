@@ -140,7 +140,7 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
                     ft.Icon(ft.Icons.STOREFRONT_OUTLINED, size=64, color="#0A1929"),
                     ft.Text("환영합니다!", size=24, weight="bold", color="#0A1929"),
                     ft.Text("시작하려면 매장을 생성하거나 가입하세요.", size=14, color="grey"),
-                    ft.Container(height=30),
+                    ft.Container(height=10),
                     
                     # Section 1: Create
                     ft.Container(
@@ -173,14 +173,6 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
                     ft.Container(height=10),
                     error_text,
                     ft.TextButton("로그아웃", on_click=lambda _: navigate_to("login")),
-                    
-                    # [DEBUG DIAGNOSTIC]
-                    ft.Divider(),
-                    ft.Text(f"System Check (Temporary)", size=12, weight="bold", color="grey"),
-                    ft.Text(f"Has Service Key: {has_service_key}", size=12, color="blue" if has_service_key else "red"),
-                    ft.Text(f"Key Hint (Last 5): ...{service_key[-5:] if service_key else 'N/A'}", size=12, color="red" if service_key and service_key.endswith("sp5r0") else "green"),
-                    ft.Text(f"Recent Log: {app_logs[-1] if app_logs else 'No logs'}", size=10, color="grey"),
-                    ft.Text(f"User ID: {current_user_id}", size=10, color="grey")
                     
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,

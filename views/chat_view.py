@@ -1797,7 +1797,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                                 ft.Container(
                                                     content=ft.Text("👑 방장", size=10, color="orange", weight="bold"),
                                                     padding=ft.padding.symmetric(horizontal=4, vertical=2),
-                                                    # Use Hex for opacity to avoid 'ft.colors' attribute error. #1A = ~10% alpha, FF9800 = Orange
+                                                    # Use Hex for opacity to avoid 'ft.Colors' attribute error. #1A = ~10% alpha, FF9800 = Orange
                                                     bgcolor="#1AFF9800",
                                                     border_radius=4,
                                                     visible=(m['user_id'] == creator_id)

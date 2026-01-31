@@ -41,7 +41,7 @@ def get_closing_controls(page: ft.Page, navigate_to):
             padding=30,
             content=ft.Column([
                 header,
-                ft.Container(height=30),
+                ft.Container(height=10),
                 ft.Text("Safety Checklist", color="grey", size=14),
                 checklist,
                 ft.Container(height=40),

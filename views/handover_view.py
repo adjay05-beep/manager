@@ -3,14 +3,15 @@ import asyncio
 from datetime import datetime, timedelta
 from services.handover_service import handover_service
 from services import audio_service
-from views.styles import AppColors, AppTextStyles, AppLayout
+from views.styles import AppColors, AppTextStyles, AppLayout, AppButtons
+from views.components.app_header import AppHeader
 
 def get_handover_controls(page: ft.Page, navigate_to):
     user_id = page.session.get("user_id")
     channel_id = page.session.get("channel_id")
 
     # UI State
-    current_tab = "업무 일지"
+    current_tab = "인수 인계"
     grouped_data = {}
     POLL_INTERVAL = 10 # Seconds
 
@@ -212,6 +213,20 @@ def get_handover_controls(page: ft.Page, navigate_to):
             voice_state["is_recording"] = False
 
             if res:
+                # [FIX] blob URL 감지 - 웹 브라우저에서 발생
+                if res.startswith("blob:"):
+                    print(f"DEBUG: Blob URL detected in handover: {res}")
+                    update_mic_ui(False)
+                    page.snack_bar = ft.SnackBar(
+                        ft.Text("브라우저에서는 Web Speech API를 사용합니다. 다시 시도해주세요."),
+                        bgcolor="orange"
+                    )
+                    page.snack_bar.open = True
+                    page.update()
+                    # Web Speech API로 재시도
+                    await start_web_speech()
+                    return
+
                 text = await asyncio.to_thread(lambda: audio_service.transcribe_audio(res))
 
                 if text:
@@ -306,7 +321,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
             content=ft.Container(content=edit_tf, height=100),
             actions=[
                 ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
-                ft.ElevatedButton("저장", on_click=save_edit, bgcolor=AppColors.PRIMARY, color="white")
+                ft.ElevatedButton("저장", on_click=save_edit, style=AppButtons.PRIMARY())
             ]
         )
         page.open(dlg)
@@ -317,7 +332,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
 
     def render_feed():
         list_view.controls.clear()
-        target_cat = "handover" if current_tab == "업무 일지" else "order"
+        target_cat = "handover" if current_tab == "인수 인계" else "order"
 
         # Sort dates ascending (oldest first, latest at bottom)
         sorted_dates = sorted(grouped_data.keys(), reverse=False)
@@ -403,25 +418,47 @@ def get_handover_controls(page: ft.Page, navigate_to):
         txt = input_tf.value
         if not txt.strip(): return
         input_tf.value = ""; input_tf.update()
-        target_cat = "handover" if current_tab == "업무 일지" else "order"
+        target_cat = "handover" if current_tab == "인수 인계" else "order"
         await handover_service.add_handover_entry(user_id, channel_id, target_cat, txt)
         await fetch_and_update()
 
     def on_tab_change(e):
         nonlocal current_tab
-        current_tab = e.control.content.value
+        # e.control.data holds the tab name
+        current_tab = e.control.data 
+        
+        # Update UI of tabs
         for c in tabs_row.controls:
-             if isinstance(c, ft.Container) and c.content:
-                 is_selected = c.content.value == current_tab
-                 c.bgcolor = "#E3F2FD" if is_selected else "transparent"
-                 c.content.color = "#1565C0" if is_selected else "#9E9E9E"
+            # Only update containers that are tabs (have data)
+            if isinstance(c, ft.Container) and c.data:
+                is_selected = c.data == current_tab
+                # Update text style
+                if isinstance(c.content, ft.Text):
+                    c.content.color = "#1565C0" if is_selected else "#9E9E9E"
+                    c.content.weight = ft.FontWeight.BOLD if is_selected else ft.FontWeight.NORMAL
+        
         tabs_row.update()
         render_feed()
 
+    def create_tab(text):
+        is_selected = text == current_tab
+        return ft.Container(
+            content=ft.Text(
+                text, 
+                size=16, 
+                color="#1565C0" if is_selected else "#9E9E9E",
+                weight=ft.FontWeight.BOLD if is_selected else ft.FontWeight.NORMAL
+            ),
+            padding=ft.padding.symmetric(horizontal=12, vertical=8),
+            on_click=on_tab_change,
+            data=text  # Store tab name in data for easy access
+        )
+
     tabs_row = ft.Row([
-        ft.Container(content=ft.Text(t, size=16), padding=ft.padding.symmetric(horizontal=12, vertical=8), border_radius=20, on_click=on_tab_change)
-        for t in ["업무 일지", "발주 일지"]
-    ], alignment=ft.MainAxisAlignment.CENTER)
+        create_tab("인수 인계"),
+        ft.Text("|", size=16, color="#E0E0E0"), # Separator
+        create_tab("발주 일지")
+    ], alignment=ft.MainAxisAlignment.CENTER, spacing=10)
 
     # 입력 영역 - 마이크 버튼 + 텍스트 필드 + 전송 버튼
     input_area = ft.Container(
@@ -435,7 +472,21 @@ def get_handover_controls(page: ft.Page, navigate_to):
         ], spacing=5),
         padding=10
     )
-    header = ft.Container(content=ft.Column([ft.Text("업무 일지", size=22, weight="bold", text_align="center"), tabs_row]))
+    header = AppHeader(
+        title_text="업무 일지",
+        on_back_click=page.go_back
+    )
+    
+    # Custom Header Container was combining title and tabs. 
+    # Now AppHeader handles title. Tabs should be separate.
 
     page.run_task(fetch_and_update)
-    return [ft.Column([header, ft.Container(list_view, expand=True), input_area], expand=True)]
+    page.run_task(fetch_and_update)
+    page.run_task(fetch_and_update)
+    page.run_task(fetch_and_update)
+    return [
+        ft.SafeArea(
+            expand=True,
+            content=ft.Column([header, tabs_row, ft.Container(list_view, expand=True), input_area], expand=True)
+        )
+    ]

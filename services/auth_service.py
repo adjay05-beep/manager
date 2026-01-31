@@ -1,56 +1,51 @@
-import flet as ft
-from db import supabase, service_supabase
+from repositories.auth_repository import AuthRepository
 from utils.logger import log_error, log_info
 
-# [NEW] Authentication Service for Real Login
+# [PROFESSIONAL] Refactored to use Repository Pattern
 
 class AuthService:
     def __init__(self):
         self.current_user = None
 
     def sign_in(self, email, password):
-        """Sign in with email and password via Supabase. Returns Response (with .user and .session)."""
+        """Sign in with email and password."""
         try:
-            res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+            res = AuthRepository.sign_in(email, password)
             if res.user:
                 self.current_user = res.user
                 
-                # [FIX] Auto-create profile using upsert (prevents race condition)
+                # Auto-ensure profile exists
                 try:
                     full_name = res.user.user_metadata.get("full_name", email.split("@")[0])
                     role = res.user.user_metadata.get("role", "staff")
-                    # upsert: insert if not exists, ignore if exists (on_conflict='id')
-                    service_supabase.table("profiles").upsert({
+                    AuthRepository.upsert_profile({
                         "id": res.user.id,
                         "full_name": full_name,
                         "role": role
-                    }, on_conflict="id", ignore_duplicates=True).execute()
-                    log_info(f"Profile ensured for user {res.user.id}")
+                    })
+                    log_info(f"Profile verified for user {res.user.id}")
                 except Exception as profile_err:
                     log_error(f"Failed to ensure profile during login: {profile_err}")
-                    # Don't fail the login if profile creation fails
                 
                 return res
             return None
         except Exception as e:
-            print(f"Auth Error: {e}")
+            log_error(f"Auth Service Error (sign_in): {e}")
             raise e
 
     def sign_out(self):
         """Sign out the current user."""
         try:
-            supabase.auth.sign_out()
+            AuthRepository.sign_out()
             self.current_user = None
         except Exception as e:
-            print(f"Sign Out Error: {e}")
+            log_error(f"Sign Out Error: {e}")
 
     def sign_up(self, email, password, full_name, role="staff"):
         """Register a new user."""
         try:
-            # Send metadata (full_name, role)
             options = {"data": {"full_name": full_name, "role": role}}
-            res = supabase.auth.sign_up({"email": email, "password": password, "options": options})
-            return res
+            return AuthRepository.sign_up(email, password, options=options)
         except Exception as e:
             msg = str(e)
             if "User already registered" in msg:
@@ -60,25 +55,13 @@ class AuthService:
     def verify_otp(self, email, token, type="signup"):
         """Verify email using OTP code."""
         try:
-            res = supabase.auth.verify_otp({"email": email, "token": token, "type": type})
+            res = AuthRepository.verify_otp(email, token, otp_type=type)
             if res.user:
                 self.current_user = res.user
-                
-                # [FIX] Auto-create profile using upsert (prevents race condition)
-                try:
-                    full_name = res.user.user_metadata.get("full_name", email.split("@")[0])
-                    role = res.user.user_metadata.get("role", "staff")
-                    # upsert: insert if not exists, ignore if exists (on_conflict='id')
-                    service_supabase.table("profiles").upsert({
-                        "id": res.user.id,
-                        "full_name": full_name,
-                        "role": role
-                    }, on_conflict="id", ignore_duplicates=True).execute()
-                    log_info(f"Profile ensured for user {res.user.id}")
-                except Exception as profile_err:
-                    log_error(f"Failed to ensure profile during OTP verify: {profile_err}")
-                    # Don't fail the entire verification if profile creation fails
-                
+                # [FIX] Auto-create profile
+                full_name = res.user.user_metadata.get("full_name", email.split("@")[0])
+                role = res.user.user_metadata.get("role", "staff")
+                AuthRepository.upsert_profile({"id": res.user.id, "full_name": full_name, "role": role})
                 return res.user
             return None
         except Exception as e:
@@ -86,97 +69,74 @@ class AuthService:
 
     def get_user_role(self, user_id):
         """Fetch user role from profiles."""
-        try:
-            res = service_supabase.table("profiles").select("role").eq("id", user_id).single().execute()
-            if res.data:
-                return res.data.get("role", "staff")
-            return "staff"
-        except Exception as e:
-            log_error(f"Failed to fetch user role for {user_id}: {e}")
-            return "staff"
+        profile = AuthRepository.get_user_profile(user_id)
+        return profile.get("role", "staff") if profile else "staff"
 
     def resend_otp(self, email):
-        """Resend status/OTP."""
+        """Resend OTP."""
         try:
-            # 'signup' type forces resend of the confirmation mail
-            supabase.auth.resend({"type": "signup", "email": email})
+            AuthRepository.resend_otp(email)
         except Exception as e:
-            print(f"Resend Error: {e}")
+            log_error(f"Resend Error: {e}")
 
     def get_user(self):
         """Get cached current user or fetch from session."""
         if self.current_user:
             return self.current_user
         
-        # Check if session exists
-        session = supabase.auth.get_session()
+        session = AuthRepository.get_session()
         if session and session.user:
             self.current_user = session.user
             return session.user
         return None
 
     def get_access_token(self):
-        """Retrieve a valid access token for the current user."""
+        """Retrieve a valid access token."""
         try:
-            session = supabase.auth.get_session()
-            if session and session.access_token:
-                return session.access_token
+            session = AuthRepository.get_session()
+            return session.access_token if session else None
         except Exception as e:
             log_error(f"Failed to get access token: {e}")
-        return None
-
-    def get_auth_headers(self):
-        """Get headers for authenticated requests."""
-        import os
-        key = os.environ.get("SUPABASE_KEY")
-        
-        token = self.get_access_token()
-        if not token:
-            # Return at least the API key so clients don't crash
-            return {
-                "apikey": key,
-                "Content-Type": "application/json"
-            }
-        
-        return {
-            "Authorization": f"Bearer {token}",
-            "apikey": key,
-            "Content-Type": "application/json"
-        }
-
-    def get_session(self):
-        """Return the current session object (containing tokens)"""
-        try:
-            return supabase.auth.get_session()
-        except Exception as e:
-            log_error(f"Failed to get session: {e}")
             return None
 
+    def get_session(self):
+        """Return the current session object."""
+        return AuthRepository.get_session()
+
     def refresh_session(self, refresh_token_str):
-        """Explicitly refresh session using refresh_token."""
+        """Refresh session using refresh_token."""
         try:
-            res = supabase.auth.refresh_session(refresh_token_str)
+            res = AuthRepository.refresh_session(refresh_token_str)
             if res.user:
                 self.current_user = res.user
                 return res
             return None
         except Exception as e:
-            print(f"Token Refresh Failed: {e}")
+            log_error(f"Token Refresh Failed: {e}")
             return None
 
     def recover_session(self, access_token, refresh_token):
-        """Recover session from stored tokens"""
+        """Recover session from stored tokens."""
         try:
-            # Set the session manually
-            res = supabase.auth.set_session(access_token, refresh_token)
+            res = AuthRepository.set_session(access_token, refresh_token)
             if res.user:
                 self.current_user = res.user
                 return res.user
             return None
         except Exception as e:
-            # Token expired or invalid
-            print(f"Session Recovery Failed (Likely Expired): {e}")
+            log_error(f"Session Recovery Failed: {e}")
             return None
+
+    def get_auth_headers(self):
+        """Get headers for authenticated Supabase requests."""
+        token = self.get_access_token()
+        if token:
+            return {
+                "Authorization": f"Bearer {token}",
+                "apikey": AuthRepository.service_supabase.key # Required by postgrest
+            }
+        return None
 
 # Singleton Instance
 auth_service = AuthService()
+
