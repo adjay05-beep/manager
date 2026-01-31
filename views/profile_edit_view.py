@@ -1,7 +1,8 @@
 import flet as ft
 import os
 from services.auth_service import auth_service
-from db import service_supabase
+from db import service_supabase, url
+from postgrest import SyncPostgrestClient
 
 def get_profile_edit_controls(page: ft.Page, navigate_to):
     user = auth_service.get_user()
@@ -19,14 +20,14 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
 
     # Controls
     name_tf = ft.TextField(label="이름", value=profile_data.get("full_name", ""), width=300)
-    role_dd = ft.Dropdown(
+    # [SECURITY] role은 표시만 하고 수정 불가 (채널 주인만 멤버 등급 변경 가능)
+    current_role = profile_data.get("role", "staff")
+    role_display = ft.TextField(
         label="권한 (Role)",
         width=300,
-        options=[
-            ft.dropdown.Option("owner", "사장님 (Owner)"),
-            ft.dropdown.Option("staff", "직원 (Staff)"),
-        ],
-        value=profile_data.get("role", "staff")
+        value="사장님 (Owner)" if current_role == "owner" else "매니저 (Manager)" if current_role == "manager" else "직원 (Staff)",
+        read_only=True,
+        hint_text="등급 변경은 채널 관리에서 가능합니다"
     )
     
     msg = ft.Text("", size=12)
@@ -43,34 +44,20 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
             user_client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
             
             try:
+                # [SECURITY] role은 제외 - 이름만 업데이트
                 res_update = user_client.from_("profiles").upsert({
                     "id": user.id,
                     "full_name": name_tf.value,
-                    "role": role_dd.value,
                     "updated_at": "now()"
                 }).execute()
             finally:
                 try: user_client.session.close()
-                except: pass
-            
-            msg.value = f"저장 완료! (권한: {role_dd.value})"
-            
-            # 2. Verify Update (Read back)
-            # Use 'supabase' (standard client) to verify RLS visibility if desired, 
-            # but let's stick to service_supabase to confirm DATA persistence first.
-            res_verify = service_supabase.table("profiles").select("role").eq("id", user.id).single().execute()
-            
-            new_role = res_verify.data.get("role") if res_verify.data else "unknown"
+                except Exception: pass
 
-            if new_role != role_dd.value:
-                raise Exception(f"업데이트 실패: DB 값이 변경되지 않았습니다. ({new_role})")
-
-            msg.value = f"저장 완료! (현재 권한: {new_role})"
+            msg.value = "저장 완료!"
             msg.color = "green"
             page.update()
-            
-            import time
-            time.sleep(1)
+
             navigate_to("home")
             
         except Exception as ex:
@@ -87,10 +74,10 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
             content=ft.Column([
                 ft.Container(height=40),
                 ft.Text("프로필 수정", size=30, weight="bold", color="#0A1929"),
-                ft.Text("잘못된 권한을 여기서 수정할 수 있습니다.", color="black"),
+                ft.Text("이름을 수정할 수 있습니다.", color="black"),
                 ft.Container(height=20),
                 name_tf,
-                role_dd,
+                role_display,
                 ft.Container(height=20),
                 ft.ElevatedButton("저장하기", on_click=save, bgcolor="#00C73C", color="white", width=300, height=45),
                 ft.TextButton("취소", on_click=lambda _: navigate_to("home")),

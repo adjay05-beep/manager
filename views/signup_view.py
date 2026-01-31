@@ -84,7 +84,8 @@ def get_signup_controls(page: ft.Page, navigate_to):
 
                          try:
                             auth_service.resend_otp(state["email"])
-                         except: pass
+                         except Exception:
+                            pass  # OTP resend failed, continue anyway
                          state["step"] = "verify"
                          verify_status.value = "⚠️ 가입이 중단되었던 계정입니다. 인증 코드를 재전송했습니다."
                          verify_status.color = "yellow"
@@ -97,11 +98,7 @@ def get_signup_controls(page: ft.Page, navigate_to):
         finally:
             state["loading"] = False
             # If session exists, navigate
-            try:
-                # We need to check session status again cleanly
-                # Logic simplified: if clean run, current display will be updated
-                pass
-            except: pass
+            # Session check simplified - update_view handles display
             update_view()
 
     def do_signup(e):
@@ -111,8 +108,8 @@ def get_signup_controls(page: ft.Page, navigate_to):
             error_txt.value = "모든 필드를 입력해주세요."; update_view(); return
         if pw_tf.value != pw_cf_tf.value:
             error_txt.value = "비밀번호가 일치하지 않습니다."; update_view(); return
-        if len(pw_tf.value) < 6:
-            error_txt.value = "비밀번호는 6자 이상이어야 합니다."; update_view(); return
+        if len(pw_tf.value) < 8:
+            error_txt.value = "비밀번호는 8자 이상이어야 합니다."; update_view(); return
         if not role_dd.value:
             error_txt.value = "가입 유형(사장님/직원)을 선택해주세요."; update_view(); return
 
@@ -156,8 +153,10 @@ def get_signup_controls(page: ft.Page, navigate_to):
         finally:
             state["loading"] = False
             # update_view() # Can conflict with dialog if it rebuilds page
-            try: page.update()
-            except: pass
+            try:
+                page.update()
+            except Exception:
+                pass  # UI update may fail if page changed
 
     def do_verify(e):
         code = otp_tf.value
@@ -207,7 +206,8 @@ def get_signup_controls(page: ft.Page, navigate_to):
             card_content.controls = controls_list
         try:
             page.update()
-        except: pass
+        except Exception:
+            pass  # UI update may fail if page changed
 
     card_content = ft.Column(
         alignment=ft.MainAxisAlignment.CENTER, 

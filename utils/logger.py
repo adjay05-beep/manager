@@ -7,7 +7,8 @@ LOG_DIR = "logs"
 if not os.path.exists(LOG_DIR):
     try:
         os.makedirs(LOG_DIR)
-    except: pass
+    except OSError:
+        pass  # Directory may already exist or permission denied
 
 # Setup File Handler
 log_file = os.path.join(LOG_DIR, "app.log")
@@ -37,7 +38,8 @@ def _append_log(msg):
         LOG_BUFFER.append(entry)
         if len(LOG_BUFFER) > MAX_LOG_SIZE:
             LOG_BUFFER.pop(0)
-    except: pass
+    except Exception:
+        pass  # Logging should never crash the app
 
 def log_debug(msg):
     logger.debug(msg)

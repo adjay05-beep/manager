@@ -24,7 +24,7 @@ class Config:
     # === File Upload Limits ===
     MAX_FILE_SIZE_MB: int = 50
     MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_MB * 1024 * 1024
-    SIGNED_URL_EXPIRY_SECONDS: int = 60 * 60 * 24 * 365  # 1 year
+    SIGNED_URL_EXPIRY_SECONDS: int = 60 * 60 * 24 * 7  # 7 days (보안 강화)
 
     # === Pagination & Limits ===
     DEFAULT_MESSAGE_LIMIT: int = 50

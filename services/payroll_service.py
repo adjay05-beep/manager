@@ -82,7 +82,8 @@ class PayrollService:
                 # [RESOURCE] Close the HTTP session to prevent socket leaks
                 try:
                     client.session.close()
-                except: pass
+                except Exception:
+                    pass  # Session cleanup failed
 
         except Exception as e:
             print(f"Payroll Service Calc Error: {e}")
@@ -148,7 +149,8 @@ class PayrollService:
                     try:
                         ed = datetime.strptime(ed_str, "%Y-%m-%d")
                         if ed.year < year or (ed.year == year and ed.month < month): is_resigned = True
-                    except: pass
+                    except ValueError:
+                        pass  # Invalid date format
                 
                 if not is_resigned:
                     wage_type = latest.get('wage_type', 'hourly')
@@ -178,7 +180,7 @@ class PayrollService:
                 try:
                     day = int(o['start_date'].split('T')[0].split('-')[-1])
                     override_days.add(day)
-                    
+
                     s_str = o['start_date'].split('T')[1][:5]
                     e_str = o['end_date'].split('T')[1][:5]
                     sh, sm = map(int, s_str.split(':'))
@@ -186,7 +188,8 @@ class PayrollService:
                     diff = (eh + em/60) - (sh + sm/60)
                     if diff < 0: diff += 24
                     act_hours += diff
-                except: pass
+                except (ValueError, IndexError, KeyError):
+                    pass  # Invalid date/time format in event data
             
             act_days = len(override_days)
             

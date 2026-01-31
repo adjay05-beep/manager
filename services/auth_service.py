@@ -15,21 +15,19 @@ class AuthService:
             if res.user:
                 self.current_user = res.user
                 
-                # [FIX] Auto-create profile if it doesn't exist (same as verify_otp)
+                # [FIX] Auto-create profile using upsert (prevents race condition)
                 try:
-                    profile_check = service_supabase.table("profiles").select("id").eq("id", res.user.id).execute()
-                    if not profile_check.data:
-                        # Create profile for existing user without one
-                        full_name = res.user.user_metadata.get("full_name", email.split("@")[0])
-                        role = res.user.user_metadata.get("role", "staff")
-                        service_supabase.table("profiles").insert({
-                            "id": res.user.id,
-                            "full_name": full_name,
-                            "role": role
-                        }).execute()
-                        print(f"DEBUG: Auto-created profile for user {res.user.id} during login")
+                    full_name = res.user.user_metadata.get("full_name", email.split("@")[0])
+                    role = res.user.user_metadata.get("role", "staff")
+                    # upsert: insert if not exists, ignore if exists (on_conflict='id')
+                    service_supabase.table("profiles").upsert({
+                        "id": res.user.id,
+                        "full_name": full_name,
+                        "role": role
+                    }, on_conflict="id", ignore_duplicates=True).execute()
+                    log_info(f"Profile ensured for user {res.user.id}")
                 except Exception as profile_err:
-                    print(f"WARNING: Failed to auto-create profile during login: {profile_err}")
+                    log_error(f"Failed to ensure profile during login: {profile_err}")
                     # Don't fail the login if profile creation fails
                 
                 return res
@@ -66,22 +64,19 @@ class AuthService:
             if res.user:
                 self.current_user = res.user
                 
-                # [FIX] Auto-create profile if it doesn't exist
-                # Check if profile exists
+                # [FIX] Auto-create profile using upsert (prevents race condition)
                 try:
-                    profile_check = service_supabase.table("profiles").select("id").eq("id", res.user.id).execute()
-                    if not profile_check.data:
-                        # Create profile for new user
-                        full_name = res.user.user_metadata.get("full_name", email.split("@")[0])
-                        role = res.user.user_metadata.get("role", "staff")
-                        service_supabase.table("profiles").insert({
-                            "id": res.user.id,
-                            "full_name": full_name,
-                            "role": role
-                        }).execute()
-                        print(f"DEBUG: Created profile for user {res.user.id}")
+                    full_name = res.user.user_metadata.get("full_name", email.split("@")[0])
+                    role = res.user.user_metadata.get("role", "staff")
+                    # upsert: insert if not exists, ignore if exists (on_conflict='id')
+                    service_supabase.table("profiles").upsert({
+                        "id": res.user.id,
+                        "full_name": full_name,
+                        "role": role
+                    }, on_conflict="id", ignore_duplicates=True).execute()
+                    log_info(f"Profile ensured for user {res.user.id}")
                 except Exception as profile_err:
-                    print(f"WARNING: Failed to create profile: {profile_err}")
+                    log_error(f"Failed to ensure profile during OTP verify: {profile_err}")
                     # Don't fail the entire verification if profile creation fails
                 
                 return res.user

@@ -184,8 +184,10 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                     "updated_at": "now()"
                 }).execute()
             finally:
-                try: user_client.session.close()
-                except: pass
+                try:
+                    user_client.session.close()
+                except Exception:
+                    pass  # Session cleanup
             
             # Update session with new display name
             page.session.set("display_name", profile_name_tf.value)
@@ -249,32 +251,148 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
 
     # === MEMBER MANAGEMENT (Owner Only) ===
     member_mgmt_col = ft.Column(spacing=10)
-    
+    current_members_data = [] # Store for transfer dialog
+
+    def open_transfer_dialog(e):
+        candidates = [m for m in current_members_data if m["user_id"] != user_id]
+        if not candidates:
+            page.snack_bar = ft.SnackBar(ft.Text("양도할 멤버가 없습니다."))
+            page.snack_bar.open = True
+            page.update()
+            return
+            
+        selected_candidate = [None] # Mutable container
+        
+        def set_candidate(e):
+            selected_candidate[0] = e.control.value
+
+        def final_transfer_confirm(e):
+            if not selected_candidate[0]: return
+            try:
+                # Call service logic
+                token = auth_service.get_access_token()
+                channel_service.transfer_channel_ownership(channel_id, selected_candidate[0], token=token)
+                
+                page.close(dlg_confirm)
+                page.close(dlg_transfer)
+                
+                page.snack_bar = ft.SnackBar(ft.Text("매장 권한을 양도했습니다."))
+                page.snack_bar.open = True
+                page.update()
+                
+                navigate_to("home") 
+            except Exception as ex:
+                page.close(dlg_confirm)
+                page.snack_bar = ft.SnackBar(ft.Text(f"양도 실패: {ex}"))
+                page.snack_bar.open = True
+                page.update()
+
+        def do_transfer_check(e):
+            if not selected_candidate[0]: 
+                page.snack_bar = ft.SnackBar(ft.Text("새 대표를 선택해주세요."))
+                page.snack_bar.open = True
+                page.update()
+                return
+                
+            # Find name for confirmation message
+            target_name = "Unknown"
+            for m in candidates:
+                if m["user_id"] == selected_candidate[0]:
+                    target_name = m.get("full_name", "Unknown")
+                    break
+            
+            dlg_confirm = ft.AlertDialog(
+                title=ft.Text("양도 확인"),
+                content=ft.Text(f"정말 '{target_name}'님에게 매장 대표 권한을 양도하시겠습니까?\n\n양도 후 귀하는 '관리자' 등급으로 변경되며, 이 작업은 되돌릴 수 없습니다."),
+                actions=[
+                    ft.TextButton("취소", on_click=lambda _: page.close(dlg_confirm)),
+                    ft.ElevatedButton("확인 (양도)", bgcolor="red", color="white", on_click=final_transfer_confirm)
+                ]
+            )
+            # Make the variable available to the inner function by attaching it to page or similar referencing?
+            # Actually inner function captures variables from enclosing scope. 
+            # We need to register 'dlg_confirm' variable so we can close it. 
+            # Since create_dialog is local, we need to pass it or declare it before.
+            # Python closure will capture the variable name, but it must be assigned before use.
+            # Let's use page.open(dlg_confirm) and rely on lambda capturing.
+            
+            page.open(dlg_confirm)
+
+        dlg_transfer = ft.AlertDialog(
+            title=ft.Text("매장 대표 권한 양도"),
+            content=ft.Column([
+                ft.Text("권한을 받을 새 대표를 선택하세요."),
+                ft.Dropdown(
+                    label="새 대표 선택",
+                    width=280,
+                    options=[
+                        ft.dropdown.Option(m["user_id"], m.get("full_name") or "Unknown") 
+                        for m in candidates
+                    ],
+                    on_change=set_candidate
+                ),
+                ft.Text("주의: 양도 후 귀하는 '관리자' 등급으로 변경됩니다.", color="red", size=12)
+            ], height=150),
+            actions=[
+                ft.TextButton("취소", on_click=lambda _: page.close(dlg_transfer)),
+                ft.ElevatedButton("양도 확인", bgcolor="red", color="white", on_click=do_transfer_check)
+            ]
+        )
+        page.open(dlg_transfer)
+
     def load_members():
+        print(f"DEBUG_VIEW: Inside load_members. Role={role}")
         if role != "owner": return
         try:
-            members = channel_service.get_channel_members_with_profiles(channel_id)
+            # [Fix] Pass token for RLS
+            token = auth_service.get_access_token()
+            members = channel_service.get_channel_members_with_profiles(channel_id, access_token=token)
+            
+            # [Iteration 28 Refresh] Sort by rank precedence: owner(0) > manager(1) > staff(2)
+            precedence = {"owner": 0, "manager": 1, "staff": 2}
+            members.sort(key=lambda x: precedence.get(x.get("role"), 9))
+            
+            current_members_data.clear()
             items = []
             for m in members:
                 uid = m["user_id"]
                 u_role = m["role"]
                 is_me = (uid == user_id)
+                current_members_data.append(m) # Store for transfer
                 
-                role_dd = ft.Dropdown(
-                    value=u_role,
-                    options=[
-                        ft.dropdown.Option("owner", "사장님"),
-                        ft.dropdown.Option("manager", "매니저"),
-                        ft.dropdown.Option("staff", "직원")
-                    ],
-                    width=100,
-                    content_padding=5,
-                    text_size=12,
-                    height=35,
-                    border_radius=8,
-                    on_change=lambda e, uid=uid: update_member_role(uid, e.control.value),
-                    disabled=is_me  # Cannot change own role here
-                )
+                # Role Display Mapping check
+                if u_role == "owner": role_label = "대표"
+                elif u_role == "manager": role_label = "관리자"
+                else: 
+                    role_label = "멤버"
+                    # Normalize u_role for dropdown value matching
+                    if u_role not in ["manager", "staff"]:
+                        u_role = "staff" 
+                
+                # UI for Role Selection
+                if u_role == "owner":
+                    # Representative is shown as text, not a dropdown
+                    role_selector = ft.Container(
+                        content=ft.Text("대표", weight="bold", size=14, color="#2196F3"),
+                        width=100, 
+                        alignment=ft.alignment.center
+                    )
+                else:
+                    role_selector = ft.Dropdown(
+                        value=u_role,
+                        options=[
+                            ft.dropdown.Option("manager", "관리자"),
+                            ft.dropdown.Option("staff", "멤버")
+                        ],
+                        width=110,
+                        content_padding=ft.padding.symmetric(horizontal=10, vertical=0),
+                        text_size=13,
+                        text_style=ft.TextStyle(weight=ft.FontWeight.BOLD),
+                        dense=True,
+                        border_radius=8,
+                        on_change=lambda e, uid=uid: update_member_role(uid, e.control.value),
+                        disabled=is_me # Technically redundant if owner is filtered above, but keeps logic safe
+                    )
                 
                 kick_btn = ft.IconButton(
                     ft.Icons.REMOVE_CIRCLE_OUTLINE, 
@@ -288,10 +406,18 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                     ft.Container(
                         content=ft.Row([
                             ft.Column([
-                                ft.Text(m["full_name"], weight="bold", size=14),
-                                ft.Text(m["email"], size=10, color="grey")
+                                ft.Row([
+                                    ft.Text(m["full_name"], weight="bold", size=14),
+                                    ft.Container(
+                                        content=ft.Text(role_label, size=10, color="white", weight="bold"),
+                                        bgcolor="#2196F3" if u_role == "owner" else "#4CAF50" if u_role == "manager" else "#9E9E9E",
+                                        padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                                        border_radius=4
+                                    )
+                                ], spacing=5),
+                                ft.Text(f"@{m.get('username')}" if m.get("username") else f"User #{m['user_id'][-4:]}", size=10, color="grey")
                             ], expand=True, spacing=2),
-                            role_dd,
+                            role_selector,
                             kick_btn
                         ], alignment="spaceBetween"),
                         padding=10,
@@ -299,6 +425,23 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                         bgcolor="white"
                     )
                 )
+
+            # [Iteration 28] Ownership Transfer Section
+            transfer_section = ft.Container(
+                content=ft.Column([
+                    ft.Text("매장 양도 (소유권 이전)", weight="bold", size=16),
+                    ft.Text("대표 권한을 다른 멤버에게 넘깁니다. 이 작업은 되돌릴 수 없습니다.", size=12, color="grey"),
+                    ft.ElevatedButton(
+                        "양도할 멤버 선택 및 넘기기", 
+                        icon=ft.Icons.PERSON_SEARCH,
+                        bgcolor="#FF5252", color="white",
+                        on_click=open_transfer_dialog
+                    )
+                ]),
+                padding=20, border=ft.border.all(1, "#FFEBEE"), border_radius=10, bgcolor="#FFEBEE",
+                visible=(len(items) > 1) # Only show if there are other members
+            )
+            items.append(transfer_section)
             # Check if only owner is present
             if len(items) <= 1:
                 member_mgmt_col.controls = [
@@ -323,7 +466,8 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
 
     def update_member_role(uid, new_role):
         try:
-            channel_service.update_member_role(channel_id, uid, new_role, user_id)
+            token = auth_service.get_access_token()
+            channel_service.update_member_role(channel_id, uid, new_role, user_id, token=token)
             page.snack_bar = ft.SnackBar(ft.Text("권한이 수정되었습니다."), bgcolor="green"); page.snack_bar.open=True; page.update()
         except PermissionError as perm_err:
             page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"); page.snack_bar.open=True; page.update()
@@ -333,13 +477,15 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
     def confirm_kick(uid, name):
         def do_kick(e):
             try:
-                channel_service.remove_member(channel_id, uid, user_id)
+                token = auth_service.get_access_token()
+                channel_service.remove_member(channel_id, uid, user_id, token=token)
                 page.close(dlg)
                 load_members()
                 page.snack_bar = ft.SnackBar(ft.Text(f"{name}님을 내보냈습니다."), bgcolor="green"); page.snack_bar.open=True; page.update()
             except PermissionError as perm_err:
                 page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"); page.snack_bar.open=True; page.update()
             except Exception as ex:
+                page.snack_bar = ft.SnackBar(ft.Text(f"내보내기 실패: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
                 log_error(f"Kick Error: {ex}")
 
         dlg = ft.AlertDialog(
@@ -347,11 +493,12 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
             content=ft.Text(f"정말 {name}님을 매장에서 내보내시겠습니까?"),
             actions=[
                 ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
-                ft.TextButton("내보내기", color="red", on_click=do_kick)
+                ft.ElevatedButton("내보내기", bgcolor="red", color="white", on_click=do_kick)
             ]
         )
         page.open(dlg)
 
+    print(f"DEBUG_VIEW: Checking Role for initial load. role={role}")
     if role == "owner":
         load_members()
 

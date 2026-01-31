@@ -1,6 +1,7 @@
 from typing import List, Dict, Any
 import os
 from db import service_supabase, log_info, has_service_key, url
+from utils.logger import log_error
 
 class ChannelService:
     def get_user_channels(self, user_id: str, access_token: str = None) -> List[Dict[str, Any]]:
@@ -54,10 +55,9 @@ class ChannelService:
         """Create a new channel and make user the owner. Optionally store business verification info."""
         try:
             # 1. Create Channel
-            # Generate a random code? Or let DB handle it? 
-            # Our SQL didn't set default for channel_code. Let's gen one.
-            import random, string
-            code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+            # [SECURITY] 암호학적으로 안전한 코드 생성
+            import secrets
+            code = secrets.token_urlsafe(8)[:8].upper()
             
             payload = {
                 "name": name,
@@ -162,10 +162,10 @@ class ChannelService:
         """Generate a time-limited invite code."""
         try:
             from datetime import datetime, timedelta, timezone
-            import random, string
-            
-            # Generate unique code
-            code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+            import secrets
+
+            # [SECURITY] 암호학적으로 안전한 초대 코드 생성
+            code = secrets.token_urlsafe(8)[:8].upper()
             
             # Calculate expiration
             expires_at = (datetime.now(timezone.utc) + timedelta(minutes=duration_minutes)).isoformat()
@@ -204,11 +204,29 @@ class ChannelService:
             log_info(f"Error fetching invite codes: {e}")
             return []
 
-    def get_channel_members_with_profiles(self, channel_id: int) -> List[Dict[str, Any]]:
+    def get_channel_members_with_profiles(self, channel_id: int, access_token: str = None) -> List[Dict[str, Any]]:
         """Fetch members with their profile details."""
         try:
-             res = service_supabase.table("channel_members").select("role, user_id, joined_at, profiles(full_name, email)")\
+             # [FIX] RLS Support
+             client = service_supabase
+             if not has_service_key:
+                 if access_token:
+                     from services.auth_service import auth_service
+                     headers = {
+                        "Authorization": f"Bearer {access_token}",
+                        "apikey": os.environ.get("SUPABASE_KEY"),
+                        "Content-Type": "application/json"
+                     }
+                     from postgrest import SyncPostgrestClient
+                     client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public")
+                     log_info(f"DEBUG_MEMBER: Using User Token for Channel {channel_id}")
+                 else:
+                     log_info("Warning: No access_token provided for get_channel_members_with_profiles, RLS may block results.")
+
+             res = client.table("channel_members").select("role, user_id, joined_at, profiles(full_name, username)")\
                 .eq("channel_id", channel_id).execute()
+             
+             log_info(f"DEBUG_MEMBER: Query Result Count = {len(res.data) if res.data else 0}")
              
              members = []
              if res.data:
@@ -219,12 +237,44 @@ class ChannelService:
                          "role": m["role"],
                          "joined_at": m["joined_at"],
                          "full_name": profile.get("full_name") or "Unknown",
-                         "email": profile.get("email") or ""
+                         "username": profile.get("username")
                      })
              return members
         except Exception as e:
             log_info(f"Error fetching members: {e}")
             return []
+
+    def transfer_channel_ownership(self, channel_id: int, new_owner_id: str, token: str = None):
+        """Transfer ownership of a channel to another member."""
+        try:
+            client = service_supabase
+            if token and not has_service_key:
+                from postgrest import SyncPostgrestClient
+                headers = {
+                   "Authorization": f"Bearer {token}",
+                   "apikey": os.environ.get("SUPABASE_KEY"),
+                   "Content-Type": "application/json"
+                }
+                client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public")
+
+            # 1. Update Channel Metadata
+            client.table("channels").update({"owner_id": new_owner_id}).eq("id", channel_id).execute()
+            
+            # 2. Update Memberships 
+            # Promote new owner
+            client.table("channel_members").update({"role": "owner"}).eq("channel_id", channel_id).eq("user_id", new_owner_id).execute()
+            
+            # 3. Demote current owner(s) who are NOT the new owner
+            client.table("channel_members").update({"role": "manager"})\
+                .eq("channel_id", channel_id)\
+                .eq("role", "owner")\
+                .neq("user_id", new_owner_id)\
+                .execute()
+                
+            return True
+        except Exception as e:
+            log_error(f"Transfer Ownership Failed: {e}")
+            raise e
 
     def _verify_admin_permission(self, channel_id: int, user_id: str) -> bool:
         """Verify user has admin (owner/manager) permission in channel."""
@@ -238,7 +288,7 @@ class ChannelService:
             log_info(f"Permission check error: {e}")
             return False
 
-    def update_member_role(self, channel_id: int, target_user_id: str, new_role: str, requesting_user_id: str = None):
+    def update_member_role(self, channel_id: int, target_user_id: str, new_role: str, requesting_user_id: str = None, token: str = None):
         """Update a member's role with permission check."""
         # [SECURITY] 권한 검증 - owner/manager만 역할 변경 가능
         if requesting_user_id:
@@ -251,11 +301,25 @@ class ChannelService:
                 if current_role != "owner":
                     raise PermissionError("Owner 역할은 현재 Owner만 부여할 수 있습니다.")
 
-        service_supabase.table("channel_members").update({"role": new_role})\
-            .eq("channel_id", channel_id).eq("user_id", target_user_id).execute()
-        log_info(f"Role updated: channel={channel_id}, user={target_user_id}, new_role={new_role}")
+        try:
+            client = service_supabase
+            if token and not has_service_key:
+                from postgrest import SyncPostgrestClient
+                headers = {
+                   "Authorization": f"Bearer {token}",
+                   "apikey": os.environ.get("SUPABASE_KEY"),
+                   "Content-Type": "application/json"
+                }
+                client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public")
 
-    def remove_member(self, channel_id: int, target_user_id: str, requesting_user_id: str = None):
+            client.table("channel_members").update({"role": new_role})\
+                .eq("channel_id", channel_id).eq("user_id", target_user_id).execute()
+            log_info(f"Role updated: channel={channel_id}, user={target_user_id}, new_role={new_role}")
+        except Exception as e:
+            log_error(f"Role Update Failed: {e}")
+            raise e
+
+    def remove_member(self, channel_id: int, target_user_id: str, requesting_user_id: str = None, token: str = None):
         """Remove a member from the channel with permission check."""
         # [SECURITY] 권한 검증
         if requesting_user_id:
@@ -267,9 +331,23 @@ class ChannelService:
             if target_role == "owner":
                 raise PermissionError("Owner는 직접 나가거나 다른 사람에게 소유권을 이전해야 합니다.")
 
-        service_supabase.table("channel_members").delete()\
-            .eq("channel_id", channel_id).eq("user_id", target_user_id).execute()
-        log_info(f"Member removed: channel={channel_id}, user={target_user_id}")
+        try:
+            client = service_supabase
+            if token and not has_service_key:
+                from postgrest import SyncPostgrestClient
+                headers = {
+                   "Authorization": f"Bearer {token}",
+                   "apikey": os.environ.get("SUPABASE_KEY"),
+                   "Content-Type": "application/json"
+                }
+                client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public")
+
+            client.table("channel_members").delete()\
+                .eq("channel_id", channel_id).eq("user_id", target_user_id).execute()
+            log_info(f"Member removed: channel={channel_id}, user={target_user_id}")
+        except Exception as e:
+            log_error(f"Member Removal Failed: {e}")
+            raise e
 
 # Singleton
 channel_service = ChannelService()

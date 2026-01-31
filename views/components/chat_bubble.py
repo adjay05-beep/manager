@@ -35,15 +35,16 @@ class ChatBubble(ft.Container):
         if created_at:
             try:
                 dt = datetime.fromisoformat(created_at)
-                if dt.tzinfo: dt = dt.astimezone() 
+                if dt.tzinfo: dt = dt.astimezone()
                 else:
                    from datetime import timedelta
-                   dt = dt + timedelta(hours=9) 
+                   dt = dt + timedelta(hours=9)
                 ampm = "오전" if dt.hour < 12 else "오후"
                 hour = dt.hour if dt.hour <= 12 else dt.hour - 12
                 if hour == 0: hour = 12
                 time_str = f"{ampm} {hour}:{dt.minute:02d}"
-            except: pass
+            except ValueError:
+                pass  # Invalid date format
             
         status_indicator = None
         if self.is_sending:

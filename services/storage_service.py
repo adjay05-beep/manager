@@ -3,7 +3,7 @@ import datetime
 from services.chat_service import get_storage_signed_url, get_public_url, upload_file_server_side
 from db import service_supabase
 import flet as ft
-from utils.logger import log_info
+from utils.logger import log_info, log_error
 
 # [NEW] Unified Storage Service to remove duplication in Views.
 
@@ -121,13 +121,15 @@ def handle_file_upload(is_web: bool, file_obj, status_callback=None, picker_ref:
                     if is_temp and os.path.exists(final_path):
                         try:
                             os.remove(final_path)
-                        except: pass
+                        except OSError:
+                            pass  # Temp file cleanup failed
 
                 # [FIX] Use Signed URL (10 years) to bypass Private Bucket restrictions
                 # Public URL returns 403 if bucket is not set to Public
                 try:
                     # 10 years expiration
-                    signed_res = service_supabase.storage.from_("uploads").create_signed_url(storage_name, 60*60*24*365*10)
+                    from config import Config
+                    signed_res = service_supabase.storage.from_("uploads").create_signed_url(storage_name, Config.SIGNED_URL_EXPIRY_SECONDS)
                     # Handle key variations
                     final_url = signed_res.get('signedURL') or signed_res.get('signedUrl') or signed_res.get('url')
                 except Exception as sign_ex:
@@ -206,7 +208,8 @@ def upload_proxy_file_to_supabase(storage_name: str) -> str:
         
         # 3. Generate Signed URL
         # 10 years expiration
-        res = service_supabase.storage.from_("uploads").create_signed_url(storage_name, 60*60*24*365*10)
+        from config import Config
+        res = service_supabase.storage.from_("uploads").create_signed_url(storage_name, Config.SIGNED_URL_EXPIRY_SECONDS)
         final_url = res.get('signedURL') or res.get('signedUrl') or res.get('url')
         
         return final_url
@@ -220,4 +223,5 @@ def upload_proxy_file_to_supabase(storage_name: str) -> str:
         if os.path.exists(local_path):
             try:
                 os.remove(local_path)
-            except: pass
+            except OSError:
+                pass  # Local file cleanup failed

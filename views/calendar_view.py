@@ -89,7 +89,8 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 day = int(d_str.split('-')[-1])
                 if eid not in override_map: override_map[eid] = {}
                 override_map[eid][day] = o
-            except: pass
+            except (ValueError, KeyError, IndexError):
+                pass  # Invalid date format
 
         events = []
         days_in_month = calendar.monthrange(year, month)[1]
@@ -126,12 +127,13 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             if name not in name_day_overrides: name_day_overrides[name] = {}
             try:
                 day = int(o['start_date'].split('T')[0].split('-')[-1])
-                # If multiple overrides for same name/day, keep latest created? 
+                # If multiple overrides for same name/day, keep latest created?
                 # (usually there's only one, but let's be safe)
                 old_o = name_day_overrides[name].get(day)
                 if not old_o or (o.get('created_at', '') > old_o.get('created_at', '')):
                     name_day_overrides[name][day] = o
-            except: pass
+            except (ValueError, KeyError, IndexError):
+                pass  # Invalid date format
 
         events = []
         days_in_month = calendar.monthrange(year, month)[1]
@@ -283,7 +285,8 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                             # Simple date string check for MVP
                             if ev.get("start_date") and str(ev["start_date"]).startswith(f"{y}-{m:02d}-{day:02d}"):
                                  day_events.append(ev)
-                        except: pass
+                        except (TypeError, ValueError):
+                            pass  # Invalid event data
                     
                     # Event chips
                     for ev in day_events[:4]: # Increased limit for staff view
@@ -339,7 +342,8 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 try:
                     query = urllib.parse.quote(ev['location'])
                     page.launch_url(f"https://map.naver.com/p/search/{query}")
-                except: pass
+                except Exception:
+                    pass  # URL launch failed
 
         def open_file(e):
             link = ev.get('link')
@@ -374,8 +378,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
 
         # [RBAC] Only Creator can delete
         actions = [ft.TextButton("닫기", on_click=lambda _: page.close(dlg_det))]
-        is_creator = (ev.get('created_by') == current_user_id) if ev.get('created_by') else True # Fallback for legacy
-        # Proper Strict: 
+        # [SECURITY FIX] created_by가 없으면 삭제 불가 (False)
         is_creator = str(ev.get('created_by')) == str(current_user_id) if ev.get('created_by') is not None else False
         
         # Allow Admin? (Not implemented in context yet, assume Strict Owner)
@@ -557,7 +560,8 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 if ed:
                     try:
                         if datetime.strptime(ed, "%Y-%m-%d").date() < datetime.now().date(): continue
-                    except: pass
+                    except ValueError:
+                        pass  # Invalid date format
                 unique_staff[nm] = d['id']
             staff_dd.options = [ft.dropdown.Option(eid, nm) for nm, eid in unique_staff.items()]
             page.update()
@@ -838,7 +842,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         # Update label immediately (load will do it too but for responsiveness)
         month_label.value = f"{view_state['year']}년 {view_state['month']}월"
         load()
-        page.close_drawer()
+        page.close(page.drawer)
 
     def build_drawer():
         u_name = page.session.get("display_name") or "User"
@@ -937,8 +941,10 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             await asyncio.sleep(0.5) 
             await load_async()
         except Exception as e:
-            try: log_error(f"Init Load Error: {e}")
-            except: pass
+            try:
+                log_error(f"Init Load Error: {e}")
+            except Exception:
+                pass  # Logging failed
 
     page.run_task(initial_load_delayed)
     

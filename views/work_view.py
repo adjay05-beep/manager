@@ -391,7 +391,8 @@ def get_work_controls(page: ft.Page, navigate_to):
                         duration = (eh + em/60) - (sh + sm/60)
                         if duration < 0: duration += 24
                         weekly_hours += duration
-                    except: pass
+                    except (ValueError, KeyError, TypeError):
+                        pass  # Invalid time format
                 
                 # If weekly_hours is 0, fallback
                 if weekly_hours == 0:
@@ -403,7 +404,8 @@ def get_work_controls(page: ft.Page, navigate_to):
                         ed = datetime.strptime(latest.get('contract_end_date'), "%Y-%m-%d")
                         if ed.date() <= datetime.now().date():
                             is_resigned = True
-                    except: pass
+                    except ValueError:
+                        pass  # Invalid date format
 
                 # Build Card
                 original_start = earliest.get('contract_start_date')
@@ -518,8 +520,9 @@ def get_work_controls(page: ft.Page, navigate_to):
                     try:
                         ed = datetime.strptime(latest.get('contract_end_date'), "%Y-%m-%d")
                         if ed.date() <= datetime.now().date():
-                            continue # Skip resigned
-                    except: pass
+                            continue  # Skip resigned
+                    except ValueError:
+                        pass  # Invalid date format
                 active_contracts.append(latest)
 
             # Build Day map

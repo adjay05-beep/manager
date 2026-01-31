@@ -3,6 +3,7 @@
 Chat Service for The Manager
 Handles chat topics, categories, and messages using Supabase.
 """
+import os
 from typing import List, Dict, Any, Optional
 from db import supabase, service_supabase
 from utils.network import retry_operation
@@ -247,7 +248,7 @@ def get_public_url(filename: str, bucket: str = "uploads") -> str:
     except Exception as e:
         # Fallback to manual construction
         log_info(f"SDK get_public_url failed, using fallback: {e}")
-        base_url = supabase.url if hasattr(supabase, "url") else "https://adjay05-beep.supabase.co"
+        base_url = supabase.url if hasattr(supabase, "url") else os.environ.get("SUPABASE_URL", "")
         return f"{base_url}/storage/v1/object/public/{bucket}/{filename}"
 
 def get_unread_counts(user_id: str, topics: List[Dict[str, Any]]) -> Dict[str, int]:

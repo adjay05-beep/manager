@@ -137,7 +137,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
             tid = state.get("current_topic_id")
             if tid:
                 threading.Thread(target=lambda: chat_service.update_last_read(tid, current_user_id), daemon=True).start()
-        except: pass
+        except Exception:
+            pass  # UI scroll/read update failed
 
     message_list_view = ft.ListView(
         expand=True, 
@@ -463,11 +464,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 page.update()
         except Exception as ex:
             log_info(f"Load Topics Critical Error: {ex}")
-            if update_ui: 
+            if update_ui:
                 try:
                     page.snack_bar = ft.SnackBar(ft.Text(f"데이터 로딩 오류: {ex}"), bgcolor="red", open=True)
                     page.update()
-                except: pass
+                except Exception:
+                    pass  # Snackbar update failed
         finally:
             # [FIX] Always release lock
             state["is_loading_topics"] = False
@@ -739,11 +741,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
                         
                         if is_me:
                             # 1. ALWAYS auto-scroll if it's MY message
-                            try: 
+                            try:
                                 # print(f"DEBUG_CHAT: Auto-Scroll (Self).")
                                 message_list_view.scroll_to(offset=-1, duration=300)
                                 # [Iteration 22] Strict Honest Read: Sending logic does NOT mark as read.
-                            except: pass
+                            except Exception:
+                                pass  # Auto-scroll failed
                         else:
                             # 2. OTHERS' message: NEVER auto-scroll. Show Alarm.
                             # Even if at bottom, we show the alarm to signify "New Content"
@@ -882,7 +885,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
             try:
                 page.open(ft.SnackBar(ft.Text(msg, size=12), open=True))
                 page.update()
-            except: pass
+            except Exception:
+                pass  # Snackbar update failed
 
         def show_error_ui(msg, color="red"):
              try:
@@ -894,7 +898,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                  time.sleep(5)
                  pending_container.visible = False
                  page.update()
-             except: pass
+             except Exception:
+                 pass  # Error UI display failed
 
         try:
             update_snack(f"1/4. '{f.name}' 준비 중...")
@@ -964,7 +969,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                                 current_storage_name = detected_name
                                                 target_path = os.path.join("uploads", current_storage_name)
                                                 found_new = True
-                                        except: pass
+                                        except Exception:
+                                            pass  # File detection failed
                                     
                                     if found_new:
                                         # Stabilize
@@ -988,8 +994,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                     if i % 3 == 0:
                                         try:
                                             # Optional: Update text if container is valid
-                                            pass 
-                                        except: pass
+                                            pass
+                                        except Exception:
+                                            pass  # UI feedback update failed
 
                                 log_info("Watcher Timeout")
                                 show_error_ui("시간 초과: 파일을 찾을 수 없습니다.")
@@ -1030,7 +1037,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     prog_txt = pending_container.content.controls[1].controls[1]
                     prog_txt.value = f"{int(e.progress * 100)}% 서버 도착"
                     page.update()
-            except: pass
+            except Exception:
+                pass  # Progress UI update failed
 
             if e.progress == 1.0:
                 s_name = state.get("pending_storage_name")
@@ -1546,7 +1554,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     page.snack_bar = ft.SnackBar(ft.Text("AI 분석 시간이 초과되었습니다. (서버 응답 지연)"), bgcolor="red")
                     page.snack_bar.open = True
                     page.update()
-                except: pass
+                except Exception:
+                    pass  # Timeout UI update failed
         
         threading.Thread(target=force_timeout_check, daemon=True).start()
         
@@ -1598,22 +1607,26 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
                 default_date = datetime.now()
                 if d_str:
-                    try: default_date = datetime.strptime(d_str, "%Y-%m-%d")
-                    except: pass
+                    try:
+                        default_date = datetime.strptime(d_str, "%Y-%m-%d")
+                    except ValueError:
+                        pass  # Invalid date format
                     
                 default_time = time(9, 0)
                 if t_str:
-                    try: 
+                    try:
                         h, m = map(int, t_str.split(':'))
                         default_time = time(h, m)
-                    except: pass
+                    except ValueError:
+                        pass  # Invalid time format
                     
                 # 5. Show Editor Dialog
                 def show_editor():
                     if is_cancelled[0]: return
                     try:
                         page.close(loading_dlg)
-                    except: pass
+                    except Exception:
+                        pass  # Dialog already closed
                     
                     tf_summary = ft.TextField(label="제목", value=summary, autofocus=True, filled=True, border_radius=8, text_size=16)
                     tf_description = ft.TextField(label="상세 요약", value=description, multiline=True, min_lines=3, max_lines=5, filled=True, border_radius=8, text_size=14)
@@ -1706,8 +1719,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 show_editor()
                 
             except Exception as ex:
-                try: page.close(loading_dlg)
-                except: pass
+                try:
+                    page.close(loading_dlg)
+                except Exception:
+                    pass  # Dialog already closed
                 log_error(f"AI Dialog System Error: {ex}")
                 print(f"AI Error: {ex}")
                 # Fallback to Editor even on Outer Exception? 
@@ -1938,11 +1953,12 @@ def get_chat_controls(page: ft.Page, navigate_to):
             )
             page.open(dlg)
             page.update()
-            
+
             # Call load_members safely
             try:
                 load_members()
-            except: pass
+            except Exception:
+                pass  # Member list load failed
 
         except Exception as e:
             print(f"CRITICAL ERROR in Member Dialog: {e}")
@@ -2040,7 +2056,8 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 # [Iteration 20] Only update last_read on exit if user was actually at the bottom
                 if state.get("is_near_bottom"):
                     chat_service.update_last_read(tid, current_user_id)
-            except: pass
+            except Exception:
+                pass  # Last read update failed
             
         state["view_mode"] = "list"
         state["current_topic_id"] = None
@@ -2154,8 +2171,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
                     file_log_info(f"REALTIME ERROR: {rt_ex}")
                     await asyncio.sleep(30) # Prevent tight loop on error
                 finally:
-                    try: await rt.disconnect()
-                    except: pass
+                    try:
+                        await rt.disconnect()
+                    except Exception:
+                        pass  # Realtime disconnect failed
 
         # Run both
         await asyncio.gather(polling_loop(), connection_loop())

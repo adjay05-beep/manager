@@ -63,5 +63,7 @@ def transcribe_audio(file_input, prompt=None):
     finally:
         # Cleanup temp file if created
         if temp_file and os.path.exists(temp_file):
-            try: os.remove(temp_file)
-            except: pass
+            try:
+                os.remove(temp_file)
+            except OSError:
+                pass  # File cleanup failed, not critical

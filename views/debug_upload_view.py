@@ -14,7 +14,8 @@ def DebugUploadView(page: ft.Page):
                 print(line)
                 log_control.controls.append(ft.Text(line, size=12, font_family="Consolas"))
                 page.update()
-            except: pass
+            except Exception:
+                pass  # UI update failed
 
         def on_upload_result(e: ft.FilePickerResultEvent):
             if not e.files: return

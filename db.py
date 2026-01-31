@@ -22,7 +22,7 @@ class SupabaseClient:
             "Content-Type": "application/json"
         }
         # Shared client for efficiency (latency reduction)
-        self._http_client = httpx.Client(headers=self.headers, timeout=300.0)
+        self._http_client = httpx.Client(headers=self.headers, timeout=60.0)
         
         # Initialize Auth
         self.auth = SyncGoTrueClient(
@@ -34,10 +34,10 @@ class SupabaseClient:
         
         # Initialize Database (PostgREST)
         self.rest = SyncPostgrestClient(
-            f"{url}/rest/v1", 
-            headers=self.headers, 
+            f"{url}/rest/v1",
+            headers=self.headers,
             schema="public",
-            timeout=300
+            timeout=60
         )
         
         # Manual Storage Client using httpx (Stable in all environments)
@@ -54,12 +54,21 @@ class SupabaseClient:
             log_info(f"Supabase Client: Connectivity issue detected ({e}). Re-initializing...")
             try:
                 self._http_client.close()
-            except: pass
-            self._http_client = httpx.Client(headers=self.headers, timeout=300.0)
+            except Exception as close_err:
+                log_info(f"Client close warning: {close_err}")
+            self._http_client = httpx.Client(headers=self.headers, timeout=60.0)
             self.auth.http_client = self._http_client
             self.rest.session = self._http_client # SyncPostgrestClient uses .session
             self.storage.client = self._http_client
             log_info("Supabase Client: Re-initialized.")
+
+    def __del__(self):
+        """Cleanup HTTP client on garbage collection."""
+        try:
+            if hasattr(self, '_http_client') and self._http_client:
+                self._http_client.close()
+        except Exception:
+            pass
 
     def get_realtime_client(self):
         if not AsyncRealtimeClient:

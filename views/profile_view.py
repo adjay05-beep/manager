@@ -16,7 +16,8 @@ def get_profile_controls(page: ft.Page, navigate_to):
     try:
         res = service_supabase.table("profiles").select("*").eq("id", user_id).single().execute()
         user_profile = res.data
-    except: pass
+    except Exception:
+        pass  # Profile fetch failed
 
     # Fetch User Channles
     token = auth_service.get_access_token()
