@@ -88,7 +88,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     # 2. Form Inputs (Reorganized)
     
     # [Basic Info]
-    reg_name = ft.TextField(label="이름", expand=True, height=45, text_size=14, border_color="#E0E0E0", content_padding=10, border_radius=8)
+    reg_name = ft.TextField(label="이름", width=200, height=45, text_size=14, border_color="#E0E0E0", content_padding=10, border_radius=8)
     reg_type = ft.Dropdown(
         label="고용 형태", width=120,
         options=[ft.dropdown.Option("full", "정규직"), ft.dropdown.Option("part", "아르바이트")],
@@ -107,7 +107,7 @@ def get_work_controls(page: ft.Page, navigate_to):
         options=[ft.dropdown.Option("hourly", "시급"), ft.dropdown.Option("monthly", "월급")],
         value="hourly", text_size=14, border_color="#E0E0E0", border_radius=8
     )
-    reg_wage = ft.TextField(label="금액", expand=True, value="10320", keyboard_type="number", suffix_text="원", height=45, text_size=14, border_color="#E0E0E0", content_padding=10, border_radius=8)
+    reg_wage = ft.TextField(label="금액", width=200, value="10320", keyboard_type="number", suffix_text="원", height=45, text_size=14, border_color="#E0E0E0", content_padding=10, border_radius=8)
     
     pay_info_card = section_card("급여 정보", ft.Row([reg_wage_type, reg_wage], spacing=10))
 
@@ -122,11 +122,11 @@ def get_work_controls(page: ft.Page, navigate_to):
 
     uniform_content = ft.Column([
         ft.Text("근무 시간 설정", size=12, color="grey"),
-        ft.Row([uniform_start, ft.Text("~", size=16, weight="bold"), uniform_end], alignment="center"),
+        ft.Row([uniform_start, ft.Text("~", size=16, weight="bold"), uniform_end], alignment="start"),
         ft.Container(height=10),
         ft.Text("근무 요일 선택", size=12, color="grey"),
-        ft.Row(uniform_day_checks, alignment="center", spacing=10)
-    ], horizontal_alignment="center")
+        ft.Row(uniform_day_checks, alignment="start", spacing=10)
+    ], horizontal_alignment="start")
 
     # Custom Mode Inputs (Legacy Loop adapted)
     day_schedule = {}
@@ -166,13 +166,13 @@ def get_work_controls(page: ft.Page, navigate_to):
     
     btn_uniform = ft.Container(
         content=ft.Text("간편 설정 (동일 시간)", weight="bold"),
-        alignment=ft.alignment.center, expand=True, padding=10,
+        alignment=ft.alignment.center, width=150, padding=10,
         bgcolor=AppColors.PRIMARY, border_radius=8,
         on_click=lambda e: set_mode("uniform")
     )
     btn_custom = ft.Container(
         content=ft.Text("상세 설정 (요일별)", color="grey"),
-        alignment=ft.alignment.center, expand=True, padding=10,
+        alignment=ft.alignment.center, width=150, padding=10,
         bgcolor=AppColors.SURFACE_VARIANT, border_radius=8,
         on_click=lambda e: set_mode("custom")
     )
@@ -755,41 +755,46 @@ def get_work_controls(page: ft.Page, navigate_to):
         page.run_task(_save)
 
     # 5. Main Layouts
-    contract_content = ft.ListView([
-        ft.Text("신규 직원 등록", weight="bold", size=20, color=black_text),
-        ft.Container(height=10),
-        
-        basic_info_card,
-        ft.Container(height=15),
-        
-        pay_info_card,
-        ft.Container(height=15),
-        
-        schedule_card,
-        ft.Container(height=25),
-        
-        ft.ElevatedButton(
-            "직원 등록 완료", 
-            on_click=save_contract_click, 
-            style=AppButtons.PRIMARY(), 
-            height=50,
-            width=float("inf")
+    # 5. Main Layouts
+    # [REVERTED] Use Single Card Layout but with New Schedule Components
+    contract_content = ft.Column([
+        ft.Container(
+            content=ft.Column([
+                ft.Text("신규 직원 등록", weight="bold", size=18, color="black"),
+                ft.Container(height=10),
+                
+                # Basic Info Rows (Reordered)
+                ft.Row([
+                    reg_name, 
+                    ft.Row([reg_start_date, ft.Text("부터 근무 시작", size=12, color="grey")], vertical_alignment="center")
+                ], spacing=20),
+                
+                ft.Row([reg_type, reg_wage_type, reg_wage], spacing=10),
+                
+                ft.Divider(height=20, color="transparent"),
+                
+                ft.Text("근무 일정:", size=12, color="black", weight="bold"),
+                ft.Container(height=5),
+                ft.Container(
+                    content=ft.Row([btn_uniform, btn_custom], spacing=5),
+                    padding=5, bgcolor=AppColors.SURFACE_VARIANT, border_radius=10,
+                    width=320
+                ),
+                ft.Container(height=10),
+                uniform_content,
+                custom_content,
+                
+                ft.Container(height=20),
+                ft.ElevatedButton("신규 등록", on_click=save_contract_click, width=300, height=40, bgcolor="#1A237E", color="white")
+            ]),
+            padding=20, bgcolor="white", border_radius=10, shadow=ft.BoxShadow(blur_radius=5, color="#05000000")
         ),
-        
-        ft.Divider(height=40, color="transparent"),
-        
-        ft.Text("나의 직원 리스트", weight="bold", size=18, color=black_text),
-        ft.Container(height=10),
+        ft.Divider(),
+        ft.Text("나의 직원 리스트", weight="bold", color="black"),
         contract_list,
-        
-        ft.Container(height=30),
-        
-        ft.Text("요일별 근무 명단", weight="bold", size=18, color=black_text),
-        ft.Container(height=10),
-        weekly_summary_container,
-        
-        ft.Container(height=50) # Bottom Padding
-    ], padding=20, expand=True)
+        ft.Text("요일별 근무 명단", weight="bold", size=16, color="black"),
+        weekly_summary_container
+    ], scroll=ft.ScrollMode.ALWAYS, expand=True)
     
     labor_content = ft.Column([
         ft.Container(
