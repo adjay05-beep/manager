@@ -84,7 +84,8 @@ def get_home_controls(page: ft.Page, navigate_to):
     items = [
         menu_item("메신저", image_path="images/icon_chat_3d.png", route="chat"),
         menu_item("캘린더", image_path="images/icon_calendar_3d.png", route="calendar"),
-        menu_item("업무 일지", image_path="images/icon_handover_final.png", route="handover"),
+        # [FIX] Use standard icon for reliability
+        menu_item("업무 일지", icon=ft.icons.EDIT_NOTE, route="handover", color=AppColors.PRIMARY),
         menu_item("체크리스트", image_path="images/icon_closing_3d.png", route="closing"),
         menu_item("음성 메모", image_path="images/icon_voice_3d.png", route="voice"),
         menu_item("설정", image_path="images/icon_settings_3d.png", route="store_info"),
