@@ -59,7 +59,7 @@ def get_work_controls(page: ft.Page, navigate_to):
             self.border_radius = 20
             self.alignment = ft.alignment.center
             self.on_click = self.toggle
-            self.animate = ft.animation.Animation(200, "easeOut")
+            self.animate = ft.Animation(200, "easeOut")
             self.update_style()
         
         @property
