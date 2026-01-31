@@ -110,6 +110,14 @@ def get_chat_controls(page: ft.Page, navigate_to):
     
     # Initialize UI Controls
     topic_list_container = ft.Column(expand=True, spacing=0)
+    # [FIX] Helper to atomic update read status and refresh UI
+    def mark_read_and_refresh(tid, uid):
+        def _task():
+            chat_service.update_last_read(tid, uid)
+            # Refresh topic list to update badges immediately
+            load_topics(update_ui=True)
+        threading.Thread(target=_task, daemon=True).start()
+
     def on_chat_scroll(e: ft.OnScrollEvent):
         # If user is within 50px of bottom, consider "near bottom" (More precise)
         is_bottom = (e.max_scroll_extent - e.pixels) < 50
@@ -121,7 +129,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 uid = current_user_id
                 if tid and uid:
                     # file_log_info(f"SCROLL: Reached bottom of {tid}. Marking as read.")
-                    threading.Thread(target=lambda: chat_service.update_last_read(tid, uid), daemon=True).start()
+                    mark_read_and_refresh(tid, uid)
             
         # If user reached bottom, hide floating button
         if state["is_near_bottom"] and floating_new_msg_container.visible:
@@ -136,7 +144,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             # [Iteration 20] Explicitly mark as read when user clicks "New Message" alarm
             tid = state.get("current_topic_id")
             if tid:
-                threading.Thread(target=lambda: chat_service.update_last_read(tid, current_user_id), daemon=True).start()
+                mark_read_and_refresh(tid, current_user_id)
         except Exception:
             pass  # UI scroll/read update failed
 
@@ -731,6 +739,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                                 time.sleep(0.2) # Wait for second move
                                 message_list_view.scroll_to(offset=-1, duration=50) # Final anchor
                                 
+                                # [FIX] Explicitly mark as read since on_scroll might not fire for short lists
+                                mark_read_and_refresh(state["current_topic_id"], current_user_id)
+
                                 # We now rely on on_chat_scroll to trigger the update when the scroll actually lands at bottom.
                             except Exception as scroll_ex: 
                                 print(f"DEBUG_CHAT: Scroll to Bottom Error: {scroll_ex}")
