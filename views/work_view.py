@@ -90,7 +90,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     # [Basic Info]
     reg_name = ft.TextField(label="이름", expand=True, height=45, text_size=14, border_color="#E0E0E0", content_padding=10, border_radius=8)
     reg_type = ft.Dropdown(
-        label="고용 형태", width=120, height=45,
+        label="고용 형태", width=120,
         options=[ft.dropdown.Option("full", "정규직"), ft.dropdown.Option("part", "아르바이트")],
         value="part", text_size=14, border_color="#E0E0E0", border_radius=8
     )
@@ -103,7 +103,7 @@ def get_work_controls(page: ft.Page, navigate_to):
 
     # [Payment Info]
     reg_wage_type = ft.Dropdown(
-        label="지급 기준", width=110, height=45,
+        label="지급 기준", width=110,
         options=[ft.dropdown.Option("hourly", "시급"), ft.dropdown.Option("monthly", "월급")],
         value="hourly", text_size=14, border_color="#E0E0E0", border_radius=8
     )
