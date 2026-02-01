@@ -192,27 +192,24 @@ async def get_login_controls(page: ft.Page, navigate_to):
                 log_error(f"Auto-login failed: {e}")
                 await safe_storage_remove(page, "supa_session")
 
+    # [Standardized] UI Components
+    from views.components.inputs import StandardTextField
+    from views.components.cards import AuthCard
+
     # TODO: Re-enable after fixing - asyncio.create_task(check_auto_login_task())
     # print("DEBUG: Auto-login disabled for testing")
 
-    email_tf = ft.TextField(
+    email_tf = StandardTextField(
         label="이메일",
         width=320,
-        text_size=14,
-        border_radius=AppLayout.BORDER_RADIUS_MD,
-        bgcolor=ft.Colors.WHITE,
         value=await safe_storage_get(page, "saved_email", "") or ""
     )
 
-    pw_tf = ft.TextField(
+    pw_tf = StandardTextField(
         label="비밀번호",
         password=True,
         can_reveal_password=True,
-        width=320,
-        text_size=14,
-        border_radius=AppLayout.BORDER_RADIUS_MD,
-        bgcolor=ft.Colors.WHITE,
-        # on_submit will be set after perform_login is defined
+        width=320
     )
 
     # print("DEBUG: get_login_controls called")
@@ -263,8 +260,7 @@ async def get_login_controls(page: ft.Page, navigate_to):
     async def on_signup_click(e):
         await navigate_to("signup")
 
-    login_card = ft.Container(
-        content=ft.Column([
+    login_column = ft.Column([
             ft.Image(src="images/logo.png", width=220, fit="contain"),
             ft.Container(height=AppLayout.MD),
             email_tf,
@@ -287,12 +283,10 @@ async def get_login_controls(page: ft.Page, navigate_to):
                 on_click=lambda e: asyncio.create_task(on_signup_click(e)),
                 style=ft.ButtonStyle(color=AppColors.TEXT_MUTE)
             )
-        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-        padding=AppLayout.XL,
-        bgcolor=ft.Colors.WHITE,
-        border_radius=AppLayout.BORDER_RADIUS_LG,
-        shadow=AppShadows.MEDIUM,
-    )
+        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+    
+    # Use AuthCard
+    login_card = AuthCard(content=login_column)
     
     return [
         ft.Container(
