@@ -1,4 +1,5 @@
 import flet as ft
+import asyncio
 from services.auth_service import auth_service
 from services.channel_service import channel_service
 import json
@@ -7,39 +8,65 @@ from views.styles import AppColors, AppTextStyles, AppLayout, AppGradients, AppS
 from components.premium_card import PremiumCard
 
 # Safe client_storage wrapper for web mode compatibility
-def safe_storage_get(page: ft.Page, key: str, default=None):
-    """Safely get value from client_storage, returns default if unavailable."""
+async def safe_storage_get(page: ft.Page, key: str, default=None):
+    """Safely get value from client_storage (async), returns default if unavailable."""
     try:
+        # 웹 환경: client_storage 사용
         if hasattr(page, 'client_storage') and page.client_storage:
-            return page.client_storage.get(key)
+            return await page.client_storage.get_async(key)
+        # 데스크톱/모바일: flet.storage 사용(가능 시) 또는 기본값
+        import flet as ft
+        if hasattr(ft, 'storage') and ft.storage is not None:
+            return ft.storage.get(key, default)
     except Exception as e:
-        log_debug(f"client_storage.get failed for '{key}': {e}")
+        log_debug(f"safe_storage_get failed for '{key}': {e}")
     return default
 
-def safe_storage_set(page: ft.Page, key: str, value):
-    """Safely set value in client_storage, silently fails if unavailable."""
+async def safe_storage_set(page: ft.Page, key: str, value):
+    """Safely set value in client_storage (async), silently fails if unavailable."""
     try:
+        # 웹 환경: client_storage 사용
         if hasattr(page, 'client_storage') and page.client_storage:
-            page.client_storage.set(key, value)
+            await page.client_storage.set_async(key, value)
+            return True
+        # 데스크톱/모바일: flet.storage 사용(가능 시)
+        import flet as ft
+        if hasattr(ft, 'storage') and ft.storage is not None:
+            ft.storage.set(key, value)
             return True
     except Exception as e:
-        log_debug(f"client_storage.set failed for '{key}': {e}")
+        log_debug(f"safe_storage_set failed for '{key}': {e}")
     return False
 
-def safe_storage_remove(page: ft.Page, key: str):
-    """Safely remove value from client_storage, silently fails if unavailable."""
+async def safe_storage_remove(page: ft.Page, key: str):
+    """Safely remove value from client_storage (async), silently fails if unavailable."""
     try:
+        # 웹 환경: client_storage 사용
         if hasattr(page, 'client_storage') and page.client_storage:
-            page.client_storage.remove(key)
+            await page.client_storage.remove_async(key)
+            return True
+        # 데스크톱/모바일: flet.storage 사용(가능 시)
+        import flet as ft
+        if hasattr(ft, 'storage') and ft.storage is not None:
+            ft.storage.remove(key)
             return True
     except Exception as e:
-        log_debug(f"client_storage.remove failed for '{key}': {e}")
+        log_debug(f"safe_storage_remove failed for '{key}': {e}")
     return False
 
-def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_token: str = None):
+def safe_session_clear(page: ft.Page):
+    """Safely clear session data using page.app_session dict."""
+    try:
+        if hasattr(page, 'app_session'):
+            page.app_session.clear()
+    except Exception as e:
+        log_debug(f"session clear failed: {e}")
+
+async def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_token: str = None):
+    print(f"DEBUG: handle_successful_login called, route={page.route}")
     # [GUARD] If the page has already moved away from login, abort this flow.
     # This prevents auto-login dialogs from popping up on the home screen if user manually navigated.
-    if page.route not in ["login", "/", ""]:
+    if page.route not in ["login", "/", "", None]:
         log_info(f"Aborting login handler: User already at {page.route}")
         return
 
@@ -52,11 +79,11 @@ def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_
             current_sess = auth_service.get_session()
             if current_sess and hasattr(current_sess, "refresh_token"):
                  sess_data["refresh_token"] = current_sess.refresh_token
-            safe_storage_set(page, "supa_session", json.dumps(sess_data))
+            await safe_storage_set(page, "supa_session", json.dumps(sess_data))
 
         channels = []
         try:
-            channels = channel_service.get_user_channels(user_data['id'], token)
+            channels = await asyncio.to_thread(lambda: channel_service.get_user_channels(user_data['id'], token))
         except Exception as ch_err:
             log_error(f"Error fetching channels for login: {ch_err}")
         
@@ -66,21 +93,39 @@ def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_
         
         if len(channels) == 1:
             target_ch = channels[0]
-            page.session.set("user_id", user_data['id'])
-            page.session.set("channel_id", target_ch["id"])
-            page.session.set("channel_name", target_ch["name"])
-            page.session.set("user_role", target_ch["role"])
-            navigate_to("home")
+            try:
+                page.app_session["user_id"] = user_data['id']
+                page.app_session["channel_id"] = target_ch["id"]
+                page.app_session["channel_name"] = target_ch["name"]
+                page.app_session["user_role"] = target_ch["role"]
+                await navigate_to("home")
+            except Exception as nav_err:
+                log_error(f"Error during navigation: {nav_err}")
+                import traceback
+                traceback.print_exc()
             
         elif len(channels) > 1:
-            # ... (Rest of multi-channel logic) ...
-            def pick_channel(ch):
-                page.close(ch_dialog)
-                page.session.set("user_id", user_data['id'])
-                page.session.set("channel_id", ch["id"])
-                page.session.set("channel_name", ch["name"])
-                page.session.set("user_role", ch["role"])
-                navigate_to("home")
+            # Flet 0.80+: Create factory for async handlers with captured variables
+            ch_dialog = None  # Forward declaration
+
+            async def pick_channel(ch):
+                if ch_dialog:
+                    await page.close_async(ch_dialog) if hasattr(page, "close_async") else page.close(ch_dialog)
+                page.app_session["user_id"] = user_data['id']
+                page.app_session["channel_id"] = ch["id"]
+                page.app_session["channel_name"] = ch["name"]
+                page.app_session["user_role"] = ch["role"]
+                await navigate_to("home")
+
+            def make_pick_handler(ch):
+                async def handler(e):
+                    await pick_channel(ch)
+                return handler
+
+            async def go_to_onboarding(e):
+                if ch_dialog:
+                    await page.close_async(ch_dialog) if hasattr(page, "close_async") else page.close(ch_dialog)
+                await navigate_to("onboarding")
 
             ch_list = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
             for ch in channels:
@@ -93,16 +138,16 @@ def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_
                                 ft.Text(f"{ch['role']} • {ch.get('channel_code','-')}", size=12, color=AppColors.TEXT_MUTE)
                             ], spacing=2)
                         ]),
-                        on_click=lambda e, c=ch: pick_channel(c),
+                        on_click=make_pick_handler(ch),
                     )
                 )
-            
+
             ch_list.controls.append(ft.Divider(height=20))
             ch_list.controls.append(
                 ft.TextButton(
                     "새 매장 추가하기",
                     icon=ft.Icons.ADD_BUSINESS_ROUNDED,
-                    on_click=lambda _: (page.close(ch_dialog), navigate_to("onboarding"))
+                    on_click=go_to_onboarding
                 )
             )
 
@@ -114,38 +159,41 @@ def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_
             
         else:
             # No channels or error: go to onboarding
-            page.session.set("user_id", user_data['id'])
-            navigate_to("onboarding")
+            page.app_session["user_id"] = user_data['id']
+            await navigate_to("onboarding")
 
     except Exception as e:
         log_error(f"Login Logic Fatal Error: {e}")
         page.splash = None
         # In case of absolute failure, clear session and go to login
-        page.session.clear()
-        navigate_to("login")
+        safe_session_clear(page)
+        await navigate_to("login")
 
 
-def get_login_controls(page: ft.Page, navigate_to):
-    # Auto-Login Logic (Deferred to prevent race condition)
-    def check_auto_login():
+async def get_login_controls(page: ft.Page, navigate_to):
+    # Start auto-login check after a small delay
+    async def check_auto_login_task():
+        await asyncio.sleep(0.1)
+        await check_auto_login()
+
+    async def check_auto_login():
         # [GUARD] Ensure we are still on login page when this runs
         if page.route not in ["login", "/", ""]:
             return
             
-        stored_session_json = safe_storage_get(page, "supa_session")
+        stored_session_json = await safe_storage_get(page, "supa_session")
         if stored_session_json:
             try:
                 sess_data = json.loads(stored_session_json)
                 user = auth_service.recover_session(sess_data.get("access_token"), sess_data.get("refresh_token") or "dummy")
                 if user:
-                    handle_successful_login(page, sess_data["user"], navigate_to, sess_data.get("access_token"))
+                    await handle_successful_login(page, sess_data["user"], navigate_to, sess_data.get("access_token"))
             except Exception as e:
                 log_error(f"Auto-login failed: {e}")
-                safe_storage_remove(page, "supa_session")
+                await safe_storage_remove(page, "supa_session")
 
-    # Start auto-login check after a small delay
-    import threading
-    threading.Timer(0.1, check_auto_login).start()
+    # TODO: Re-enable after fixing - asyncio.create_task(check_auto_login_task())
+    # print("DEBUG: Auto-login disabled for testing")
 
     email_tf = ft.TextField(
         label="이메일",
@@ -153,7 +201,7 @@ def get_login_controls(page: ft.Page, navigate_to):
         text_size=14,
         border_radius=AppLayout.BORDER_RADIUS_MD,
         bgcolor=ft.Colors.WHITE,
-        value=safe_storage_get(page, "saved_email", "") or ""
+        value=await safe_storage_get(page, "saved_email", "") or ""
     )
 
     pw_tf = ft.TextField(
@@ -164,11 +212,11 @@ def get_login_controls(page: ft.Page, navigate_to):
         text_size=14,
         border_radius=AppLayout.BORDER_RADIUS_MD,
         bgcolor=ft.Colors.WHITE,
-        on_submit=lambda _: perform_login()
+        # on_submit will be set after perform_login is defined
     )
 
-    print("DEBUG: get_login_controls called")
-    saved_email_val = bool(safe_storage_get(page, "saved_email"))
+    # print("DEBUG: get_login_controls called")
+    saved_email_val = bool(await safe_storage_get(page, "saved_email"))
 
     save_email_check = ft.Checkbox(
         label="이메일 저장",
@@ -178,7 +226,7 @@ def get_login_controls(page: ft.Page, navigate_to):
 
     error_text = ft.Text("", color=AppColors.ERROR, size=12)
     
-    def perform_login():
+    async def perform_login(e=None):
         if not email_tf.value or not pw_tf.value:
             error_text.value = "이메일과 비밀번호를 입력해주세요."
             page.update()
@@ -187,26 +235,37 @@ def get_login_controls(page: ft.Page, navigate_to):
         if hasattr(page, "splash"):
             page.splash = ft.ProgressBar(color=AppColors.PRIMARY)
         page.update()
-        
+
         try:
             res = auth_service.sign_in(email_tf.value, pw_tf.value)
-            
-            if save_email_check.value:
-                safe_storage_set(page, "saved_email", email_tf.value)
-            else:
-                safe_storage_remove(page, "saved_email")
-            
-            user_data = {"id": res.user.id, "email": res.user.email}
-            handle_successful_login(page, user_data, navigate_to, res.session.access_token if res.session else None)
 
-        except Exception as e:
+            if save_email_check.value:
+                await safe_storage_set(page, "saved_email", email_tf.value)
+            else:
+                await safe_storage_remove(page, "saved_email")
+
+            user_data = {"id": res.user.id, "email": res.user.email}
+            await handle_successful_login(page, user_data, navigate_to, res.session.access_token if res.session else None)
+
+        except Exception as ex:
+            log_error(f"Login failed: {ex}")
+            print(f"DEBUG LOGIN ERROR: {ex}")
             page.splash = None
-            error_text.value = "로그인 정보가 올바르지 않거나 오류가 발생했습니다."
+            error_text.value = f"로그인 오류: {ex}"
             page.update()
+
+    # Set on_submit after perform_login is defined
+    pw_tf.on_submit = perform_login
+
+    async def on_login_click(e):
+        await perform_login(e)
+
+    async def on_signup_click(e):
+        await navigate_to("signup")
 
     login_card = ft.Container(
         content=ft.Column([
-            ft.Image(src="images/logo.png", width=220, fit=ft.ImageFit.CONTAIN),
+            ft.Image(src="images/logo.png", width=220, fit="contain"),
             ft.Container(height=AppLayout.MD),
             email_tf,
             pw_tf,
@@ -220,12 +279,12 @@ def get_login_controls(page: ft.Page, navigate_to):
                 "로그인",
                 width=320, height=50,
                 bgcolor=AppColors.PRIMARY, color=ft.Colors.WHITE,
-                on_click=lambda _: perform_login(),
+                on_click=lambda e: asyncio.create_task(on_login_click(e)),
                 style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=AppLayout.BORDER_RADIUS_MD)),
             ),
             ft.TextButton(
                 "계정이 없으신가요? 회원가입",
-                on_click=lambda _: navigate_to("signup"),
+                on_click=lambda e: asyncio.create_task(on_signup_click(e)),
                 style=ft.ButtonStyle(color=AppColors.TEXT_MUTE)
             )
         ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -240,7 +299,7 @@ def get_login_controls(page: ft.Page, navigate_to):
             expand=True,
             gradient=AppGradients.PRIMARY_LINEAR,
             content=ft.Stack([
-                ft.Container(content=login_card, alignment=ft.alignment.center)
+                ft.Container(content=login_card, alignment=ft.Alignment(0, 0))
             ])
         )
     ]

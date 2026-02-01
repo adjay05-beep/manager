@@ -1,5 +1,3 @@
 @echo off
-echo Starting Custom Watcher...
-echo NOTE: Auto-reload via watcher is disabled to ensure stability.
-echo       You MUST restart this script manually if you change python code.
-venv312\Scripts\python.exe main.py
+set FLET_SECRET_KEY=dev_secret_key_12345
+python main.py

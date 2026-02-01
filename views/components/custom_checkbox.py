@@ -9,7 +9,7 @@ class CustomCheckbox(ft.Container):
         self.label_style = label_style or ft.TextStyle(color="grey", size=14)
         
         self.check_icon = ft.Icon(
-            name=ft.Icons.CHECK_ROUNDED,
+            ft.Icons.CHECK_ROUNDED,
             color="black",
             size=18,
             visible=self.value
@@ -22,7 +22,7 @@ class CustomCheckbox(ft.Container):
             border=ft.border.all(1.5, "black"),
             border_radius=4,
             bgcolor="white",
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
         )
         
         self.content = ft.Row([

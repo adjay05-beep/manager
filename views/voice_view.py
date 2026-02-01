@@ -6,7 +6,7 @@ import os
 from views.styles import AppColors, AppTextStyles, AppLayout
 from views.components.app_header import AppHeader
 
-def get_voice_controls(page: ft.Page, navigate_to):
+async def get_voice_controls(page: ft.Page, navigate_to):
     import warnings
     warnings.filterwarnings("ignore", category=DeprecationWarning)
 
@@ -19,8 +19,8 @@ def get_voice_controls(page: ft.Page, navigate_to):
                  break
 
     # [RBAC] Get Context
-    current_user_id = page.session.get("user_id")
-    channel_id = page.session.get("channel_id")
+    current_user_id = page.app_session.get("user_id")
+    channel_id = page.app_session.get("channel_id")
     is_web_mode = page.web
 
     if not current_user_id:
@@ -42,13 +42,13 @@ def get_voice_controls(page: ft.Page, navigate_to):
     # 메모 목록 관리
     # ============================================
     def load_memos():
-        page.run_task(load_memos_async)
+        asyncio.create_task(load_memos_async())
 
     async def load_memos_async():
         status_text.value = "로딩 중..."
         page.update()
         try:
-            page.run_task(voice_service.voice_service.cleanup_expired_memos)
+            asyncio.create_task(voice_service.voice_service.cleanup_expired_memos())
             state["memos"] = await voice_service.voice_service.get_memos(current_user_id, channel_id)
             render_memos()
             status_text.value = "대기 중"
@@ -69,7 +69,7 @@ def get_voice_controls(page: ft.Page, navigate_to):
                         ft.Text("첫 번째 음성 메모를 남겨보세요!", color="grey"),
                         ft.Text("오디오는 2일, 텍스트는 15일 보관됩니다.", size=10, color="orange")
                     ], horizontal_alignment="center"),
-                    alignment=ft.alignment.center,
+                    alignment=ft.Alignment(0, 0),
                     padding=40
                 )
             )
@@ -93,19 +93,29 @@ def get_voice_controls(page: ft.Page, navigate_to):
                     ft.Text(c, size=14, color=style_color, selectable=True),
                 ], spacing=5, expand=True)
 
+                def make_share_handler(mid):
+                    async def handler(e):
+                        await share_memo(mid)
+                    return lambda e, h=handler: asyncio.create_task(h(e))
+
+                def make_delete_handler(mid):
+                    async def handler(e):
+                        await delete_memo(mid)
+                    return lambda e, h=handler: asyncio.create_task(h(e))
+
                 actions = []
                 if is_private and channel_id:
                     actions.append(
                         ft.IconButton(
                             ft.Icons.IOS_SHARE, icon_size=18, tooltip="매장 공유 (공개 전환)", icon_color="blue",
-                            on_click=lambda e, mid=memo['id']: share_memo(mid)
+                            on_click=make_share_handler(memo['id'])
                         )
                     )
 
                 actions.append(
                     ft.IconButton(
                         ft.Icons.CLOSE, icon_size=16, icon_color="#BDBDBD",
-                        on_click=lambda e, mid=memo['id']: delete_memo(mid)
+                        on_click=make_delete_handler(memo['id'])
                     )
                 )
 
@@ -119,24 +129,24 @@ def get_voice_controls(page: ft.Page, navigate_to):
                 )
                 memo_list_view.controls.append(item)
 
+        # [FIX] Use sync update in non-async function
+        try:
+            memo_list_view.update()
+        except Exception:
+            pass
+
+    async def share_memo(mid):
+        await voice_service.voice_service.share_memo(mid, "public")
+        page.snack_bar = ft.SnackBar(ft.Text("매장에 공유되었습니다 (공개 전환)"))
+        page.snack_bar.open = True
+        await load_memos_async()
+
+    async def delete_memo(mid):
+        await voice_service.voice_service.delete_memo(mid)
+        await load_memos_async()
+        page.snack_bar = ft.SnackBar(ft.Text("삭제되었습니다."))
+        page.snack_bar.open = True
         page.update()
-
-    def share_memo(mid):
-        async def _share():
-            await voice_service.voice_service.share_memo(mid, "public")
-            page.snack_bar = ft.SnackBar(ft.Text("매장에 공유되었습니다 (공개 전환)"))
-            page.snack_bar.open = True
-            await load_memos_async()
-        page.run_task(_share)
-
-    def delete_memo(mid):
-        async def _del():
-            await voice_service.voice_service.delete_memo(mid)
-            await load_memos_async()
-            page.snack_bar = ft.SnackBar(ft.Text("삭제되었습니다."))
-            page.snack_bar.open = True
-            page.update()
-        page.run_task(_del)
 
     # ============================================
     # Web Speech API (모바일/웹용)
@@ -374,13 +384,13 @@ def get_voice_controls(page: ft.Page, navigate_to):
     def toggle_rec(e):
         # [FIX] 녹음 중이면 중지, 아니면 시작
         if state["is_recording"]:
-            page.run_task(stop_recording)
+            asyncio.create_task(stop_recording())
         elif state["is_listening"]:
             # Web Speech 진행 중 - 무시
             pass
         else:
             # 새로 시작 - 항상 Web Speech API 먼저 시도
-            page.run_task(start_voice_input)
+            asyncio.create_task(start_voice_input())
 
     async def start_voice_input():
         """음성 입력 시작 - Web Speech API 우선, 실패 시 AudioRecorder"""
@@ -404,9 +414,14 @@ def get_voice_controls(page: ft.Page, navigate_to):
 
     # File Picker (Upload) - 백업용
     def pick_file_click(e):
-        page.chat_file_picker.pick_files(allow_multiple=False, allowed_extensions=["mp3", "wav", "m4a"])
+        if page.chat_file_picker:
+            page.chat_file_picker.pick_files(allow_multiple=False, allowed_extensions=["mp3", "wav", "m4a"])
+        else:
+            page.snack_bar = ft.SnackBar(ft.Text("파일 업로드 기능을 일시적으로 사용할 수 없습니다."), bgcolor="orange")
+            page.snack_bar.open = True
+            page.update()
 
-    async def on_picker_result(e: ft.FilePickerResultEvent):
+    async def on_picker_result(e: ft.ControlEvent):
         if e.files:
             f = e.files[0]
             status_text.value = "업로드 및 분석 중..."
@@ -446,7 +461,8 @@ def get_voice_controls(page: ft.Page, navigate_to):
                 status_text.value = f"Upload Error: {ex}"
                 page.update()
 
-    page.chat_file_picker.on_result = lambda e: page.run_task(lambda: on_picker_result(e))
+    if page.chat_file_picker:
+        page.chat_file_picker.on_result = lambda e: asyncio.create_task(on_picker_result(e))
 
     # Mode Toggle UI
     # Mode Toggle Removed as per request (Default Private)
@@ -459,7 +475,7 @@ def get_voice_controls(page: ft.Page, navigate_to):
         width=80, height=80,
         bgcolor="#00C73C",
         border_radius=40,
-        alignment=ft.alignment.center,
+        alignment=ft.Alignment(0, 0),
         on_click=toggle_rec,
         shadow=ft.BoxShadow(blur_radius=10, color="#00C73C"),
         ink=True,
@@ -471,7 +487,7 @@ def get_voice_controls(page: ft.Page, navigate_to):
 
     header = AppHeader(
         title_text="음성 메모",
-        on_back_click=lambda _: navigate_to("home"),
+        on_back_click=lambda _: asyncio.create_task(navigate_to("home")),
         action_button=ft.Container(
             content=ft.Row([
                 ft.Icon(ft.Icons.INFO_OUTLINE, size=14, color=AppColors.TEXT_SECONDARY),

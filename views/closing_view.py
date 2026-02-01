@@ -1,11 +1,12 @@
 import flet as ft
+import asyncio
 from utils.logger import log_debug
 from views.components.custom_checkbox import CustomCheckbox
 from views.components.app_header import AppHeader
 from views.styles import AppColors, AppLayout
 
-def get_closing_controls(page: ft.Page, navigate_to):
-    log_debug(f"Entering Closing View. User: {page.session.get('user_id')}")
+async def get_closing_controls(page: ft.Page, navigate_to):
+    log_debug(f"Entering Closing View. User: {page.app_session.get('user_id')}")
     
     checklist = ft.Column([
         ft.Container(
@@ -19,18 +20,21 @@ def get_closing_controls(page: ft.Page, navigate_to):
     ], spacing=10)
     
     is_confirmed = ft.Ref[CustomCheckbox]()
-    complete_button = ft.Ref[ft.ElevatedButton]()
-    
-    def toggle_confirm(e):
+    complete_button = ft.Ref[ft.Button]()
+
+    async def toggle_confirm(e):
         if is_confirmed.current.value:
             complete_button.current.disabled = False
         else:
             complete_button.current.disabled = True
         page.update()
 
+    async def go_home(e):
+        await navigate_to("home")
+
     header = AppHeader(
         title_text="마감 체크리스트",
-        on_back_click=lambda _: navigate_to("home")
+        on_back_click=lambda e: asyncio.create_task(go_home(e))
     )
 
     return [
@@ -52,15 +56,15 @@ def get_closing_controls(page: ft.Page, navigate_to):
                                 ref=is_confirmed,
                                 label="마감 확인 (위 내용을 모두 확인했습니다)",
                                 value=False,
-                                on_change=toggle_confirm,
+                                on_change=lambda e: asyncio.create_task(toggle_confirm(e)),
                                 label_style=ft.TextStyle(color=AppColors.TEXT_PRIMARY)
                             ),
-                            ft.ElevatedButton(
+                            ft.Button(
                                 ref=complete_button,
-                                text="점검 완료 및 퇴근", 
-                                on_click=lambda _: navigate_to("home"), 
+                                content=ft.Text("점검 완료 및 퇴근"),
+                                on_click=lambda e: asyncio.create_task(go_home(e)),
                                 width=float("inf"), height=50,
-                                disabled=True, 
+                                disabled=True,
                                 style=ft.ButtonStyle(
                                     color="white",
                                     bgcolor=AppColors.SUCCESS,

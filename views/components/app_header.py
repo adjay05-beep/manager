@@ -46,7 +46,7 @@ def AppHeader(
         # Center title (Full-width background layer for perfect alignment)
         ft.Container(
             content=title_ctrl,
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
             width=float("inf"),
             height=70
         ),
@@ -65,6 +65,6 @@ def AppHeader(
         bgcolor=AppColors.SURFACE,
         border=ft.border.only(bottom=ft.border.BorderSide(1, AppColors.BORDER_LIGHT)),
         height=70,
-        alignment=ft.alignment.center 
+        alignment=ft.Alignment(0, 0) 
     )
 

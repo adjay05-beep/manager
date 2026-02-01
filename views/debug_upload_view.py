@@ -1,9 +1,10 @@
 import flet as ft
 import datetime
+import asyncio
 import traceback
 from services import storage_service
 
-def DebugUploadView(page: ft.Page):
+async def DebugUploadView(page: ft.Page):
     try:
         log_control = ft.Column(scroll=ft.ScrollMode.ALWAYS, height=400)
         
@@ -17,7 +18,7 @@ def DebugUploadView(page: ft.Page):
             except Exception:
                 pass  # UI update failed
 
-        def on_upload_result(e: ft.FilePickerResultEvent):
+        def on_upload_result(e: ft.ControlEvent):
             if not e.files: return
             f = e.files[0]
             log(f"File selected: {f.name} ({f.path})")
@@ -31,26 +32,26 @@ def DebugUploadView(page: ft.Page):
 
             # Run in Thread to emulate real scenario
             import threading
-            def _target():
-                log("Thread started.")
+            async def _target():
+                log("Async Task started.")
                 try:
                     log("Calling storage_service.handle_file_upload...")
-                    result = storage_service.handle_file_upload(
+                    result = await asyncio.to_thread(lambda: storage_service.handle_file_upload(
                         is_web=is_web,
                         file_obj=f,
                         status_callback=status_callback,
                         picker_ref=picker
-                    )
+                    ))
                     log(f"Result: {result}")
                 except Exception as ex:
                     log(f"CRITICAL ERROR: {ex}")
                     log(traceback.format_exc())
                 finally:
-                    log("Thread finished.")
+                    log("Async Task finished.")
 
-            threading.Thread(target=_target, daemon=True).start()
+            asyncio.create_task(_target())
 
-        def check_disk_write(e):
+        async def check_disk_write(e):
             import os, uuid
             log("--- Checking Disk Write Permissions ---")
             try:
@@ -58,19 +59,23 @@ def DebugUploadView(page: ft.Page):
                 path = os.path.join("uploads", test_name)
                 
                 # 1. Create Folder if missing
-                if not os.path.exists("uploads"):
+                if not await asyncio.to_thread(os.path.exists, "uploads"):
                     log("Creating 'uploads' directory...")
-                    os.makedirs("uploads", exist_ok=True)
+                    await asyncio.to_thread(os.makedirs, "uploads", exist_ok=True)
                 
                 # 2. Write
                 log(f"Writing to {path}...")
-                with open(path, "w") as f:
-                    f.write("test_content")
+                def write_test_file():
+                    with open(path, "w") as f:
+                        f.write("test_content")
+                await asyncio.to_thread(write_test_file)
                 
                 # 3. Read
                 log("Reading back...")
-                with open(path, "r") as f:
-                    content = f.read()
+                def read_test_file():
+                    with open(path, "r") as f:
+                        return f.read()
+                content = await asyncio.to_thread(read_test_file)
                     
                 if content == "test_content":
                     log("SUCCESS: Disk Write/Read OK")
@@ -79,26 +84,26 @@ def DebugUploadView(page: ft.Page):
                     
                 # 4. Delete
                 log("Deleting test file...")
-                os.remove(path)
+                await asyncio.to_thread(os.remove, path)
                 log("SUCCESS: Delete OK")
                 
             except Exception as ex:
                 log(f"DISK ERROR: {ex}")
                 log(traceback.format_exc())
 
-        def check_supabase_connect(e):
+        async def check_supabase_connect(e):
             log("--- Checking Supabase Network ---")
             try:
                 from db import service_supabase
                 log("Calling storage.from_('uploads').list()...")
                 # Try listing files in 'uploads' bucket to verify connection
-                res = service_supabase.storage.from_("uploads").list()
+                res = await asyncio.to_thread(lambda: service_supabase.storage.from_("uploads").list())
                 log(f"SUCCESS: Connected. Files found: {len(res)}")
             except Exception as ex:
                 log(f"NETWORK ERROR: {ex}")
                 log(traceback.format_exc())
 
-        def load_server_logs(e):
+        async def load_server_logs(e):
             from utils.logger import get_logs
             logs = get_logs()
             log_control.controls.clear()
@@ -123,21 +128,24 @@ def DebugUploadView(page: ft.Page):
             else:
                 log("ERROR: 'uploads/' directory does not exist!")
 
-        picker = ft.FilePicker(on_result=on_upload_result)
-        page.overlay.append(picker)
-        
+        # [Flet 0.80+] FilePicker disabled temporarily
+        picker = None
+
+        def try_pick_files(e):
+            log("FilePicker disabled in Flet 0.80 - use alternative upload method")
+
         # Auto-load logs on entry
         load_server_logs(None)
-        
+
         return [
             ft.Text("시스템 진단 & 로그", size=24, weight="bold"),
             ft.Text("AI 분석 실패 원인을 여기서 확인하세요.", size=12, color="grey"),
             ft.Divider(),
             ft.Row([
-                ft.ElevatedButton("새로 고침 (로그)", on_click=load_server_logs, bgcolor="blue", color="white", icon=ft.Icons.REFRESH),
-                ft.ElevatedButton("파일 업로드 테스트", on_click=lambda _: picker.pick_files()),
-                ft.ElevatedButton("Disk Write Test", on_click=check_disk_write),
-                ft.ElevatedButton("Supabase Check", on_click=check_supabase_connect),
+                ft.ElevatedButton("새로 고침 (로그)", on_click=lambda e: asyncio.create_task(load_server_logs(e)), bgcolor="blue", color="white", icon=ft.Icons.REFRESH),
+                ft.ElevatedButton("파일 업로드 테스트 (비활성)", on_click=try_pick_files, disabled=True),
+                ft.ElevatedButton("Disk Write Test", on_click=lambda e: asyncio.create_task(check_disk_write(e))),
+                ft.ElevatedButton("Supabase Check", on_click=lambda e: asyncio.create_task(check_supabase_connect(e))),
             ], wrap=True),
             ft.Container(height=10),
             ft.Container(height=20),

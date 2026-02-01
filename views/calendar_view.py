@@ -26,13 +26,17 @@ class ThreadSafeState:
     def __setitem__(self, key, value):
         with self._lock: self._data[key] = value
 
-def get_calendar_controls(page: ft.Page, navigate_to):
+async def get_calendar_controls(page: ft.Page, navigate_to):
     now = datetime.now()
     view_state = {"year": now.year, "month": now.month, "today": now.day, "events": []}
     
+    # [FIX] Helper for updates (Flet 0.80+ page.update() is sync)
+    def update_page():
+        page.update()
+    
     # [FIX] Multi-Channel
     log_debug("Entering get_calendar_controls")
-    channel_id = page.session.get("channel_id")
+    channel_id = page.app_session.get("channel_id")
     log_debug(f"Channel ID: {channel_id}")
     
     state = ThreadSafeState()
@@ -238,11 +242,11 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         return events
 
     # [RBAC] Get User from Session
-    current_user_id = page.session.get("user_id")
+    current_user_id = page.app_session.get("user_id")
     # For robust MVP, allow view but require login
-    def load():
+    async def load(e=None):
         log_debug("load() called - scheduling load_async")
-        page.run_task(load_async)
+        await load_async()
         
     async def load_async():
         log_debug(f"load_async start. User: {current_user_id}, Channel: {channel_id}, Type: {current_cal_type}")
@@ -261,12 +265,12 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 log_debug(f"Staff events fetched: {len(view_state['events'])}")
             
             log_debug("Calling build()...")
-            build()
+            await build()
             
             print(f"DEBUG_CAL: Load success. Events: {len(view_state['events'])}")
             
             log_debug("Calling page.update() inside load_async")
-            if page: page.update()
+            update_page()
             
         except Exception as e: 
             import traceback
@@ -274,10 +278,10 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             log_error(f"Calendar Load Error: {err}")
             print(f"Calendar Load Error: {err}")
             # debug_text removed
-            if page: page.update()
-            build()
+            update_page()
+            await build()
 
-    def build():
+    async def build():
         try:
             log_debug(f"build() called for {view_state['year']}-{view_state['month']}")
             calendar_container.controls.clear()
@@ -314,7 +318,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                         bgcolor=day_bg,
                         border_radius=10, 
                         width=20, height=20, 
-                        alignment=ft.alignment.center
+                        alignment=ft.Alignment(0, 0)
                     )
                     
                     day_events = []
@@ -342,13 +346,13 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                     
                     # Chip container - Stretch to fill width
                     day_content_col = ft.Column(spacing=2, tight=True, horizontal_alignment=ft.CrossAxisAlignment.STRETCH) 
-                    day_content_col.controls.append(ft.Container(content=day_label, alignment=ft.alignment.center, padding=ft.padding.only(bottom=2)))
+                    day_content_col.controls.append(ft.Container(content=day_label, alignment=ft.Alignment(0, 0), padding=ft.padding.only(bottom=2)))
                     
-                    def handle_day_click(d):
+                    async def handle_day_click(d):
                         if current_cal_type == "staff":
-                            open_staff_day_ledger(d)
+                            await open_staff_day_ledger(d)
                         else:
-                            open_day_agenda_dialog(d)
+                            await open_day_agenda_dialog(d)
 
                     for ev in day_events[:5]:
                         bg_color = ev.get("color", "blue")
@@ -388,13 +392,13 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                             bgcolor=bg_color,
                             border_radius=br,
                             height=18, # Consistent height for bars
-                            alignment=ft.alignment.center_left,
+                            alignment=ft.Alignment(-1, 0),
                             padding=ft.padding.only(left=5, right=5),
                             margin=ft.margin.only(
                                 left=(-4 if not is_start and weekday != 0 else 0), 
                                 right=(-4 if not is_end and weekday != 6 else 0)
                             ),
-                            on_click=lambda e, d=day: handle_day_click(d),
+                            on_click=lambda e, d=day: asyncio.create_task(handle_day_click(d)),
                         )
                         day_content_col.controls.append(chip)
                         
@@ -412,22 +416,22 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                             bgcolor="white",
                             border=ft.border.all(0.5, "#E0E0E0"),
                             padding=2,
-                            on_click=lambda e, d=day: handle_day_click(d),
-                            alignment=ft.alignment.top_center
+                            on_click=lambda e, d=day: asyncio.create_task(handle_day_click(d)),
+                            alignment=ft.Alignment(0, -1)
                         )
                     )
                 
                 calendar_container.controls.append(week_row)
 
-            if page: page.update()
+            if page: update_page()
         except Exception as build_err:
             print(f"Calendar Build Error: {build_err}")
             import traceback
             traceback.print_exc()
             # debug_text removed
-            if page: page.update()
+            if page: update_page()
 
-    def open_day_agenda_dialog(day):
+    async def open_day_agenda_dialog(day):
         y, m = view_state["year"], view_state["month"]
         # Find events for this day
         day_str = f"{y}-{m:02d}-{day:02d}"
@@ -456,7 +460,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                     padding=15,
                     bgcolor=AppColors.SURFACE_VARIANT,
                     border_radius=10,
-                    on_click=lambda e, ev=ev: (page.close(agenda_dlg), open_event_detail_dialog(ev, day))
+                    on_click=lambda e, ev=ev: asyncio.create_task(async_close_and_open_detail(agenda_dlg, ev, day))
                 )
             )
 
@@ -464,7 +468,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             agenda_items.append(
                 ft.Container(
                     content=ft.Text("오늘 등록된 일정이 없습니다.", color=AppColors.TEXT_SECONDARY),
-                    alignment=ft.alignment.center,
+                    alignment=ft.Alignment(0, 0),
                     expand=True,
                     padding=40
                 )
@@ -480,18 +484,26 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                     ft.Row([
                         ft.Text(f"{m}월 {day}일 {wd}요일", size=22, weight="bold", color=AppColors.TEXT_PRIMARY),
                         ft.IconButton(ft.Icons.ADD_CIRCLE, icon_color=AppColors.PRIMARY, icon_size=32, 
-                                      on_click=lambda _: (page.close(agenda_dlg), open_event_editor_dialog(day))),
+                                      on_click=lambda _: asyncio.create_task(async_close_and_open_editor(agenda_dlg, day))),
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Divider(height=10, color="transparent"),
                     ft.Column(agenda_items, spacing=10, scroll=ft.ScrollMode.AUTO, expand=True)
                 ])
             ),
-            actions=[ft.TextButton("닫기", on_click=lambda _: page.close(agenda_dlg))],
+            actions=[ft.TextButton("닫기", on_click=lambda _: asyncio.create_task(page.close_async(agenda_dlg) if hasattr(page, "close_async") else page.close(agenda_dlg)))],
             actions_alignment=ft.MainAxisAlignment.END,
             shape=ft.RoundedRectangleBorder(radius=20),
         )
-        page.open(agenda_dlg)
-        page.update()
+        await page.open_async(agenda_dlg) if hasattr(page, "open_async") else page.open(agenda_dlg)
+        update_page()
+
+    async def async_close_and_open_editor(dlg, day):
+        await page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)
+        open_event_editor_dialog(day)
+
+    async def async_close_and_open_detail(dlg, ev, day):
+        await page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)
+        open_event_detail_dialog(ev, day)
 
     def open_event_detail_dialog(ev, day):
         # [NEW] Helper for pretty date formatting
@@ -524,7 +536,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                     log_error(f"Delete Error: {ex}")
                     page.snack_bar = ft.SnackBar(ft.Text(f"삭제 실패: {ex}"), bgcolor="red"); page.snack_bar.open=True
                     page.update()
-            page.run_task(_del)
+            asyncio.create_task(_del())
 
         creator_name = ev.get('profiles', {}).get('full_name', '알 수 없음')
         initials = creator_name[0] if creator_name else "?"
@@ -541,7 +553,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         summary_section = ft.Column([
             ft.Container(
                 content=ft.Text(initials, color="white", weight="bold", size=14),
-                width=36, height=36, bgcolor="#D81B60", border_radius=18, alignment=ft.alignment.center
+                width=36, height=36, bgcolor="#D81B60", border_radius=18, alignment=ft.Alignment(0, 0)
             ),
             ft.Text(ev['title'], size=22, weight="bold", color="#2E7D32", text_align=ft.TextAlign.CENTER),
             ft.Row([
@@ -589,7 +601,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 ft.Divider(height=1, color=AppColors.BORDER_LIGHT),
                 ft.Container(height=20),
                 ft.Row([
-                    ft.Container(content=ft.Text(initials, color="white", size=10), width=24, height=24, bgcolor="#D81B60", border_radius=12, alignment=ft.alignment.center),
+                    ft.Container(content=ft.Text(initials, color="white", size=10), width=24, height=24, bgcolor="#D81B60", border_radius=12, alignment=ft.Alignment(0, 0)),
                     ft.Text(f"{creator_name}님이 일정을 등록했습니다", size=14, color=AppColors.TEXT_SECONDARY),
                 ], spacing=10, alignment=ft.MainAxisAlignment.CENTER),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
@@ -605,7 +617,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 on_click=delete_ev,
             ),
             visible=str(ev.get('created_by')) == str(current_user_id),
-            alignment=ft.alignment.center,
+            alignment=ft.Alignment(0, 0),
             margin=ft.margin.only(top=10, bottom=20)
         )
 
@@ -663,7 +675,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 except Exception:
                     pass
 
-    def open_staff_day_ledger(day):
+    async def open_staff_day_ledger(day):
         y, m = view_state["year"], view_state["month"]
         current_day_evs = [ev for ev in view_state["events"] if not ev.get('is_virtual') and str(ev.get('start_date', '')).startswith(f"{y}-{m:02d}-{day:02d}")]
         
@@ -698,25 +710,25 @@ def get_calendar_controls(page: ft.Page, navigate_to):
 
         # 2. Existing Records List
         existing_list = ft.Column(spacing=5)
-        def refresh_existing():
+        async def refresh_existing():
             existing_list.controls.clear()
             for ev in current_day_evs:
                 existing_list.controls.append(
                     ft.Row([
                         ft.Icon(ft.Icons.CHECK_CIRCLE, color="green" if "결근" not in ev['title'] else "red", size=14),
                         ft.Text(ev['title'], size=14, expand=True),
-                        ft.IconButton(ft.Icons.DELETE, icon_color="red", icon_size=16, on_click=lambda e, eid=ev['id']: page.run_task(delete_and_refresh, eid))
+                        ft.IconButton(ft.Icons.DELETE, icon_color="red", icon_size=16, on_click=lambda e, eid=ev['id']: asyncio.create_task(delete_and_refresh(eid)))
                     ])
                 )
             if not current_day_evs:
                 existing_list.controls.append(ft.Text("확정된 기록 없음", size=12, color="grey"))
-            page.update()
+            update_page()
 
         async def delete_and_refresh(eid):
             await delete_staff_event(eid)
             nonlocal current_day_evs
             current_day_evs = [ev for ev in current_day_evs if ev['id'] != eid]
-            refresh_existing()
+            await refresh_existing()
             load()
 
         async def add_record():
@@ -797,13 +809,13 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                     "color": color,
                     "employee_id": eid,
                     "is_work_schedule": True,
-                    "created_by": page.session.get("user_id"),
+                    "created_by": page.app_session.get("user_id"),
                     "channel_id": channel_id
                 }
                 res = await asyncio.to_thread(lambda: client.from_("calendar_events").insert(payload).execute())
                 if res.data:
                     current_day_evs.append(res.data[0])
-                    refresh_existing()
+                    await refresh_existing()
                     load()
                     page.open(ft.SnackBar(ft.Text("기록되었습니다."), bgcolor="green"))
             finally:
@@ -837,7 +849,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                             pass  # Invalid date format
                     unique_staff[nm] = d['id']
                 staff_dd.options = [ft.dropdown.Option(eid, nm) for nm, eid in unique_staff.items()]
-                page.update()
+                update_page()
             finally:
                 if client:
                     try:
@@ -855,24 +867,24 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                     ft.Text("기록 추가", size=12, weight="bold"),
                     ft.Row([staff_dd, ft.Text("또는"), substitute_tf], vertical_alignment="center"),
                     ft.Row([type_dd, extension_dd, tf_start, ft.Text("~", visible=False), tf_end], vertical_alignment="center"),
-                    ft.Row([ft.ElevatedButton("기록하기", on_click=lambda e: page.run_task(add_record), expand=True)], alignment="center"),
+                    ft.Row([ft.ElevatedButton("기록하기", on_click=lambda e: asyncio.create_task(add_record()), expand=True)], alignment="center"),
                 ], tight=True, scroll=ft.ScrollMode.AUTO, spacing=10),
                 width=450, height=500
             ),
-            actions=[ft.TextButton("닫기", on_click=lambda _: page.close(dlg))]
+            actions=[ft.TextButton("닫기", on_click=lambda _: asyncio.create_task(page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)))]
         )
         
         # Link start/end visibility to tilde
         tilde_txt = dlg.content.content.controls[5].controls[3]
-        def on_type_change_sync(e):
+        async def on_type_change_sync(e):
             on_type_change(e)
             tilde_txt.visible = tf_start.visible
-            page.update()
-        type_dd.on_change = on_type_change_sync
+            update_page()
+        type_dd.on_change = lambda e: asyncio.create_task(on_type_change_sync(e))
 
         page.open(dlg)
-        refresh_existing()
-        page.run_task(fetch_staff)
+        asyncio.create_task(refresh_existing())
+        asyncio.create_task(fetch_staff())
 
     def open_event_editor_dialog(day, init_title="", existing_event=None):
         try:
@@ -931,8 +943,8 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 icon=ft.Icons.UPLOAD_FILE,
                 icon_color=AppColors.PRIMARY,
                 icon_size=20,
-                on_click=lambda _: page.file_picker.pick_files(),
-                tooltip="파일 업로드"
+                on_click=lambda _: page.file_picker.pick_files() if page.file_picker else None,
+                tooltip="파일 업로드 (비활성)" if not page.file_picker else "파일 업로드"
             )
         )
         
@@ -948,26 +960,26 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             status_msg
         ], spacing=2)
 
-        def on_upload_progress(e: ft.FilePickerUploadEvent):
+        async def on_upload_progress(e: ft.ControlEvent):
             if status_msg:
                 status_msg.value = f"업로딩 ({int(e.progress * 100)}%)"
-                page.update()
+                update_page()
 
-        def on_file_result(e: ft.FilePickerResultEvent):
+        async def on_file_result(e: ft.ControlEvent):
             nonlocal saved_fname
             if e.files:
                 f = e.files[0]
                 status_msg.value = "준비 중..."
                 status_msg.visible = True
-                page.update()
+                update_page()
 
                 # [CLEAN] Use async do_upload function
                 async def do_upload():
                     try:
                         from services import storage_service
-                        def update_ui_status(msg):
+                        async def update_ui_status(msg):
                             status_msg.value = msg
-                            page.update()
+                            update_page()
                             
                         # Use page.file_picker which is set in main.py
                         picker = getattr(page, "file_picker", None)
@@ -984,21 +996,22 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                             if result["public_url"]:
                                 link_tf.value = result["public_url"]
                                 status_msg.value = "Web Upload Signed (Check Console)"
-                        
-                        page.update()
+
+                        update_page()
                     except Exception as ex:
                         status_msg.value = f"오류: {ex}"
-                        page.update()
+                        update_page()
 
-                page.run_task(do_upload)
+                asyncio.create_task(do_upload())
 
-        def on_upload_complete(e: ft.FilePickerUploadEvent):
+        async def on_upload_complete(e: ft.ControlEvent):
              status_msg.value = "업로드 완료"
              status_msg.color = "green"
-             page.update()
+             update_page()
         
-        page.file_picker.on_result = on_file_result
-        page.file_picker.on_upload = on_upload_progress
+        if page.file_picker:
+            page.file_picker.on_result = on_file_result
+            page.file_picker.on_upload = on_upload_progress
         
         b_ds = ft.OutlinedButton(on_click=lambda _: page.open(dp_s))
         b_de = ft.OutlinedButton(on_click=lambda _: page.open(dp_e))
@@ -1018,17 +1031,18 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             b_ts.visible = not evt_state["all_day"]
             b_te.visible = not evt_state["all_day"]
             
-            if dlg_edit and dlg_edit.open: dlg_edit.update()
+            if dlg_edit and dlg_edit.open: asyncio.create_task(dlg_edit.update())
         
         colors = ["#1DDB16", "#FF9800", "#448AFF", "#E91E63", "#9C27B0", "#000000"]
         color_row = ft.Row(spacing=10)
-        def set_color(c):
+        async def set_color(e):
+            c = e.control.data
             evt_state["color"] = c
             for btn in color_row.controls:
                 btn.content.visible = (btn.data == c)
             if dlg_edit and dlg_edit.open: dlg_edit.update()
         for c in colors:
-            color_row.controls.append(ft.Container(width=30, height=30, bgcolor=c, border_radius=15, data=c, on_click=lambda e: set_color(e.control.data), content=ft.Icon(ft.Icons.CHECK, color="white", size=20, visible=(c==evt_state["color"])), alignment=ft.alignment.center))
+            color_row.controls.append(ft.Container(width=30, height=30, bgcolor=c, border_radius=15, data=c, on_click=lambda e: asyncio.create_task(set_color(e)), content=ft.Icon(ft.Icons.CHECK, color="white", size=20, visible=(c==evt_state["color"])), alignment=ft.Alignment(0, 0)))
 
         participant_chips = ft.Row(wrap=True)
         async def load_part_profiles():
@@ -1048,7 +1062,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             
             render_parts()
 
-        page.run_task(load_part_profiles)
+        asyncio.create_task(load_part_profiles())
 
         def save(e):
             if not title_tf.value: title_tf.error_text="필수"; title_tf.update(); return
@@ -1090,14 +1104,14 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                     page.snack_bar.open=True
                     page.close(dlg_edit)
                     load()
-                    page.update()
+                    update_page()
                 except PermissionError as perm_err:
-                    page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"); page.snack_bar.open=True; page.update()
+                    page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"); page.snack_bar.open=True; update_page()
                 except Exception as ex:
                     print(f"Save Error: {ex}")
                     page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
             
-            page.run_task(_save_async)
+            asyncio.create_task(_save_async())
 
 
 
@@ -1118,26 +1132,26 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 ], scroll=ft.ScrollMode.AUTO, height=500, tight=True)
             ),
             actions=[
-                ft.TextButton("취소", on_click=lambda _: page.close(dlg_edit)),
+                ft.TextButton("취소", on_click=lambda _: asyncio.create_task(page.close_async(dlg_edit) if hasattr(page, "close_async") else page.close(dlg_edit))),
                 ft.ElevatedButton("저장", on_click=save, bgcolor="#00C73C", color="white")
             ]
         )
         update_ui()
         page.open(dlg_edit)
 
-    def change_m(delta):
+    async def change_m(delta, e=None):
         view_state["month"] += delta
         if view_state["month"] > 12: view_state["month"]=1; view_state["year"]+=1
         elif view_state["month"] < 1: view_state["month"]=12; view_state["year"]-=1
-        load()
+        await load()
 
-    def on_swipe(e: ft.DragEndEvent):
+    async def on_swipe(e: ft.DragEndEvent):
         # Velocity-based horizontal swipe detection
         if e.primary_velocity is not None:
             if e.primary_velocity > 400: # Swiping Right -> Prev Month
-                change_m(-1)
+                await change_m(-1)
             elif e.primary_velocity < -400: # Swiping Left -> Next Month
-                change_m(1)
+                await change_m(1)
 
     month_label = ft.Text(f"{view_state['year']}년 {view_state['month']}월", size=20, weight="bold", color="#0A1929")
 
@@ -1145,16 +1159,16 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         now = datetime.now()
         view_state["year"] = now.year
         view_state["month"] = now.month
-        load()
+        asyncio.create_task(load())
 
     def open_event_dialog():
         open_event_editor_dialog(datetime.now().day)
 
     # [NEW] Drawer & Channel Switching
     def switch_channel(ch):
-        page.session.set("channel_id", ch["id"])
-        page.session.set("channel_name", ch["name"])
-        page.session.set("user_role", ch["role"])
+        page.app_session["channel_id"] = ch["id"]
+        page.app_session["channel_name"] = ch["name"]
+        page.app_session["user_role"] = ch["role"]
         page.close_drawer()
         navigate_to("calendar") # Refresh view
 
@@ -1167,15 +1181,16 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         # Update label immediately (load will do it too but for responsiveness)
         month_label.value = f"{view_state['year']}년 {view_state['month']}월"
         load()
-        page.close(page.drawer)
+        asyncio.create_task(page.close_async(page.drawer) if hasattr(page, "close_async") else page.close(page.drawer))
 
     def build_drawer():
-        u_name = page.session.get("display_name") or "User"
+        u_name = page.app_session.get("display_name") or "User"
         
         # Fetch Channels
         from services.auth_service import auth_service
         from services.channel_service import channel_service
         token = auth_service.get_access_token()
+        # [FIX] Simplified to avoid nested async in build_drawer (caller might be sync)
         channels = channel_service.get_user_channels(current_user_id, token)
         
         drawer = ft.NavigationDrawer(
@@ -1231,17 +1246,23 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     page.update()
 
     # [Standardized Header]
+    async def go_prev_month(e):
+        await change_m(-1)
+
+    async def go_next_month(e):
+        await change_m(1)
+
     header = AppHeader(
         title_text=ft.Row([
-            ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=lambda _: change_m(-1), icon_color=AppColors.TEXT_PRIMARY), 
-            month_label, 
-            ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=lambda _: change_m(1), icon_color=AppColors.TEXT_PRIMARY)
+            ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=lambda e: asyncio.create_task(go_prev_month(e)), icon_color=AppColors.TEXT_PRIMARY),
+            month_label,
+            ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=lambda e: asyncio.create_task(go_next_month(e)), icon_color=AppColors.TEXT_PRIMARY)
         ], alignment=ft.MainAxisAlignment.CENTER),
         left_button=ft.Row([
-            ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color=AppColors.TEXT_PRIMARY, on_click=lambda _: page.go_back(), tooltip="뒤로"),
-            ft.IconButton(ft.Icons.MENU, icon_color=AppColors.TEXT_PRIMARY, on_click=lambda _: page.open(drawer), tooltip="메뉴"),
+            ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color=AppColors.TEXT_PRIMARY, on_click=lambda e: asyncio.create_task(page.go_back(e)) if hasattr(page, "go_back") else asyncio.create_task(navigate_to("home")), tooltip="뒤로"),
+            ft.IconButton(ft.Icons.MENU, icon_color=AppColors.TEXT_PRIMARY, on_click=lambda _: asyncio.create_task(page.open_async(drawer) if hasattr(page, "open_async") else page.open(drawer)), tooltip="메뉴"),
         ], spacing=0),
-        action_button=ft.IconButton(ft.Icons.REFRESH, on_click=lambda _: load(), icon_color=AppColors.TEXT_PRIMARY)
+        action_button=ft.IconButton(ft.Icons.REFRESH, on_click=lambda e: asyncio.create_task(load(e)), icon_color=AppColors.TEXT_PRIMARY)
     )
     
     async def initial_load_delayed():
@@ -1266,7 +1287,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                     await asyncio.sleep(5)
                     if state["is_active"]:
                         # print("DEBUG_CAL: Polling tick.")
-                        page.run_task(load_async)
+                        asyncio.create_task(load_async())
                 except Exception as e:
                     print(f"DEBUG_CAL: Polling error: {e}")
                     await asyncio.sleep(10)
@@ -1288,7 +1309,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                     
                     async def on_change(payload):
                         log_info(f"CALENDAR_SYNC [RT]: {payload.get('eventType')} detected! Reloading UI.")
-                        page.run_task(load_async)
+                        asyncio.create_task(load_async())
 
                     channel.on_postgres_changes(
                         event="*",
@@ -1326,9 +1347,9 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     # Since there is no direct "on_close" for a view, we hook into the page's route change if we could, 
     # but more simply we rely on the loop check for page.is_running.
 
-    page.run_task(initial_load_delayed)
+    asyncio.create_task(initial_load_delayed())
     # Register the realtime task properly
-    rt_task = page.run_task(realtime_handler)
+    rt_task = asyncio.create_task(realtime_handler())
 
     # Simple cleanup logic when view is logically destroyed
     def cleanup():
@@ -1355,13 +1376,13 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                         content=ft.Column([
                             # Weekday header row
                             ft.Row([
-                                ft.Container(content=ft.Text("월", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                                ft.Container(content=ft.Text("화", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                                ft.Container(content=ft.Text("수", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                                ft.Container(content=ft.Text("목", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                                ft.Container(content=ft.Text("금", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                                ft.Container(content=ft.Text("토", color="blue", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                                ft.Container(content=ft.Text("일", color="red", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                                ft.Container(content=ft.Text("월", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.Alignment(0, 0), padding=5),
+                                ft.Container(content=ft.Text("화", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.Alignment(0, 0), padding=5),
+                                ft.Container(content=ft.Text("수", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.Alignment(0, 0), padding=5),
+                                ft.Container(content=ft.Text("목", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.Alignment(0, 0), padding=5),
+                                ft.Container(content=ft.Text("금", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.Alignment(0, 0), padding=5),
+                                ft.Container(content=ft.Text("토", color="blue", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.Alignment(0, 0), padding=5),
+                                ft.Container(content=ft.Text("일", color="red", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.Alignment(0, 0), padding=5),
                             ], spacing=0),
                             # Grid
                             calendar_container

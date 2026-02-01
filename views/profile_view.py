@@ -1,4 +1,5 @@
 import flet as ft
+import asyncio
 from services.channel_service import channel_service
 from services.auth_service import auth_service
 from db import service_supabase
@@ -6,24 +7,24 @@ from views.components.app_header import AppHeader
 from views.styles import AppColors, AppLayout
 import os
 
-def get_profile_controls(page: ft.Page, navigate_to):
+async def get_profile_controls(page: ft.Page, navigate_to):
     """Profile View: User Profile + Store List"""
     
-    user_id = page.session.get("user_id")
-    channel_id = page.session.get("channel_id")
-    user_email = page.session.get("user_email") or "unknown@example.com"
+    user_id = page.app_session.get("user_id")
+    channel_id = page.app_session.get("channel_id")
+    user_email = page.app_session.get("user_email") or "unknown@example.com"
     
     # Fetch User Profile
     user_profile = None
     try:
-        res = service_supabase.table("profiles").select("*").eq("id", user_id).single().execute()
+        res = await asyncio.to_thread(lambda: service_supabase.table("profiles").select("*").eq("id", user_id).single().execute())
         user_profile = res.data
     except Exception:
         pass  # Profile fetch failed
 
     # Fetch User Channels
     token = auth_service.get_access_token()
-    channels = channel_service.get_user_channels(user_id, token)
+    channels = await asyncio.to_thread(lambda: channel_service.get_user_channels(user_id, token))
 
     # --- [NEW] Contract Info Fetching ---
     contract_info_container = ft.Column(spacing=10)
@@ -92,7 +93,7 @@ def get_profile_controls(page: ft.Page, navigate_to):
             contract_info_container.controls = [ft.Text("계약 정보를 불러오는 중 오류가 발생했습니다.", color="red", size=12)]
             page.update()
 
-    page.run_task(load_contract_async)
+    asyncio.create_task(load_contract_async())
     # ------------------------------------
 
     # UI Components
@@ -108,15 +109,15 @@ def get_profile_controls(page: ft.Page, navigate_to):
         text_size=14
     )
 
-    def save_profile_changes(e):
+    async def save_profile_changes(e):
         try:
-            service_supabase.table("profiles").upsert({
+            await asyncio.to_thread(lambda: service_supabase.table("profiles").upsert({
                 "id": user_id,
                 "full_name": profile_name_tf.value,
                 "updated_at": "now()"
-            }).execute()
-            page.session.set("display_name", profile_name_tf.value)
-            page.snack_bar = ft.SnackBar(ft.Text("프로필이 저장되었습니다."), bgcolor="green"); 
+            }).execute())
+            page.app_session["display_name"] = profile_name_tf.value
+            page.snack_bar = ft.SnackBar(ft.Text("프로필이 저장되었습니다."), bgcolor="green");
             page.snack_bar.open = True
             page.update()
         except Exception as ex:
@@ -124,9 +125,13 @@ def get_profile_controls(page: ft.Page, navigate_to):
 
     def perform_logout(e):
         auth_service.sign_out()
-        page.session.clear()
-        page.client_storage.remove("supa_session")
-        navigate_to("login")
+        # Clear app_session dict
+        page.app_session.clear()
+        try:
+            page.client_storage.remove("supa_session")
+        except:
+            pass
+        asyncio.create_task(navigate_to("login"))
 
     def perform_create_store(e):
         # Open Create Store Dialog (Reusing logic or navigating)
@@ -143,7 +148,7 @@ def get_profile_controls(page: ft.Page, navigate_to):
             ft.Container(
                 content=ft.Icon(ft.Icons.PERSON, size=40, color="white"),
                 width=70, height=70, bgcolor="#E0E0E0", border_radius=35,
-                alignment=ft.alignment.center
+                alignment=ft.Alignment(0, 0)
             ),
             ft.Container(width=10),
             ft.Column([
@@ -163,7 +168,7 @@ def get_profile_controls(page: ft.Page, navigate_to):
         title=ft.Text("프로필 수정"),
         content=profile_name_tf,
         actions=[
-            ft.TextButton("저장", on_click=lambda e: [save_profile_changes(e), page.close(edit_profile_dialog)])
+            ft.TextButton("저장", on_click=lambda e: asyncio.create_task(save_profile_changes(e) if hasattr(save_profile_changes, '__await__') else save_profile_changes(e)))
         ]
     )
 
@@ -183,19 +188,19 @@ def get_profile_controls(page: ft.Page, navigate_to):
                     padding=10,
                     border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE")),
                     # Logic to switch store could be added here
-                    on_click=lambda e, cid=ch['id'], cname=ch['name']: switch_store(cid, cname)
+                    on_click=lambda e, cid=ch['id'], cname=ch['name']: asyncio.create_task(switch_store(cid, cname))
                 )
             )
     else:
         store_list_items.append(ft.Text("가입된 매장이 없습니다.", color="grey"))
 
-    def switch_store(cid, cname):
-        page.session.set("channel_id", cid)
-        page.session.set("channel_name", cname)
+    async def switch_store(cid, cname):
+        page.app_session["channel_id"] = cid
+        page.app_session["channel_name"] = cname
         # Refresh role?
         # Ideally we fetch role for new channel.
         # For now just reload
-        navigate_to("home")
+        await navigate_to("home")
 
     return [
         ft.SafeArea(expand=True, content=
@@ -204,7 +209,7 @@ def get_profile_controls(page: ft.Page, navigate_to):
                 bgcolor="white",
                 content=ft.Column([
                     # Header
-                    AppHeader("내 프로필", on_back_click=page.go_back),
+                    AppHeader("내 프로필", on_back_click=lambda _: asyncio.create_task(page.go_back() if hasattr(page, "go_back") else navigate_to("home"))),
                     
                     profile_card,
                     
@@ -225,7 +230,7 @@ def get_profile_controls(page: ft.Page, navigate_to):
                             ft.Text("내 매장 목록", size=16, weight="bold", color="#0A1929"),
                             ft.Column(store_list_items, spacing=0),
                             ft.Container(height=10),
-                            ft.OutlinedButton("새 매장 만들기", icon=ft.Icons.ADD, on_click=lambda _: navigate_to("onboarding"), width=200)
+                            ft.OutlinedButton("새 매장 만들기", icon=ft.Icons.ADD, on_click=lambda _: asyncio.create_task(navigate_to("onboarding")), width=200)
                         ])
                     )
                 ], scroll=ft.ScrollMode.AUTO)

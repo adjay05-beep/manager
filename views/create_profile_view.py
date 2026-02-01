@@ -1,7 +1,8 @@
 import flet as ft
+import asyncio
 from db import service_supabase as supabase
 
-def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email):
+async def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email):
     """프로필 생성 화면"""
     
     name_input = ft.TextField(
@@ -25,7 +26,7 @@ def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email)
     
     status_text = ft.Text("", color="green", size=14, text_align=ft.TextAlign.CENTER)
     
-    def create_profile(e):
+    async def create_profile(e):
         if not name_input.value:
             status_text.value = "❌ 이름을 입력해주세요"
             status_text.color = "red"
@@ -34,11 +35,11 @@ def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email)
         
         try:
             # 프로필 생성
-            result = supabase.table("profiles").insert({
+            result = await asyncio.to_thread(lambda: supabase.table("profiles").insert({
                 "id": user_id,
                 "full_name": name_input.value,
                 "role": role_dropdown.value
-            }).execute()
+            }).execute())
             
             if result.data:
                 status_text.value = "✅ 프로필 생성 완료!"
@@ -49,9 +50,9 @@ def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email)
                 async def go_home_delayed():
                     import asyncio
                     await asyncio.sleep(2)
-                    navigate_to("home")
+                    await navigate_to("home")
                 
-                page.run_task(go_home_delayed)
+                asyncio.create_task(go_home_delayed())
             else:
                 status_text.value = "❌ 프로필 생성 실패"
                 status_text.color = "red"
@@ -67,9 +68,9 @@ def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email)
                 async def go_home_delayed():
                     import asyncio
                     await asyncio.sleep(2)
-                    navigate_to("home")
+                    await navigate_to("home")
                 
-                page.run_task(go_home_delayed)
+                asyncio.create_task(go_home_delayed())
             else:
                 status_text.value = f"❌ 오류: {ex}"
                 status_text.color = "red"
@@ -94,7 +95,7 @@ def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email)
                     
                     ft.ElevatedButton(
                         "프로필 만들기",
-                        on_click=create_profile,
+                        on_click=lambda e: asyncio.create_task(create_profile(e)),
                         width=300,
                         height=50,
                         bgcolor="white",
@@ -109,7 +110,7 @@ def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email)
                     ft.Container(height=20),
                     ft.TextButton(
                         "나중에 하기",
-                        on_click=lambda _: navigate_to("home"),
+                        on_click=lambda _: asyncio.create_task(navigate_to("home")),
                         style=ft.ButtonStyle(color="#BDBDBD")
                     )
                 ],

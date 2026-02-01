@@ -1,16 +1,17 @@
 import flet as ft
+import asyncio
 from services.channel_service import channel_service
 from services.auth_service import auth_service
-from db import has_service_key, app_logs, service_key
+from db import has_service_key, app_logs, service_key, service_supabase
 
-def get_onboarding_controls(page: ft.Page, navigate_to):
-    current_user_id = page.session.get("user_id")
+async def get_onboarding_controls(page: ft.Page, navigate_to):
+    current_user_id = page.app_session.get("user_id")
     
     # [Name Verification] Fetch User Name
-    user_name = page.session.get("display_name")
+    user_name = page.app_session.get("display_name")
     if not user_name:
         try:
-             res = service_supabase.table("profiles").select("full_name").eq("id", current_user_id).single().execute()
+             res = await asyncio.to_thread(lambda: service_supabase.table("profiles").select("full_name").eq("id", current_user_id).single().execute())
              if res.data: user_name = res.data.get("full_name")
         except: user_name = "User"
 
@@ -25,65 +26,59 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
     
     error_text = ft.Text("", color="red", size=12)
 
-    def on_verify_biz(e):
+    async def on_verify_biz(e):
         b_num = business_num_tf.value
         if not b_num or len(b_num) < 10:
             error_text.value = "올바른 사업자 번호 10자리를 입력해주세요."
             page.update()
             return
-        
+
         # [MOCK API] Simulation of Hometax Lookup
-        # In real world, use hometax API or crawling
-        import asyncio
-        async def verify_process():
-            # Simulate network delay
-            btn_verify.disabled = True; btn_verify.content = ft.ProgressRing(width=16, height=16); page.update()
-            await asyncio.sleep(1.5)
+        # Simulate network delay
+        btn_verify.disabled = True
+        btn_verify.content = ft.ProgressRing(width=16, height=16)
+        page.update()
+        
+        await asyncio.sleep(1.5)
+        
+        mock_owner = "홍길동"
+        if b_num.endswith("9"):
+            mock_owner = user_name
+        
+        if b_num.startswith("1") or b_num == "0000000000": 
+            biz_name = f"(주)사업자_{b_num[-4:]}" 
             
-            # Mock Result
-            # Logic: 
-            # Ends with '1': Mismatch (Hong Gil Dong)
-            # Ends with '9': Match (Current User)
-            # Others: Hong Gil Dong
+            # Check Name Match
+            is_match = (mock_owner == user_name)
             
-            mock_owner = "홍길동"
-            if b_num.endswith("9"):
-                mock_owner = user_name
-            
-            if b_num.startswith("1") or b_num == "0000000000": 
-                biz_name = f"(주)사업자_{b_num[-4:]}" 
-                
-                # Check Name Match
-                is_match = (mock_owner == user_name)
-                
-                if not is_match:
-                     error_text.value = f"❌ 명의 불일치: 사업자 대표({mock_owner})와 가입자({user_name})가 다릅니다."
-                     error_text.color = "red"
-                     create_name_tf.value = ""
-                     verified_biz_info["number"] = None
-                else:
-                    create_name_tf.value = biz_name
-                    create_name_tf.read_only = True
-                    create_name_tf.bgcolor = "#E8F5E9" # Light Green
-                    create_name_tf.label = "매장 이름 (인증됨)"
-                    
-                    verified_biz_info["number"] = b_num
-                    verified_biz_info["owner"] = mock_owner
-                    
-                    error_text.value = "✅ 사업자 정보 및 본인 확인 완료."
-                    error_text.color = "green"
+            if not is_match:
+                 error_text.value = f"❌ 명의 불일치: 사업자 대표({mock_owner})와 가입자({user_name})가 다릅니다."
+                 error_text.color = "red"
+                 create_name_tf.value = ""
+                 verified_biz_info["number"] = None
             else:
-                error_text.value = "❌ 등록되지 않은 사업자 번호입니다. (테스트: 1로 시작하면 성공)"
-                error_text.color = "red"
-                create_name_tf.value = ""
-            
-            btn_verify.disabled = False; btn_verify.content = ft.Text("조회"); page.update()
+                create_name_tf.value = biz_name
+                create_name_tf.read_only = True
+                create_name_tf.bgcolor = "#E8F5E9" # Light Green
+                create_name_tf.label = "매장 이름 (인증됨)"
+                
+                verified_biz_info["number"] = b_num
+                verified_biz_info["owner"] = mock_owner
+                
+                error_text.value = "✅ 사업자 정보 및 본인 확인 완료."
+                error_text.color = "green"
+        else:
+            error_text.value = "❌ 등록되지 않은 사업자 번호입니다. (테스트: 1로 시작하면 성공)"
+            error_text.color = "red"
+            create_name_tf.value = ""
+        
+        btn_verify.disabled = False
+        btn_verify.content = ft.Text("조회")
+        page.update()
 
-        page.run_task(verify_process)
-
-    btn_verify = ft.ElevatedButton("조회", on_click=on_verify_biz, bgcolor="#455A64", color="white")
+    btn_verify = ft.ElevatedButton("조회", on_click=lambda e: asyncio.create_task(on_verify_biz(e)), bgcolor="#455A64", color="white")
     
-    def on_join(e):
+    async def on_join(e):
         code = join_code_tf.value
         if not code:
             error_text.value = "초대 코드를 입력해주세요."
@@ -91,13 +86,13 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
             return
 
         try:
-            ch = channel_service.join_channel(current_user_id, code)
-            complete_login(ch)
+            ch = await asyncio.to_thread(lambda: channel_service.join_channel(current_user_id, code))
+            await complete_login(ch)
         except Exception as ex:
             error_text.value = f"가입 실패: {ex}"
             page.update()
 
-    def on_create(e):
+    async def on_create(e):
         name = create_name_tf.value
         if not name:
             error_text.value = "먼저 사업자 번호를 조회해주세요."
@@ -110,24 +105,24 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
              return
 
         try:
-            ch = channel_service.create_channel(
+            ch = await asyncio.to_thread(lambda: channel_service.create_channel(
                 current_user_id, 
                 name,
                 business_number=verified_biz_info["number"],
                 business_owner=verified_biz_info["owner"]
-            )
-            complete_login(ch)
+            ))
+            await complete_login(ch)
         except Exception as ex:
             error_text.value = f"생성 실패: {ex}"
             page.update()
 
-    def complete_login(ch):
-        page.session.set("channel_id", ch["id"])
-        page.session.set("channel_name", ch["name"])
-        page.session.set("user_role", ch["role"])
+    async def complete_login(ch):
+        page.app_session["channel_id"] = ch["id"]
+        page.app_session["channel_name"] = ch["name"]
+        page.app_session["user_role"] = ch["role"]
         page.snack_bar = ft.SnackBar(ft.Text(f"환영합니다! {ch['name']}에 접속했습니다."), open=True)
         page.update()
-        navigate_to("home")
+        await navigate_to("home")
 
     # UI Components
     return [
@@ -152,7 +147,7 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
                             ft.Text("사업자 등록번호를 입력하여 매장을 개설하세요.", size=12, color="grey"),
                             ft.Row([business_num_tf, btn_verify], alignment="center"),
                             create_name_tf,
-                            ft.ElevatedButton("매장 생성하기", on_click=on_create, width=200, height=45, bgcolor="#1565C0", color="white")
+                            ft.ElevatedButton("매장 생성하기", on_click=lambda e: asyncio.create_task(on_create(e)), width=200, height=45, bgcolor="#1565C0", color="white")
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
                     ),
                     
@@ -166,13 +161,13 @@ def get_onboarding_controls(page: ft.Page, navigate_to):
                         content=ft.Column([
                             ft.Text("기존 매장 합류 (직원)", weight="bold", color="#0A1929"),
                             join_code_tf,
-                            ft.OutlinedButton("초대 코드로 입장", on_click=on_join, width=200, height=45, style=ft.ButtonStyle(color="#0A1929", side=ft.BorderSide(1, "#0A1929")))
+                            ft.OutlinedButton("초대 코드로 입장", on_click=lambda e: asyncio.create_task(on_join(e)), width=200, height=45, style=ft.ButtonStyle(color="#0A1929", side=ft.BorderSide(1, "#0A1929")))
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
                     ),
                     
                     ft.Container(height=10),
                     error_text,
-                    ft.TextButton("로그아웃", on_click=lambda _: navigate_to("login")),
+                    ft.TextButton("로그아웃", on_click=lambda _: asyncio.create_task(navigate_to("login"))),
                     
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,

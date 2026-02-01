@@ -9,11 +9,11 @@ import calendar as cal_mod
 import re
 from utils.logger import log_debug, log_error, log_info
 
-def get_work_controls(page: ft.Page, navigate_to):
+async def get_work_controls(page: ft.Page, navigate_to):
     from views.components.custom_checkbox import CustomCheckbox
     
     # 0. Common Variables & Styles
-    channel_id = page.session.get("channel_id")
+    channel_id = page.app_session.get("channel_id")
     if not channel_id:
         return [ft.Container(content=ft.Text("매장 정보가 없습니다. 다시 로그인해 주세요.", color="black"), padding=20)]
 
@@ -57,7 +57,7 @@ def get_work_controls(page: ft.Page, navigate_to):
             self.width = 40
             self.height = 40
             self.border_radius = 20
-            self.alignment = ft.alignment.center
+            self.alignment = ft.Alignment(0, 0)
             self.on_click = self.toggle
             self.animate = ft.Animation(200, "easeOut")
             self.update_style()
@@ -107,7 +107,7 @@ def get_work_controls(page: ft.Page, navigate_to):
         options=[ft.dropdown.Option("hourly", "시급"), ft.dropdown.Option("monthly", "월급")],
         value="hourly", text_size=14, border_color="#E0E0E0", border_radius=8
     )
-    reg_wage = ft.TextField(label="금액", width=200, value="10320", keyboard_type="number", suffix_text="원", height=45, text_size=14, border_color="#E0E0E0", content_padding=10, border_radius=8)
+    reg_wage = ft.TextField(label="금액", width=200, value="10320", keyboard_type="number", suffix=ft.Text("원"), height=45, text_size=14, border_color="#E0E0E0", content_padding=10, border_radius=8)
     
     pay_info_card = section_card("급여 정보", ft.Row([reg_wage_type, reg_wage], spacing=10))
 
@@ -174,33 +174,39 @@ def get_work_controls(page: ft.Page, navigate_to):
 
     # Mode Switcher (Segmented Control Look)
     schedule_mode_state = {"value": "uniform"}
-    
+
+    async def set_mode_uniform(e):
+        schedule_mode_state["value"] = "uniform"
+        btn_uniform.bgcolor = AppColors.PRIMARY
+        btn_uniform.content.color = "white"
+        btn_custom.bgcolor = AppColors.SURFACE_VARIANT
+        btn_custom.content.color = "grey"
+        uniform_content.visible = True
+        custom_content.visible = False
+        page.update()
+
+    async def set_mode_custom(e):
+        schedule_mode_state["value"] = "custom"
+        btn_uniform.bgcolor = AppColors.SURFACE_VARIANT
+        btn_uniform.content.color = "grey"
+        btn_custom.bgcolor = AppColors.PRIMARY
+        btn_custom.content.color = "white"
+        uniform_content.visible = False
+        custom_content.visible = True
+        page.update()
+
     btn_uniform = ft.Container(
-        content=ft.Text("간편 설정 (동일 시간)", weight="bold", color="white"), # [FIX] Initial White
-        alignment=ft.alignment.center, width=150, padding=10,
+        content=ft.Text("간편 설정 (동일 시간)", weight="bold", color="white"),
+        alignment=ft.Alignment(0, 0), width=150, padding=10,
         bgcolor=AppColors.PRIMARY, border_radius=8,
-        on_click=lambda e: set_mode("uniform")
+        on_click=lambda e: asyncio.create_task(set_mode_uniform(e))
     )
     btn_custom = ft.Container(
         content=ft.Text("상세 설정 (요일별)", color="grey"),
-        alignment=ft.alignment.center, width=150, padding=10,
+        alignment=ft.Alignment(0, 0), width=150, padding=10,
         bgcolor=AppColors.SURFACE_VARIANT, border_radius=8,
-        on_click=lambda e: set_mode("custom")
+        on_click=lambda e: asyncio.create_task(set_mode_custom(e))
     )
-
-    def set_mode(mode):
-        schedule_mode_state["value"] = mode
-        is_uni = (mode == "uniform")
-        
-        btn_uniform.bgcolor = AppColors.PRIMARY if is_uni else AppColors.SURFACE_VARIANT
-        btn_uniform.content.color = "white" if is_uni else "grey"
-        
-        btn_custom.bgcolor = AppColors.PRIMARY if not is_uni else AppColors.SURFACE_VARIANT
-        btn_custom.content.color = "white" if not is_uni else "grey"
-        
-        uniform_content.visible = is_uni
-        custom_content.visible = not is_uni
-        page.update()
 
     schedule_card = section_card("근무 일정", ft.Column([
         ft.Container(
@@ -335,11 +341,11 @@ def get_work_controls(page: ft.Page, navigate_to):
                          page.update()
                          return
                  
-                 page.close(dlg)
-                 page.update()
-                 await load_contracts_async()
+                     await page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)
+                     page.update()
+                     await load_contracts_async()
                  # await build_monthly_calendar()
-                 
+
              except Exception as ex:
                  print(f"Edit Save Error: {ex}")
                  import traceback
@@ -367,14 +373,14 @@ def get_work_controls(page: ft.Page, navigate_to):
                 width=400, height=500
             ),
             actions=[
-                ft.TextButton("저장", on_click=lambda e: page.run_task(save_edit)),
-                ft.TextButton("취소", on_click=lambda e: page.close(dlg))
+                ft.TextButton("저장", on_click=lambda e: asyncio.create_task(save_edit())),
+                ft.TextButton("취소", on_click=lambda e: asyncio.create_task(page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)))
             ]
         )
         page.open(dlg)
 
 
-    def open_resign_dialog(contract, mode="resign"):
+    async def open_resign_dialog(contract, mode="resign"):
         # mode: "resign" or "restore"
         if mode == "resign":
             res_date = ft.TextField(label="퇴사 일자 (YYYY-MM-DD)", value=datetime.now().strftime("%Y-%m-%d"))
@@ -402,7 +408,7 @@ def get_work_controls(page: ft.Page, navigate_to):
                 new_val = res_date.value if mode == "resign" else None
                 await asyncio.to_thread(lambda: client.from_("labor_contracts").update({"contract_end_date": new_val}).eq("id", contract['id']).execute())
                 
-                page.close(dlg)
+                await page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)
                 msg = f"{contract.get('employee_name')}님이 퇴사 처리되었습니다." if mode == "resign" else f"{contract.get('employee_name')}님이 복구되었습니다."
                 page.open(ft.SnackBar(ft.Text(msg), bgcolor="orange" if mode=="resign" else "blue"))
                 page.update()
@@ -418,8 +424,8 @@ def get_work_controls(page: ft.Page, navigate_to):
             title=ft.Text(title_text),
             content=ft.Column(content_list, tight=True),
             actions=[
-                ft.TextButton(btn_text, on_click=lambda e: page.run_task(save_action)),
-                ft.TextButton("취소", on_click=lambda e: page.close(dlg))
+                ft.TextButton(btn_text, on_click=lambda e: asyncio.create_task(save_action())),
+                ft.TextButton("취소", on_click=lambda e: asyncio.create_task(page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)))
             ]
         )
         page.open(dlg)
@@ -428,7 +434,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     # 4. Async Functions
     async def load_contracts_async():
 
-        user_id = page.session.get("user_id")
+        user_id = page.app_session.get("user_id")
         if not user_id: return
 
         try:
@@ -446,7 +452,7 @@ def get_work_controls(page: ft.Page, navigate_to):
             await asyncio.to_thread(lambda: client.from_("labor_contracts").delete().lte("contract_end_date", one_month_ago).execute())
 
             # [FIX] Filter by channel_id
-            cid = page.session.get("channel_id")
+            cid = page.app_session.get("channel_id")
             res = await asyncio.to_thread(lambda: client.from_("labor_contracts").select("*").eq("channel_id", cid).order("created_at", desc=True).execute())
             contracts = res.data or []
             
@@ -522,9 +528,9 @@ def get_work_controls(page: ft.Page, navigate_to):
                                     ft.Icons.RESTORE if is_resigned else ft.Icons.LOGOUT, 
                                     icon_color="blue" if is_resigned else "orange", 
                                     tooltip="복구" if is_resigned else "퇴사 처리", 
-                                    on_click=lambda e, c=latest, ir=is_resigned: open_resign_dialog(c, "restore" if ir else "resign")
+                                    on_click=lambda e, c=latest, ir=is_resigned: asyncio.create_task(open_resign_dialog(c, "restore" if ir else "resign"))
                                 ),
-                                ft.IconButton(ft.Icons.DELETE, icon_color="red", tooltip="삭제", data=latest.get('id'), on_click=delete_contract_click)
+                                ft.IconButton(ft.Icons.DELETE, icon_color="red", tooltip="삭제", data=latest.get('id'), on_click=lambda e: asyncio.create_task(delete_contract_click(e)))
                             ], spacing=0)
                         ], alignment="spaceBetween"),
                         ft.Text(f"최초 근무 시작: {original_start}", size=11, weight="bold", color="#1A237E"),
@@ -666,7 +672,7 @@ def get_work_controls(page: ft.Page, navigate_to):
                 print(f"Delete Error: {ex}")
                 page.open(ft.SnackBar(ft.Text(f"삭제 오류: {ex}"), bgcolor="red"))
                 page.update()
-        page.run_task(_delete)
+        asyncio.create_task(_delete())
 
     def save_contract_click(e):
 
@@ -718,7 +724,7 @@ def get_work_controls(page: ft.Page, navigate_to):
                 # 3. Resolve User ID from Name
                 target_user_id = None
                 try:
-                    cid = page.session.get("channel_id")
+                    cid = page.app_session.get("channel_id")
                     # Fetch valid members to link
                     m_res = await asyncio.to_thread(lambda: client.from_("channel_members").select("user_id, profiles:user_id(full_name)").eq("channel_id", cid).execute())
                     norm_name = reg_name.value.strip()
@@ -735,7 +741,7 @@ def get_work_controls(page: ft.Page, navigate_to):
                 # 4. Construct Data
                 data = {
                     "user_id": target_user_id, # Can be None for offline employees
-                    "channel_id": page.session.get("channel_id"),
+                    "channel_id": page.app_session.get("channel_id"),
                     "employee_name": reg_name.value,
                     "employee_type": reg_type.value,
                     "wage_type": reg_wage_type.value,
@@ -768,7 +774,7 @@ def get_work_controls(page: ft.Page, navigate_to):
                 page.open(ft.SnackBar(ft.Text(f"저장 오류: {str(ex)}"), bgcolor="red"))
                 page.update()
         
-        page.run_task(_save)
+        asyncio.create_task(_save())
 
     # 5. Main Layouts
     # 5. Main Layouts
@@ -875,7 +881,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     def calc_payroll(e):
         async def _calc():
             try:
-                user_id = page.session.get("user_id")
+                user_id = page.app_session.get("user_id")
                 if not user_id: 
                     payroll_res_col.controls = [ft.Text("로그인이 필요합니다.", color="red")]
                     page.update()
@@ -938,13 +944,13 @@ def get_work_controls(page: ft.Page, navigate_to):
                     wage_input = ft.TextField(
                         label="시급", value=str(int(emp['h_wage'])) if emp['h_wage'] else "", 
                         width=100, text_size=12, content_padding=5,
-                        on_submit=lambda e, n=name, evs=emp['events']: page.run_task(on_wage_submit, e, n, None, evs),
+                        on_submit=lambda e, n=name, evs=emp['events']: asyncio.create_task(on_wage_submit(e, n, None, evs)),
                     )
                     
                     save_btn = ft.ElevatedButton(
                         text="입력", style=AppButtons.PRIMARY(),
                         width=60, height=36, 
-                        on_click=lambda _, n=name, inp=wage_input, evs=emp['events']: page.run_task(on_wage_submit, None, n, inp.value, evs)
+                        on_click=lambda _, n=name, inp=wage_input, evs=emp['events']: asyncio.create_task(on_wage_submit(None, n, inp.value, evs))
                     )
 
                     if emp['act_days'] > 0 or emp['act_hours'] > 0:
@@ -1032,10 +1038,8 @@ def get_work_controls(page: ft.Page, navigate_to):
                 traceback.print_exc()
                 payroll_res_col.controls = [ft.Text(f"오류: {ex}", color="red")]
                 page.update()
-        page.run_task(_calc)
+        asyncio.create_task(_calc())
 
-        page.run_task(_calc)
- 
     payroll_content = ft.Column([
         ft.Text("급여 정산", weight="bold", size=18),
         ft.Text("* 상단: 계약 기준 예상 / 하단: 캘린더 실제 기록 기준", size=12, color="grey"),
@@ -1066,21 +1070,24 @@ def get_work_controls(page: ft.Page, navigate_to):
             color = "#1565C0" if is_active else "grey"
             weight = "bold" if is_active else "normal"
             
-            def on_click_tab(e, idx=i):
+            async def on_click_tab(e, idx=i):
                 current_tab_idx[0] = idx
                 update_tabs_ui()
-                
-                if idx == 0: body.content = contract_content; page.run_task(load_contracts_async)
+
+                if idx == 0: body.content = contract_content; asyncio.create_task(load_contracts_async())
                 elif idx == 1: body.content = payroll_content
                 elif idx == 2: body.content = labor_content
                 elif idx == 3: body.content = tax_content
                 page.update()
 
+            # Create wrapped handler with captured async function
+            wrapped_handler = (lambda e, h=on_click_tab: asyncio.create_task(h(e)))
+
             tabs_row.controls.append(
                 ft.Container(
                     content=ft.Row([ft.Icon(icn, size=16, color=color), ft.Text(txt, size=14, color=color, weight=weight)], spacing=5),
                     padding=ft.padding.symmetric(horizontal=20, vertical=10),
-                    on_click=on_click_tab,
+                    on_click=wrapped_handler,
                     border_radius=30,
                     ink=True,
                     bgcolor=ft.Colors.with_opacity(0.05, "#1565C0") if is_active else None
@@ -1095,11 +1102,11 @@ def get_work_controls(page: ft.Page, navigate_to):
     # Imports moved to top
     header = AppHeader(
         title_text="직원 관리",
-        on_back_click=page.go_back
+        on_back_click=lambda e: asyncio.create_task(page.go_back(e)) if hasattr(page, "go_back") else asyncio.create_task(navigate_to("home"))
     )
 
     # [FIX] Initial Data Load
-    page.run_task(load_contracts_async)
+    asyncio.create_task(load_contracts_async())
 
     return [
         ft.SafeArea(expand=True, content=
@@ -1110,3 +1117,4 @@ def get_work_controls(page: ft.Page, navigate_to):
             ], spacing=0, expand=True)
         )
     ]
+

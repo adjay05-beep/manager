@@ -9,9 +9,9 @@ from views.styles import AppColors, AppTextStyles, AppLayout, AppButtons
 from views.components.app_header import AppHeader
 
 
-def get_handover_controls(page: ft.Page, navigate_to):
-    user_id = page.session.get("user_id")
-    channel_id = page.session.get("channel_id")
+async def get_handover_controls(page: ft.Page, navigate_to):
+    user_id = page.app_session.get("user_id")
+    channel_id = page.app_session.get("channel_id")
 
     # UI State
     current_tab = "인수 인계"
@@ -47,12 +47,12 @@ def get_handover_controls(page: ft.Page, navigate_to):
         width=40, height=40,
         bgcolor="#00C73C",
         border_radius=20,
-        alignment=ft.alignment.center,
+        alignment=ft.Alignment(0, 0),
         tooltip="음성으로 입력",
         ink=True,
     )
 
-    def update_mic_ui(is_active=False, status_msg=""):
+    async def update_mic_ui(is_active=False, status_msg=""):
         if is_active:
             mic_icon.name = ft.Icons.STOP
             mic_btn.bgcolor = "red"
@@ -80,7 +80,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
             return
 
         voice_state["is_listening"] = True
-        update_mic_ui(True, "🎤 말씀하세요...")
+        await update_mic_ui(True, "🎤 말씀하세요...")
         log_info("[Voice] Starting Web Speech API")
 
         # iOS Safari 호환 Web Speech API JavaScript
@@ -262,7 +262,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
             page.snack_bar.open = True
         finally:
             voice_state["is_listening"] = False
-            update_mic_ui(False)
+            await update_mic_ui(False)
             page.update()
             log_info("[Voice] Web speech session ended")
 
@@ -286,7 +286,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
 
         try:
             voice_state["is_recording"] = True
-            update_mic_ui(True, "🎤 녹음 중... (클릭하여 중지)")
+            await update_mic_ui(True, "🎤 녹음 중... (클릭하여 중지)")
             log_info("[Voice] Starting desktop recording")
 
             fname = f"handover_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
@@ -296,7 +296,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
         except Exception as e:
             log_error(f"[Voice] Recording start failed: {e}")
             voice_state["is_recording"] = False
-            update_mic_ui(False)
+            await update_mic_ui(False)
             page.snack_bar = ft.SnackBar(ft.Text(f"녹음 시작 실패: {e}"), bgcolor="red")
             page.snack_bar.open = True
             page.update()
@@ -308,7 +308,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
             return
 
         try:
-            update_mic_ui(True, "⏳ AI 변환 중...")
+            await update_mic_ui(True, "⏳ AI 변환 중...")
             log_info("[Voice] Stopping recording and transcribing")
 
             res = await audio_recorder.stop_recording_async()
@@ -319,7 +319,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
                 # [FIX] blob URL 감지 - 웹 브라우저에서 발생
                 if res.startswith("blob:"):
                     log_info("[Voice] Blob URL detected, switching to Web Speech API")
-                    update_mic_ui(False)
+                    await update_mic_ui(False)
                     page.snack_bar = ft.SnackBar(
                         ft.Text("브라우저에서는 Web Speech API를 사용합니다."),
                         bgcolor="orange"
@@ -357,13 +357,13 @@ def get_handover_controls(page: ft.Page, navigate_to):
                 )
                 page.snack_bar.open = True
 
-            update_mic_ui(False)
+            await update_mic_ui(False)
             page.update()
 
         except Exception as e:
             log_error(f"[Voice] Transcription failed: {e}")
             voice_state["is_recording"] = False
-            update_mic_ui(False)
+            await update_mic_ui(False)
             page.snack_bar = ft.SnackBar(ft.Text(f"음성 변환 실패: {e}"), bgcolor="red")
             page.snack_bar.open = True
             page.update()
@@ -371,7 +371,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
     # ============================================
     # 마이크 버튼 클릭 핸들러
     # ============================================
-    def on_mic_click(e):
+    async def on_mic_click(e):
         """마이크 버튼 클릭 - iOS에서는 항상 Web Speech API 사용"""
         log_info(f"[Voice] Mic clicked. is_listening={voice_state['is_listening']}, is_recording={voice_state['is_recording']}")
 
@@ -380,11 +380,11 @@ def get_handover_controls(page: ft.Page, navigate_to):
             return
 
         if voice_state["is_recording"]:
-            page.run_task(stop_desktop_recording)
+            await stop_desktop_recording()
             return
 
         # 음성 인식 시작
-        page.run_task(try_speech_recognition)
+        await try_speech_recognition()
 
     async def try_speech_recognition():
         """브라우저 환경에서는 Web Speech API 사용, 데스크톱 앱에서만 AudioRecorder 사용"""
@@ -481,7 +481,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
                 page.snack_bar.open = True
                 page.update()
 
-    mic_btn.on_click = on_mic_click
+    mic_btn.on_click = lambda e: asyncio.create_task(on_mic_click(e))
 
     # ============================================
     # 기존 기능들
@@ -494,7 +494,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
             try:
                 if await handover_service.update_handover(item.get("id"), edit_tf.value, user_id):
                     print("[VIEW DEBUG] Update success")
-                    page.close(dlg)
+                    await page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)
                     await fetch_and_update()
                 else:
                     print("[VIEW DEBUG] Update returned False")
@@ -509,8 +509,8 @@ def get_handover_controls(page: ft.Page, navigate_to):
             title=ft.Text("기록 수정"),
             content=ft.Container(content=edit_tf, height=100),
             actions=[
-                ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
-                ft.ElevatedButton("저장", on_click=save_edit, style=AppButtons.PRIMARY())
+                ft.TextButton("취소", on_click=lambda _: asyncio.create_task(page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg))),
+                ft.ElevatedButton("저장", on_click=lambda e: asyncio.create_task(save_edit(e)), style=AppButtons.PRIMARY())
             ]
         )
         page.open(dlg)
@@ -519,7 +519,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
         await handover_service.delete_handover(item_id, user_id)
         await fetch_and_update()
 
-    def render_feed():
+    async def render_feed():
         list_view.controls.clear()
         target_cat = "handover" if current_tab == "인수 인계" else "order"
 
@@ -540,7 +540,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
             list_view.controls.append(
                 ft.Container(
                     content=ft.Text(header_text, size=12, color="grey", weight="bold"),
-                    alignment=ft.alignment.center,
+                    alignment=ft.Alignment(0, 0),
                     padding=ft.padding.only(top=10, bottom=5)
                 )
             )
@@ -553,11 +553,11 @@ def get_handover_controls(page: ft.Page, navigate_to):
 
                 def create_edit_handler(i):
                     async def handler(e): open_edit_dialog(i)
-                    return handler
+                    return lambda e, h=handler: asyncio.create_task(h(e))
 
                 def create_delete_handler(oid):
                     async def handler(e): await delete_entry(oid)
-                    return handler
+                    return lambda e, h=handler: asyncio.create_task(h(e))
 
                 edit_btn = ft.IconButton(ft.Icons.EDIT, icon_size=16, icon_color="grey", on_click=create_edit_handler(item))
                 delete_btn = ft.IconButton(ft.Icons.CLOSE, icon_size=16, icon_color="grey", on_click=create_delete_handler(item_id))
@@ -607,7 +607,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
                 pass  # Invalid date or missing data
         nonlocal grouped_data
         grouped_data = dict(temp_grouped)
-        render_feed()
+        await render_feed()
 
     async def submit_entry(e=None):
         txt = input_tf.value
@@ -617,7 +617,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
         await handover_service.add_handover_entry(user_id, channel_id, target_cat, txt)
         await fetch_and_update()
 
-    def on_tab_change(e):
+    async def on_tab_change(e):
         nonlocal current_tab
         # e.control.data holds the tab name
         current_tab = e.control.data 
@@ -633,19 +633,19 @@ def get_handover_controls(page: ft.Page, navigate_to):
                     c.content.weight = ft.FontWeight.BOLD if is_selected else ft.FontWeight.NORMAL
         
         tabs_row.update()
-        render_feed()
+        await render_feed()
 
     def create_tab(text):
         is_selected = text == current_tab
         return ft.Container(
             content=ft.Text(
-                text, 
-                size=16, 
+                text,
+                size=16,
                 color="#1565C0" if is_selected else "#9E9E9E",
                 weight=ft.FontWeight.BOLD if is_selected else ft.FontWeight.NORMAL
             ),
             padding=ft.padding.symmetric(horizontal=12, vertical=8),
-            on_click=on_tab_change,
+            on_click=lambda e: asyncio.create_task(on_tab_change(e)),
             data=text  # Store tab name in data for easy access
         )
 
@@ -662,14 +662,14 @@ def get_handover_controls(page: ft.Page, navigate_to):
             ft.Row([
                 mic_btn,
                 input_tf,
-                ft.IconButton(ft.Icons.SEND_ROUNDED, on_click=lambda e: page.run_task(submit_entry))
+                ft.IconButton(ft.Icons.SEND_ROUNDED, on_click=lambda e: asyncio.create_task(submit_entry()))
             ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.END)
         ], spacing=5),
         padding=10
     )
     header = AppHeader(
         title_text="업무 일지",
-        on_back_click=page.go_back
+        on_back_click=lambda e: asyncio.create_task(page.go_back(e)) if hasattr(page, "go_back") else asyncio.create_task(navigate_to("home"))
     )
     
     # Custom Header Container was combining title and tabs. 
@@ -684,8 +684,8 @@ def get_handover_controls(page: ft.Page, navigate_to):
             except Exception:
                 break
 
-    page.run_task(fetch_and_update)
-    page.run_task(poll_updates)
+    asyncio.create_task(fetch_and_update())
+    asyncio.create_task(poll_updates())
     return [
         ft.SafeArea(
             expand=True,

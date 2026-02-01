@@ -110,7 +110,7 @@ class ChatBubble(ft.Container):
             )
             selection_ctrl = ft.Container(
                 content=self.custom_checkbox,
-                width=40, height=40, alignment=ft.alignment.center, visible=True
+                width=40, height=40, alignment=ft.Alignment(0, 0), visible=True
             )
         # [FINAL ALIGNMENT] 
         # Me: RIGHT (MainAxisAlignment.END)

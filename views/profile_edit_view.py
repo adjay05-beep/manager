@@ -1,4 +1,5 @@
 import flet as ft
+import asyncio
 import os
 from services.auth_service import auth_service
 from db import service_supabase, url
@@ -6,7 +7,7 @@ from postgrest import SyncPostgrestClient
 from views.components.app_header import AppHeader
 from views.styles import AppColors, AppLayout, AppButtons
 
-def get_profile_edit_controls(page: ft.Page, navigate_to):
+async def get_profile_edit_controls(page: ft.Page, navigate_to):
     user = auth_service.get_user()
     if not user:
         navigate_to("login")
@@ -15,7 +16,7 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
     # Fetch current profile
     profile_data = {}
     try:
-        res = service_supabase.table("profiles").select("*").eq("id", user.id).single().execute()
+        res = await asyncio.to_thread(lambda: service_supabase.table("profiles").select("*").eq("id", user.id).single().execute())
         if res.data: profile_data = res.data
     except Exception as e:
         print(f"Profile Load Error: {e}")
@@ -34,7 +35,7 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
     
     msg = ft.Text("", size=12)
 
-    def save(e):
+    async def save(e):
         try:
             # [FIX] Use Authenticated Request via AuthService
             # This handles session retrieval and formatting centrally
@@ -60,7 +61,7 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
             msg.color = "green"
             page.update()
 
-            navigate_to("home")
+            await navigate_to("home")
             
         except Exception as ex:
             print(f"ERROR: Profile Update Failed: {ex}")
@@ -76,15 +77,15 @@ def get_profile_edit_controls(page: ft.Page, navigate_to):
                 bgcolor="white",
             padding=20,
             content=ft.Column([
-                AppHeader("프로필 수정", on_back_click=page.go_back),
+                AppHeader("프로필 수정", on_back_click=lambda _: asyncio.create_task(page.go_back() if hasattr(page, "go_back") else navigate_to("home"))),
                 ft.Container(height=20),
                 ft.Text("이름을 수정할 수 있습니다.", color="black", text_align="center"),
                 ft.Container(height=20),
                 name_tf,
                 role_display,
                 ft.Container(height=20),
-                ft.ElevatedButton("저장하기", on_click=save, style=AppButtons.PRIMARY(), width=300, height=AppButtons.HEIGHT_MD),
-                ft.TextButton("취소", on_click=lambda _: navigate_to("home"), height=AppButtons.HEIGHT_MD),
+                ft.ElevatedButton("저장하기", on_click=lambda e: asyncio.create_task(save(e)), style=AppButtons.PRIMARY(), width=300, height=AppButtons.HEIGHT_MD),
+                ft.TextButton("취소", on_click=lambda _: asyncio.create_task(navigate_to("home")), height=AppButtons.HEIGHT_MD),
                 msg
             ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
             )

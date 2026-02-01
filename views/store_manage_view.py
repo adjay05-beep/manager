@@ -1,4 +1,5 @@
 import flet as ft
+import asyncio
 from services.channel_service import channel_service
 from services.auth_service import auth_service
 from db import service_supabase
@@ -10,14 +11,14 @@ from views.styles import AppColors, AppTextStyles, AppLayout, AppButtons
 from views.components.app_header import AppHeader
 
 
-def get_store_manage_controls(page: ft.Page, navigate_to):
+async def get_store_manage_controls(page: ft.Page, navigate_to):
     """Unified Settings Page: Store Info + My Profile + Logout"""
-    log_debug(f"Entering Store Manage. User: {page.session.get('user_id')}")
+    log_debug(f"Entering Store Manage. User: {page.app_session.get('user_id')}")
 
     # === 1. GET CONTEXT ===
-    user_id = page.session.get("user_id")
-    channel_id = page.session.get("channel_id")
-    user_email = page.session.get("user_email") or "unknown@example.com"
+    user_id = page.app_session.get("user_id")
+    channel_id = page.app_session.get("channel_id")
+    user_email = page.app_session.get("user_email") or "unknown@example.com"
 
     if not channel_id:
         return [ft.Text("매장 정보가 없습니다.")]
@@ -85,20 +86,21 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
 
     # === EVENT HANDLERS ===
 
-    def copy_code(e):
+    async def copy_code(e):
         if active_codes and code_display.value not in ["생성된 코드가 없습니다", "만료된 코드", "코드 로드 실패"]:
             page.set_clipboard(code_display.value)
             page.snack_bar = ft.SnackBar(ft.Text(f"초대 코드 복사 완료: {code_display.value}"))
             page.snack_bar.open = True
             page.update()
 
-    def generate_new_code(e):
+    async def generate_new_code(e):
         log_debug(f"Generating new code for channel {channel_id} by {user_id}")
         try:
-            new_code = channel_service.generate_invite_code(channel_id, user_id, duration_minutes=10)
+            new_code = await asyncio.to_thread(channel_service.generate_invite_code, channel_id, user_id, 10)
             log_debug(f"New code generated: {new_code}")
             active_codes.clear()
-            active_codes.extend(channel_service.get_active_invite_codes(channel_id))
+            new_codes = await asyncio.to_thread(channel_service.get_active_invite_codes, channel_id)
+            active_codes.extend(new_codes)
             update_code_display()
 
             msg.value = f"새 초대 코드 생성됨: {new_code}"
@@ -120,14 +122,14 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         visible=(role in ["owner", "manager"]),
         style=AppButtons.PRIMARY(),
         height=40,
-        on_click=generate_new_code
+        on_click=lambda e: asyncio.create_task(generate_new_code(e))
     )
 
     # === MEMBER MANAGEMENT (Owner Only) ===
     member_mgmt_col = ft.Column(spacing=10)
     current_members_data = []  # Store for transfer dialog
 
-    def perform_transfer_and_logout(new_owner_id: str, target_name: str, dlg_confirm, dlg_transfer):
+    async def perform_transfer_and_logout(new_owner_id: str, target_name: str, dlg_confirm, dlg_transfer):
         """양도 실행 및 로그아웃 처리 - 안정적인 순차 실행"""
         try:
             # 1. 양도 실행
@@ -138,8 +140,8 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
 
             # 2. 다이얼로그 닫기 (먼저)
             try:
-                page.close(dlg_confirm)
-                page.close(dlg_transfer)
+                await page.close_async(dlg_confirm) if hasattr(page, "close_async") else page.close(dlg_confirm)
+                await page.close_async(dlg_transfer) if hasattr(page, "close_async") else page.close(dlg_transfer)
             except Exception:
                 pass
 
@@ -160,8 +162,9 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                 log_error(f"[Transfer] Logout error (non-critical): {logout_err}")
 
             try:
-                page.session.clear()
-                log_info("[Transfer] session.clear completed")
+                # Clear app_session dict
+                page.app_session.clear()
+                log_info("[Transfer] session cleared")
             except Exception as session_err:
                 log_error(f"[Transfer] Session clear error: {session_err}")
 
@@ -173,7 +176,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
 
             # 5. 로그인 페이지로 이동
             log_info("[Transfer] Navigating to login...")
-            navigate_to("login")
+            await navigate_to("login")
             log_info("[Transfer] navigate_to('login') completed")
 
         except Exception as ex:
@@ -186,7 +189,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
             page.snack_bar.open = True
             page.update()
 
-    def open_transfer_dialog(e):
+    async def open_transfer_dialog(e):
         candidates = [m for m in current_members_data if m["user_id"] != user_id]
         if not candidates:
             page.snack_bar = ft.SnackBar(ft.Text("양도할 멤버가 없습니다."))
@@ -199,7 +202,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         def set_candidate(ev):
             selected_candidate[0] = ev.control.value
 
-        def do_transfer_check(ev):
+        async def do_transfer_check(ev):
             if not selected_candidate[0]:
                 page.snack_bar = ft.SnackBar(ft.Text("새 대표를 선택해주세요."))
                 page.snack_bar.open = True
@@ -229,7 +232,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                 text_align=ft.TextAlign.CENTER
             )
 
-            def on_password_change(pw_ev):
+            async def on_password_change(pw_ev):
                 password_tf.error_text = None
                 password_tf.update()
                 confirm_btn.disabled = not bool(password_tf.value)
@@ -237,7 +240,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
 
             password_tf.on_change = on_password_change
 
-            def final_transfer_confirm(confirm_ev):
+            async def final_transfer_confirm(confirm_ev):
                 log_info("[Transfer] final_transfer_confirm called")
                 if not password_tf.value:
                     log_info("[Transfer] No password entered")
@@ -268,14 +271,14 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                     return
 
                 # Execute transfer
-                perform_transfer_and_logout(
+                await perform_transfer_and_logout(
                     selected_candidate[0],
                     target_name,
                     dlg_confirm,
                     dlg_transfer
                 )
 
-            confirm_btn.on_click = final_transfer_confirm
+            confirm_btn.on_click = lambda e: asyncio.create_task(final_transfer_confirm(e))
 
             dlg_confirm = ft.AlertDialog(
                 title=ft.Text("양도 확인 (최종)", text_align=ft.TextAlign.CENTER),
@@ -291,13 +294,14 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                     password_tf
                 ], height=180, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                 actions=[
-                    ft.TextButton("취소", on_click=lambda _: page.close(dlg_confirm)),
+                    ft.TextButton("취소", on_click=lambda _: asyncio.create_task(page.close_async(dlg_confirm) if hasattr(page, "close_async") else page.close(dlg_confirm))),
                     confirm_btn
                 ],
                 actions_alignment=ft.MainAxisAlignment.CENTER
             )
 
             page.open(dlg_confirm)
+            page.update()
 
         dlg_transfer = ft.AlertDialog(
             title=ft.Text("매장 대표 권한 양도"),
@@ -315,13 +319,14 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                 ft.Text("주의: 양도 후 귀하는 '관리자' 등급으로 변경됩니다.", color="red", size=12)
             ], height=150),
             actions=[
-                ft.TextButton("취소", on_click=lambda _: page.close(dlg_transfer)),
-                ft.ElevatedButton("양도 확인", bgcolor="red", color="white", on_click=do_transfer_check)
+                ft.TextButton("취소", on_click=lambda _: asyncio.create_task(page.close_async(dlg_transfer) if hasattr(page, "close_async") else page.close(dlg_transfer))),
+                ft.ElevatedButton("양도 확인", bgcolor="red", color="white", on_click=lambda e: asyncio.create_task(do_transfer_check(e)))
             ]
         )
         page.open(dlg_transfer)
+        page.update()
 
-    def load_members():
+    async def load_members():
         if role != "owner":
             return
         try:
@@ -360,7 +365,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                     role_selector = ft.Container(
                         content=ft.Text("대표", weight="bold", size=14, color="#2196F3"),
                         width=100,
-                        alignment=ft.alignment.center
+                        alignment=ft.Alignment(0, 0)
                     )
                 else:
                     role_selector = ft.Dropdown(
@@ -374,7 +379,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                         text_size=13,
                         text_style=ft.TextStyle(weight=ft.FontWeight.BOLD),
                         border_radius=8,
-                        on_change=lambda ev, uid=uid: update_member_role(uid, ev.control.value),
+                        on_change=lambda ev, uid=uid: asyncio.create_task(update_member_role(uid, ev.control.value)),
                         disabled=is_me
                     )
 
@@ -382,7 +387,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                     ft.Icons.REMOVE_CIRCLE_OUTLINE,
                     icon_color="red",
                     tooltip="내보내기",
-                    on_click=lambda ev, uid=uid, name=m.get("full_name", "Unknown"): confirm_kick(uid, name),
+                    on_click=lambda ev, uid=uid, name=m.get("full_name", "Unknown"): asyncio.create_task(confirm_kick(uid, name)),
                     visible=(not is_me and u_role != "owner")
                 )
 
@@ -424,7 +429,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                         icon=ft.Icons.PERSON_SEARCH,
                         bgcolor="#FF5252",
                         color="white",
-                        on_click=open_transfer_dialog
+                        on_click=lambda e: asyncio.create_task(open_transfer_dialog(e))
                     )
                 ]),
                 padding=20,
@@ -444,7 +449,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                             ft.Text("초대 코드를 공유하여 동료를 초대해보세요!", size=12, color="grey")
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
                         padding=30,
-                        alignment=ft.alignment.center,
+                        alignment=ft.Alignment(0, 0),
                         bgcolor="#F5F5F5",
                         border_radius=10
                     )
@@ -459,7 +464,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         except Exception as ex:
             log_error(f"Load Members Error: {ex}")
 
-    def update_member_role(uid, new_role):
+    async def update_member_role(uid, new_role):
         try:
             token = auth_service.get_access_token()
             channel_service.update_member_role(channel_id, uid, new_role, user_id, token=token)
@@ -475,13 +480,13 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
             page.snack_bar.open = True
             page.update()
 
-    def confirm_kick(uid, name):
-        def do_kick(ev):
+    async def confirm_kick(uid, name):
+        async def do_kick(ev):
             try:
                 token = auth_service.get_access_token()
                 channel_service.remove_member(channel_id, uid, user_id, token=token)
-                page.close(dlg)
-                load_members()
+                await page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)
+                await load_members()
                 page.snack_bar = ft.SnackBar(ft.Text(f"{name}님을 내보냈습니다."), bgcolor="green")
                 page.snack_bar.open = True
                 page.update()
@@ -499,34 +504,35 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
             title=ft.Text("멤버 내보내기"),
             content=ft.Text(f"정말 {name}님을 매장에서 내보내시겠습니까?"),
             actions=[
-                ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
-                ft.ElevatedButton("내보내기", bgcolor="red", color="white", on_click=do_kick)
+                ft.TextButton("취소", on_click=lambda _: asyncio.create_task(page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg))),
+                ft.ElevatedButton("내보내기", bgcolor="red", color="white", on_click=lambda e: asyncio.create_task(do_kick(e)))
             ]
         )
         page.open(dlg)
+        page.update()
 
-    def confirm_leave_store(e):
+    async def confirm_leave_store(e):
         """매장 탈퇴 확인 다이얼로그"""
-        def do_leave(ev):
+        async def do_leave(ev):
             try:
                 token = auth_service.get_access_token()
                 channel_service.remove_member(channel_id, user_id, user_id, token=token)
 
                 # Cleanup session specific to this channel
-                page.session.set("channel_id", None)
-                page.session.set("channel_name", None)
-                page.session.set("user_role", None)
+                page.app_session["channel_id"] = None
+                page.app_session["channel_name"] = None
+                page.app_session["user_role"] = None
 
-                page.close(dlg_leave)
+                await page.close_async(dlg_leave) if hasattr(page, "close_async") else page.close(dlg_leave)
                 page.snack_bar = ft.SnackBar(ft.Text("매장을 탈퇴했습니다."), bgcolor="green")
                 page.snack_bar.open = True
                 page.update()
-                navigate_to("home")
+                await navigate_to("home")
             except PermissionError as pe:
                 page.snack_bar = ft.SnackBar(ft.Text(str(pe)), bgcolor="red")
                 page.snack_bar.open = True
                 page.update()
-                page.close(dlg_leave)
+                await page.close_async(dlg_leave) if hasattr(page, "close_async") else page.close(dlg_leave)
             except Exception as ex:
                 log_error(f"Leave Store Error: {ex}")
                 page.snack_bar = ft.SnackBar(ft.Text(f"탈퇴 실패: {ex}"), bgcolor="red")
@@ -537,32 +543,39 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
             title=ft.Text("매장 탈퇴"),
             content=ft.Text("정말 이 매장에서 나가시겠습니까?\n이 작업은 되돌릴 수 없습니다."),
             actions=[
-                ft.TextButton("취소", on_click=lambda _: page.close(dlg_leave)),
-                ft.ElevatedButton("탈퇴하기", bgcolor="red", color="white", on_click=do_leave)
+                ft.TextButton("취소", on_click=lambda _: asyncio.create_task(page.close_async(dlg_leave) if hasattr(page, "close_async") else page.close(dlg_leave))),
+                ft.ElevatedButton("탈퇴하기", bgcolor="red", color="white", on_click=lambda e: asyncio.create_task(do_leave(e)))
             ]
         )
         page.open(dlg_leave)
+        page.update()
 
-    def toggle_theme(e):
-        is_dark = e.control.value
-        page.theme_mode = ft.ThemeMode.DARK if is_dark else ft.ThemeMode.LIGHT
-
+    async def toggle_theme(e):
+        # Toggle theme mode
+        page.theme_mode = ft.ThemeMode.LIGHT if page.theme_mode == ft.ThemeMode.DARK else ft.ThemeMode.DARK
+        # Save preference to client storage
         try:
-            page.client_storage.set("theme_mode", "dark" if is_dark else "light")
+            await page.client_storage.set_async("theme_mode", "dark" if page.theme_mode == ft.ThemeMode.DARK else "light")
         except Exception as ex:
             log_error(f"Failed to save theme preference: {ex}")
-
         page.update()
+
+    theme_switch = ft.Switch(
+        label="다크 모드",
+        value=(page.theme_mode == ft.ThemeMode.DARK),
+        active_color=AppColors.PRIMARY,
+        on_change=lambda e: asyncio.create_task(toggle_theme(e))
+    )
 
     # Load members if owner
     if role == "owner":
-        load_members()
+        await load_members()
 
     # === LAYOUT CONSTRUCTION ===
 
     header = AppHeader(
         title_text="설정",
-        on_back_click=page.go_back
+        on_back_click=lambda e: asyncio.create_task(page.go_back(e)) if hasattr(page, "go_back") else asyncio.create_task(navigate_to("home"))
     )
 
     current_store_settings = ft.Container(
@@ -581,7 +594,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                             code_expiry,
                             ft.Row([
                                 generate_btn,
-                                ft.IconButton(ft.Icons.COPY, icon_color=AppColors.SECONDARY, on_click=copy_code)
+                                ft.IconButton(ft.Icons.COPY, icon_color=AppColors.SECONDARY, on_click=lambda e: asyncio.create_task(copy_code(e)))
                             ])
                         ])
                     ),
@@ -601,7 +614,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                         ft.IconButton(
                             ft.Icons.CHEVRON_RIGHT,
                             icon_color=AppColors.TEXT_SECONDARY,
-                            on_click=lambda _: navigate_to("profile")
+                            on_click=lambda _: asyncio.create_task(navigate_to("profile"))
                         )
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
 
@@ -633,7 +646,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                         ft.IconButton(
                             ft.Icons.CHEVRON_RIGHT,
                             icon_color="red",
-                            on_click=confirm_leave_store
+                            on_click=lambda e: asyncio.create_task(confirm_leave_store(e))
                         )
                     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
                 ]),

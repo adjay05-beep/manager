@@ -1,9 +1,8 @@
 import flet as ft
 from services.auth_service import auth_service
-import threading
-import asyncio # Keep just in case, though mostly unused now.
+import asyncio
 
-def get_signup_controls(page: ft.Page, navigate_to):
+async def get_signup_controls(page: ft.Page, navigate_to):
     
     # --- State ---
     state = {
@@ -41,137 +40,10 @@ def get_signup_controls(page: ft.Page, navigate_to):
     otp_tf = ft.TextField(label="인증코드 6자리", width=300, text_align="center", color="black", border_color="#00C73C", text_style=ft.TextStyle(letter_spacing=5))
     verify_status = ft.Text("이메일로 전송된 코드를 입력하세요.", color="white70", size=12)
 
-    def set_loading(loading):
-        state["loading"] = loading
-        # Update button requires update_view call usually or direct prop update
-        # For simplicity, we call update_view which respects loading state
-        update_view()
-
-    def _signup_thread():
-        try:
-            # Direct Sync Call
-            role = role_dd.value
-            res = auth_service.sign_up(state["email"], pw_tf.value, name_tf.value, role)
-            
-            if res.user and res.user.identities and len(res.user.identities) > 0:
-                state["step"] = "verify"
-            elif res.user and not res.user.identities:
-                error_txt.value = "이미 가입된 계정일 수 있습니다."
-            else:
-                 if res.session:
-                     # Need to navigate on main thread? Flet usually allows this.
-                     # But safer to schedule it? No, navigate_to calls page.clean which is UI op.
-                     # We can call it, but update_view handles UI logic.
-                     pass
-                 else:
-                     state["step"] = "verify"
-        except Exception as ex:
-             msg = str(ex)
-             if "이미 가입된" in msg:
-                 # [Auto-Recovery] User likely crashed before verifying.
-                 try:
-
-                     # Attempt login with same credentials
-                     user = auth_service.sign_in(state["email"], pw_tf.value)
-                     if user:
-                         # Miracle: They are already verified?
-
-                         pass # Will fall through to session check navigation
-                 except Exception as login_ex:
-                     l_msg = str(login_ex)
-                     if "Email not confirmed" in l_msg or "confirmed" in l_msg:
-                         # Expected Limbo State -> Recover
-
-                         try:
-                            auth_service.resend_otp(state["email"])
-                         except Exception:
-                            pass  # OTP resend failed, continue anyway
-                         state["step"] = "verify"
-                         verify_status.value = "⚠️ 가입이 중단되었던 계정입니다. 인증 코드를 재전송했습니다."
-                         verify_status.color = "yellow"
-                         error_txt.value = ""
-                     else:
-                         # Wrong password or other error
-                         error_txt.value = "이미 가입된 이메일입니다."
-             else:
-                 error_txt.value = f"가입 오류: {ex}"
-        finally:
-            state["loading"] = False
-            # If session exists, navigate
-            # Session check simplified - update_view handles display
-            update_view()
-
-    def do_signup(e):
-
-        state["email"] = email_tf.value
-        if not state["email"] or not pw_tf.value:
-            error_txt.value = "모든 필드를 입력해주세요."; update_view(); return
-        if pw_tf.value != pw_cf_tf.value:
-            error_txt.value = "비밀번호가 일치하지 않습니다."; update_view(); return
-        if len(pw_tf.value) < 8:
-            error_txt.value = "비밀번호는 8자 이상이어야 합니다."; update_view(); return
-        if not role_dd.value:
-            error_txt.value = "가입 유형(사장님/직원)을 선택해주세요."; update_view(); return
-
-
-        state["loading"] = True
-        update_view() # Show spinner
-
-        threading.Thread(target=_signup_thread, daemon=True).start()
-
-
-    def _verify_thread(code):
-        try:
-            res = auth_service.verify_otp(state["email"], code)
-            if res:
-                # [FIX] Show Success Dialog instead of immediate navigation
-                def close_and_go(e):
-                    page.close(dlg)
-                    navigate_to("login")
-
-                dlg = ft.AlertDialog(
-                    title=ft.Text("회원가입 완료! 🎉", size=20, weight="bold"),
-                    content=ft.Text("회원가입이 성공적으로 완료되었습니다.\n로그인 후 이용해주세요.", size=16),
-                    actions=[
-                        ft.ElevatedButton("확인 (로그인하러 가기)", on_click=close_and_go, bgcolor="#00C73C", color="white")
-                    ],
-                    actions_alignment=ft.MainAxisAlignment.END,
-                    on_dismiss=lambda e: navigate_to("login"),
-                    modal=True,
-                    shape=ft.RoundedRectangleBorder(radius=10)
-                )
-                page.open(dlg)
-                page.update()
-            else:
-                verify_status.value = "인증 실패: 코드를 확인하세요."
-                verify_status.color = "red"
-                update_view()
-        except Exception as ex:
-             verify_status.value = f"오류: {ex}"
-             verify_status.color = "red"
-             update_view()
-        finally:
-            state["loading"] = False
-            # update_view() # Can conflict with dialog if it rebuilds page
-            try:
-                page.update()
-            except Exception:
-                pass  # UI update may fail if page changed
-
-    def do_verify(e):
-        code = otp_tf.value
-        if not code: return
-        state["loading"] = True
-        update_view()
-        threading.Thread(target=_verify_thread, args=(code,), daemon=True).start()
-            
-    def do_resend(e):
-        threading.Thread(target=lambda: (auth_service.resend_otp(state["email"]), setattr(verify_status, 'value', "코드를 재전송했습니다."), page.update()), daemon=True).start()
-
-    def update_view():
+    async def update_view():
         card_content.controls = []
         if state["step"] == "form":
-            submit_btn = ft.ElevatedButton("가입하기", on_click=do_signup, width=300, height=45, bgcolor="white", color="black", disabled=state["loading"])
+            submit_btn = ft.ElevatedButton("가입하기", on_click=lambda e: asyncio.create_task(do_signup(e)), width=300, height=45, bgcolor="white", color="black", disabled=state["loading"])
             
             controls_list = [
                 header, sub_header, ft.Container(height=20),
@@ -179,8 +51,8 @@ def get_signup_controls(page: ft.Page, navigate_to):
                 role_dd,
                 ft.Container(height=10), error_txt,
                 submit_btn,
-                ft.TextButton("인증 코드가 이미 있으신가요?", on_click=lambda _: (state.update({"step": "verify"}), update_view())),
-                ft.TextButton("이미 계정이 있으신가요? 로그인", on_click=lambda _: navigate_to("login"))
+                ft.TextButton("인증 코드가 이미 있으신가요?", on_click=lambda _: asyncio.create_task(set_step_verify())),
+                ft.TextButton("이미 계정이 있으신가요? 로그인", on_click=lambda _: asyncio.create_task(navigate_to("login")))
             ]
             
             if state["loading"]:
@@ -188,16 +60,16 @@ def get_signup_controls(page: ft.Page, navigate_to):
                 
             card_content.controls = controls_list
         else:
-            verify_btn = ft.ElevatedButton("인증하기", on_click=do_verify, width=300, height=45, bgcolor="#00C73C", color="white", disabled=state["loading"])
+            verify_btn = ft.ElevatedButton("인증하기", on_click=lambda e: asyncio.create_task(do_verify(e)), width=300, height=45, bgcolor="#00C73C", color="white", disabled=state["loading"])
             
             controls_list = [
-                ft.Text("이메일 인증", size=24, weight="bold", color="white"),
-                ft.Text(f"{state['email']}로 코드를 보냈습니다.", color="white70"),
+                ft.Text("이메일 인증", size=24, weight="bold", color="#0A1929"),
+                ft.Text(f"{state['email']}로 코드를 보냈습니다.", color="grey"),
                 ft.Container(height=20),
                 otp_tf, verify_status,
                 ft.Container(height=20),
                 verify_btn,
-                ft.TextButton("코드 재전송", on_click=do_resend)
+                ft.TextButton("코드 재전송", on_click=lambda e: asyncio.create_task(do_resend(e)))
             ]
             
             if state["loading"]:
@@ -207,7 +79,126 @@ def get_signup_controls(page: ft.Page, navigate_to):
         try:
             page.update()
         except Exception:
-            pass  # UI update may fail if page changed
+            pass
+
+    async def handle_signup_work():
+        try:
+            role = role_dd.value
+            email = state["email"]
+            pw = pw_tf.value
+            name = name_tf.value
+            
+            # Wrap Sync Call in to_thread
+            res = await asyncio.to_thread(lambda: auth_service.sign_up(email, pw, name, role))
+            
+            if res.user and res.user.identities and len(res.user.identities) > 0:
+                state["step"] = "verify"
+            elif res.user and not res.user.identities:
+                error_txt.value = "이미 가입된 계정일 수 있습니다."
+            else:
+                 if not res.session:
+                     state["step"] = "verify"
+        except Exception as ex:
+             msg = str(ex)
+             if "이미 가입된" in msg:
+                 try:
+                     user = await asyncio.to_thread(lambda: auth_service.sign_in(state["email"], pw_tf.value))
+                     if user:
+                         pass
+                 except Exception as login_ex:
+                     l_msg = str(login_ex)
+                     if "Email not confirmed" in l_msg or "confirmed" in l_msg:
+                         try:
+                            await asyncio.to_thread(lambda: auth_service.resend_otp(state["email"]))
+                         except Exception:
+                            pass
+                         state["step"] = "verify"
+                         verify_status.value = "⚠️ 가입이 중단되었던 계정입니다. 인증 코드를 재전송했습니다."
+                         verify_status.color = "yellow"
+                         error_txt.value = ""
+                     else:
+                         error_txt.value = "이미 가입된 이메일입니다."
+             else:
+                 error_txt.value = f"가입 오류: {ex}"
+        finally:
+            state["loading"] = False
+            await update_view()
+
+    async def do_signup(e):
+        state["email"] = email_tf.value
+        if not state["email"] or not pw_tf.value:
+            error_txt.value = "모든 필드를 입력해주세요."; await update_view(); return
+        if pw_tf.value != pw_cf_tf.value:
+            error_txt.value = "비밀번호가 일치하지 않습니다."; await update_view(); return
+        if len(pw_tf.value) < 8:
+            error_txt.value = "비밀번호는 8자 이상이어야 합니다."; await update_view(); return
+        if not role_dd.value:
+            error_txt.value = "가입 유형(사장님/직원)을 선택해주세요."; await update_view(); return
+
+        state["loading"] = True
+        await update_view() # Show spinner
+        asyncio.create_task(handle_signup_work())
+
+    async def handle_verify_work(code):
+        try:
+            res = await asyncio.to_thread(lambda: auth_service.verify_otp(state["email"], code))
+            if res:
+                async def close_and_go(e):
+                    await page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)
+                    await navigate_to("login")
+
+                dlg = ft.AlertDialog(
+                    title=ft.Text("회원가입 완료! 🎉", size=20, weight="bold"),
+                    content=ft.Text("회원가입이 성공적으로 완료되었습니다.\n로그인 후 이용해주세요.", size=16),
+                    actions=[
+                        ft.ElevatedButton("확인 (로그인하러 가기)", on_click=lambda e: asyncio.create_task(close_and_go(e)), bgcolor="#00C73C", color="white")
+                    ],
+                    actions_alignment=ft.MainAxisAlignment.END,
+                    on_dismiss=lambda e: asyncio.create_task(navigate_to("login")),
+                    modal=True,
+                    shape=ft.RoundedRectangleBorder(radius=10)
+                )
+                await page.open_async(dlg) if hasattr(page, "open_async") else page.open(dlg)
+                page.update()
+            else:
+                verify_status.value = "인증 실패: 코드를 확인하세요."
+                verify_status.color = "red"
+                await update_view()
+        except Exception as ex:
+             verify_status.value = f"오류: {ex}"
+             verify_status.color = "red"
+             await update_view()
+        finally:
+            state["loading"] = False
+            try:
+                page.update()
+            except Exception:
+                pass
+
+    async def do_verify(e):
+        code = otp_tf.value
+        if not code: return
+        state["loading"] = True
+        await update_view()
+        asyncio.create_task(handle_verify_work(code))
+            
+    async def handle_resend_work():
+        try:
+            await asyncio.to_thread(lambda: auth_service.resend_otp(state["email"]))
+            verify_status.value = "코드를 재전송했습니다."
+            verify_status.color = "green"
+            page.update()
+        except Exception as e:
+            verify_status.value = f"재전송 실패: {e}"
+            verify_status.color = "red"
+            page.update()
+
+    async def do_resend(e):
+        asyncio.create_task(handle_resend_work())
+
+    async def set_step_verify():
+        state.update({"step": "verify"})
+        await update_view()
 
     card_content = ft.Column(
         alignment=ft.MainAxisAlignment.CENTER, 
@@ -217,7 +208,7 @@ def get_signup_controls(page: ft.Page, navigate_to):
     )
     
     # Initialize
-    update_view()
+    await update_view()
 
     return [
         ft.Stack([
@@ -236,7 +227,7 @@ def get_signup_controls(page: ft.Page, navigate_to):
                         offset=ft.Offset(0, 4),
                     )
                 ),
-                alignment=ft.alignment.center,
+                alignment=ft.Alignment(0, 0),
                 expand=True
             )
         ], expand=True)

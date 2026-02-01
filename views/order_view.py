@@ -1,6 +1,6 @@
 import flet as ft
 
-def get_order_controls(page: ft.Page, navigate_to):
+async def get_order_controls(page: ft.Page, navigate_to):
     # [Placeholder] Order Management View
     
     return [
@@ -17,7 +17,7 @@ def get_order_controls(page: ft.Page, navigate_to):
                 ),
                 ft.Container(
                     expand=True,
-                    alignment=ft.alignment.center,
+                    alignment=ft.Alignment(0, 0),
                     content=ft.Column([
                         ft.Icon(ft.Icons.INVENTORY_2_OUTLINED, size=64, color="grey"),
                         ft.Text("발주/재고 관리 기능 준비 중입니다.", size=16, color="grey"),

@@ -68,13 +68,13 @@ class AppShadows:
 class AppGradients:
     # Modern Linear Gradients
     PRIMARY_LINEAR = ft.LinearGradient(
-        begin=ft.alignment.top_left,
-        end=ft.alignment.bottom_right,
+        begin=ft.Alignment(-1, -1),
+        end=ft.Alignment(1, 1),
         colors=[AppColors.PRIMARY, ft.Colors.BLUE_900],
     )
     SURFACE_GLASS = ft.LinearGradient(
-        begin=ft.alignment.top_left,
-        end=ft.alignment.bottom_right,
+        begin=ft.Alignment(-1, -1),
+        end=ft.Alignment(1, 1),
         colors=[ft.Colors.with_opacity(0.1, ft.Colors.WHITE), ft.Colors.with_opacity(0.05, ft.Colors.WHITE)],
     )
 
