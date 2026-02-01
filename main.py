@@ -261,4 +261,4 @@ if __name__ == "__main__":
     os.environ["FLET_SECRET_KEY"] = secret_key
 
     # 브라우저 실행 모드로 명시적 설정
-    ft.app(target=main, port=port, host=host, assets_dir="assets", upload_dir="uploads", view=ft.AppView.WEB_BROWSER)
+    ft.app(target=main, port=port, host=host, assets_dir="assets", upload_dir="uploads", view=ft.AppView.WEB_BROWSER, web_renderer="html")
