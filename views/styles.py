@@ -27,22 +27,22 @@ class AppColors:
     BORDER_LIGHT = ft.Colors.with_opacity(0.1, ft.Colors.GREY)
     
     # Aliases for compatibility
-    BORDER = BORDER_LIGHT
-    SURFACE = SURFACE_LIGHT
-    SURFACE_VARIANT = "#F0F2F5" # Light grey for variant
+    BORDER = "outlineVariant"
+    SURFACE = "surface"
+    SURFACE_VARIANT = "surfaceVariant"
     
-    # Text
-    TEXT_MAIN = ft.Colors.with_opacity(0.87, ft.Colors.BLACK)
-    TEXT_MUTE = ft.Colors.with_opacity(0.60, ft.Colors.BLACK)
+    # Text - Use Flet's adaptive colors
+    TEXT_MAIN = ft.Colors.ON_SURFACE
+    TEXT_MUTE = ft.Colors.ON_SURFACE_VARIANT
     
-    TEXT_MAIN_DARK = ft.Colors.with_opacity(0.87, ft.Colors.WHITE)
-    TEXT_MUTE_DARK = ft.Colors.with_opacity(0.60, ft.Colors.WHITE)
+    TEXT_MAIN_DARK = ft.Colors.ON_SURFACE # Deprecated, maps to adaptive
+    TEXT_MUTE_DARK = ft.Colors.ON_SURFACE_VARIANT # Deprecated, maps to adaptive
 
     # Text Aliases (Compatibility)
     TEXT_PRIMARY = TEXT_MAIN
     TEXT_SECONDARY = TEXT_MUTE
-    TEXT_PRIMARY_DARK = TEXT_MAIN_DARK
-    TEXT_SECONDARY_DARK = TEXT_MUTE_DARK
+    TEXT_PRIMARY_DARK = TEXT_MAIN
+    TEXT_SECONDARY_DARK = TEXT_MUTE
 
 class AppShadows:
     # Soft, layered shadows for depth
@@ -87,21 +87,18 @@ class AppAnimations:
 class AppTextStyles:
     @staticmethod
     def header(page: ft.Page, size=24, bold=True):
-        color = AppColors.TEXT_MAIN_DARK if page.theme_mode == ft.ThemeMode.DARK else AppColors.TEXT_MAIN
-        return ft.TextStyle(size=size, weight=ft.FontWeight.BOLD if bold else ft.FontWeight.NORMAL, color=color)
+        # [Simplified] Use adaptive AppColors.TEXT_MAIN directly
+        return ft.TextStyle(size=size, weight=ft.FontWeight.BOLD if bold else ft.FontWeight.NORMAL, color=AppColors.TEXT_MAIN)
 
     @staticmethod
     def body(page: ft.Page, size=14, mute=False):
-        if page.theme_mode == ft.ThemeMode.DARK:
-            color = AppColors.TEXT_MUTE_DARK if mute else AppColors.TEXT_MAIN_DARK
-        else:
-            color = AppColors.TEXT_MUTE if mute else AppColors.TEXT_MAIN
+        # [Simplified] Use adaptive colors
+        color = AppColors.TEXT_MUTE if mute else AppColors.TEXT_MAIN
         return ft.TextStyle(size=size, color=color)
 
     @staticmethod
     def caption(page: ft.Page, size=12):
-        color = AppColors.TEXT_MUTE_DARK if page.theme_mode == ft.ThemeMode.DARK else AppColors.TEXT_MUTE
-        return ft.TextStyle(size=size, color=color)
+        return ft.TextStyle(size=size, color=AppColors.TEXT_MUTE)
 
     # Simplified access for legacy views
     CAPTION = ft.TextStyle(size=12, color=ft.Colors.GREY_500)
@@ -118,8 +115,6 @@ class AppLayout:
     
     HEADER_PADDING = 16 # Standard header padding
     CONTENT_PADDING = 16 # Standard content padding
-    
-    BORDER_RADIUS_SM = 8
     
     BORDER_RADIUS_SM = 8
     BORDER_RADIUS_MD = 12

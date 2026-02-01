@@ -8,6 +8,23 @@ from services import calendar_service
 from services.chat_service import get_storage_signed_url, get_public_url, upload_file_server_side
 import os
 from utils.logger import log_debug, log_error, log_info
+from views.styles import AppColors, AppLayout, AppTextStyles
+from views.components.app_header import AppHeader
+import threading
+from db import supabase
+
+class ThreadSafeState:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._data = {"is_active": True}
+    def get(self, key, default=None):
+        with self._lock: return self._data.get(key, default)
+    def set(self, key, value):
+        with self._lock: self._data[key] = value
+    def __getitem__(self, key):
+        with self._lock: return self._data[key]
+    def __setitem__(self, key, value):
+        with self._lock: self._data[key] = value
 
 def get_calendar_controls(page: ft.Page, navigate_to):
     now = datetime.now()
@@ -17,6 +34,9 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     log_debug("Entering get_calendar_controls")
     channel_id = page.session.get("channel_id")
     log_debug(f"Channel ID: {channel_id}")
+    
+    state = ThreadSafeState()
+    state["cid"] = channel_id
 
     if not channel_id:
         log_error("No Channel ID - returning error UI")
@@ -29,54 +49,58 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     # State for UI rebuilds
     # current_cal_type = "store" # Moved up # store | staff
     
-    # [DEBUG]
-    debug_text = ft.Text(value="", color="red", size=14)
+
     
-    # [FIX] Initialize grid BEFORE it's used in build()
-    grid = ft.GridView(
+    # [FIX] Initialize container for Flex Layout (Column of Rows)
+    # Replaces GridView to allow flexible height adaptation
+    calendar_container = ft.Column(
         expand=True,
-        runs_count=7,
-        max_extent=150,
-        child_aspect_ratio=1.2,  # Increased from 1.0 to make cells wider and less tall
         spacing=0,
-        run_spacing=0,
-        padding=0
+        alignment=ft.MainAxisAlignment.START,
     )
     
     # Staff Schedule Generator
     async def generate_staff_events(year, month):
+        client = None
         try:
             from postgrest import SyncPostgrestClient
             import os
             from services.auth_service import auth_service
-            
+
             headers = auth_service.get_auth_headers()
             if not headers: return []
             url = os.environ.get("SUPABASE_URL")
+            if not url: return []
+
             client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
-            
+
             # 1. Fetch Contracts (Filtered by Channel to see ALL staff)
-            # Was: .eq("user_id", current_user_id) -> This only showed MY contract
             c_res = await asyncio.to_thread(lambda: client.from_("labor_contracts").select("*").eq("channel_id", channel_id).execute())
             contracts = c_res.data or []
-            
+
             # 2. Fetch Overrides (is_work_schedule = True, Filtered by Channel)
             start_iso = f"{year}-{month:02d}-01T00:00:00"
             last_day = calendar.monthrange(year, month)[1]
             end_iso = f"{year}-{month:02d}-{last_day}T23:59:59"
-            
+
             o_res = await asyncio.to_thread(lambda: client.from_("calendar_events")
                                            .select("*")
                                            .eq("is_work_schedule", True)
-                                           # Remove created_by filter to see schedules made by other managers
                                            .gte("start_date", start_iso)
                                            .lte("start_date", end_iso)
                                            .eq("channel_id", channel_id)
                                            .execute())
             overrides = o_res.data or []
-        except Exception as ex: 
+        except Exception as ex:
             print(f"Calendar Staff Fetch Error: {ex}")
             return []
+        finally:
+            # [CRITICAL FIX] 리소스 누수 방지 - HTTP 클라이언트 정리
+            if client:
+                try:
+                    client.session.close()
+                except Exception:
+                    pass
 
         # Map overrides by [employee_id][day]
         override_map = {}
@@ -135,8 +159,6 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             except (ValueError, KeyError, IndexError):
                 pass  # Invalid date format
 
-        events = []
-        days_in_month = calendar.monthrange(year, month)[1]
         all_names = set(name_to_history.keys()) | set(name_day_overrides.keys())
 
         for name in all_names:
@@ -215,8 +237,6 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                         })
         return events
 
-    grid = ft.GridView(expand=True, runs_count=7, spacing=0, run_spacing=0)
-
     # [RBAC] Get User from Session
     current_user_id = page.session.get("user_id")
     # For robust MVP, allow view but require login
@@ -242,84 +262,253 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             
             log_debug("Calling build()...")
             build()
+            
+            print(f"DEBUG_CAL: Load success. Events: {len(view_state['events'])}")
+            
             log_debug("Calling page.update() inside load_async")
-            page.update()
+            if page: page.update()
             
         except Exception as e: 
             import traceback
             err = traceback.format_exc()
             log_error(f"Calendar Load Error: {err}")
             print(f"Calendar Load Error: {err}")
-            debug_text.value = f"Load Error: {e}"
+            # debug_text removed
             if page: page.update()
             build()
 
     def build():
         try:
             log_debug(f"build() called for {view_state['year']}-{view_state['month']}")
-            grid.controls.clear()
+            calendar_container.controls.clear()
             y = view_state["year"]
             m = view_state["month"]
-            month_label.value = f"{y}년 {m}월 ({'전체 일정' if current_cal_type=='store' else '직원 근무표'})"
+            month_label.value = f"{y}년 {m}월"
             
-            # Headers are now separate, don't add to grid
-                
             cal = calendar.monthcalendar(y, m)
             log_debug(f"Calendar generated weeks: {len(cal)}")
             
+            # Flex Layout Construction
             for week in cal:
+                week_row = ft.Row(
+                    expand=True, # Each week row shares vertical space equally
+                    spacing=0,
+                )
+                
                 for day in week:
                     if day == 0:
-                        grid.controls.append(ft.Container(bgcolor="#F4F4F4")) # Padding
+                        # Empty cell
+                        week_row.controls.append(
+                            ft.Container(expand=True, bgcolor="#F4F4F4", border=ft.border.all(0.5, "#E0E0E0"))
+                        )
                         continue
+                        
+                    # Active Day Cell
+                    is_today = (day == now.day and m == now.month and y == now.year)
+                    day_bg = "red" if is_today else None
+                    day_text_color = "white" if is_today else "black"
+                    date_obj = datetime(y, m, day)
                     
-                    # Check events (Naively filter from state)
-                    day_cols = []
-                    day_label = ft.Text(str(day), color="black", weight="bold" if day == now.day and m == now.month and y == now.year else "normal", size=12)
-                    day_cols.append(day_label)
+                    day_label = ft.Container(
+                        content=ft.Text(str(day), color=day_text_color, size=12, weight="bold"),
+                        bgcolor=day_bg,
+                        border_radius=10, 
+                        width=20, height=20, 
+                        alignment=ft.alignment.center
+                    )
                     
                     day_events = []
-                    # ... rest of the code ...
+                    current_date = f"{y}-{m:02d}-{day:02d}"
                     for ev in view_state["events"]:
                         try:
-                            # Simple date string check for MVP
-                            if ev.get("start_date") and str(ev["start_date"]).startswith(f"{y}-{m:02d}-{day:02d}"):
-                                 day_events.append(ev)
-                        except (TypeError, ValueError):
-                            pass  # Invalid event data
+                            s_dt = ev.get("start_date", "")[:10]
+                            e_dt = ev.get("end_date", "")[:10]
+                            if not s_dt or not e_dt: continue
+                            
+                            # Check if the day falls within the event range
+                            if s_dt <= current_date <= e_dt:
+                                 # Decorate event object with position info for rendering
+                                 ev_copy = dict(ev)
+                                 ev_copy["_is_start"] = (current_date == s_dt)
+                                 ev_copy["_is_end"] = (current_date == e_dt)
+                                 day_events.append(ev_copy)
+                        except Exception as e: 
+                            log_error(f"Event Range Check Error: {e}")
+                            pass
                     
-                    # Event chips
-                    for ev in day_events[:4]: # Increased limit for staff view
-                        is_staff = current_cal_type == "staff"
-                        is_virtual = ev.get('is_virtual', False)
-                        day_cols.append(
-                             ft.Container(
-                                 content=ft.Text(ev['title'], size=10, color="white", no_wrap=True, overflow=ft.TextOverflow.ELLIPSIS),
-                                 bgcolor=ev.get('color', 'blue'), border_radius=4, padding=ft.padding.symmetric(horizontal=4, vertical=1),
-                                 on_click=None if (is_staff and is_virtual) else lambda e, ev=ev, d=day: (open_staff_day_ledger(d) if is_staff else open_event_detail_dialog(ev, d)),
-                                 height=18
-                             )
-                        )
+                    # [STABILITY] Sort consistently to encourage row alignment across days
+                    day_events.sort(key=lambda x: (str(x.get("start_date", "")), str(x.get("id", ""))))
+                    
+                    
+                    # Chip container - Stretch to fill width
+                    day_content_col = ft.Column(spacing=2, tight=True, horizontal_alignment=ft.CrossAxisAlignment.STRETCH) 
+                    day_content_col.controls.append(ft.Container(content=day_label, alignment=ft.alignment.center, padding=ft.padding.only(bottom=2)))
+                    
+                    def handle_day_click(d):
+                        if current_cal_type == "staff":
+                            open_staff_day_ledger(d)
+                        else:
+                            open_day_agenda_dialog(d)
 
-                    grid.controls.append(
+                    for ev in day_events[:5]:
+                        bg_color = ev.get("color", "blue")
+                        if bg_color == "green": bg_color = "#4CAF50" # Vibrant Green
+                        elif bg_color == "red": bg_color = "#F44336" # Vibrant Red
+                        elif bg_color == "blue": bg_color = "#2196F3" # Vibrant Blue
+                        elif bg_color == "orange": bg_color = "#FF9800" # Vibrant Orange
+                        elif bg_color.startswith("#"): pass # Keep hex colors as is
+                        else: bg_color = "#2196F3"
+                        
+                        is_start = ev.get("_is_start", True)
+                        is_end = ev.get("_is_end", True)
+                        weekday = date_obj.weekday() # 0=Mon, 6=Sun
+                        
+                        title = ev.get("title", "")
+                        # Only show title on the start day OR on Mondays (start of week)
+                        display_text = title if (is_start or weekday == 0) else ""
+                        
+                        # Calculate border radius to make it look like a continuous bar
+                        # [TopLeft, TopRight, BottomRight, BottomLeft]
+                        br = ft.border_radius.all(4)
+                        if not is_start and not is_end:
+                            br = ft.border_radius.all(0)
+                        elif is_start and not is_end:
+                            if weekday == 6: # Sunday: round the end too
+                                br = ft.border_radius.all(4)
+                            else:
+                                br = ft.border_radius.only(top_left=4, bottom_left=4)
+                        elif not is_start and is_end:
+                            if weekday == 0: # Monday: round the start too
+                                br = ft.border_radius.all(4)
+                            else:
+                                br = ft.border_radius.only(top_right=4, bottom_right=4)
+
+                        chip = ft.Container(
+                            content=ft.Text(display_text, size=9, weight="bold", color="white", no_wrap=True, overflow=ft.TextOverflow.CLIP),
+                            bgcolor=bg_color,
+                            border_radius=br,
+                            height=18, # Consistent height for bars
+                            alignment=ft.alignment.center_left,
+                            padding=ft.padding.only(left=5, right=5),
+                            margin=ft.margin.only(
+                                left=(-4 if not is_start and weekday != 0 else 0), 
+                                right=(-4 if not is_end and weekday != 6 else 0)
+                            ),
+                            on_click=lambda e, d=day: handle_day_click(d),
+                        )
+                        day_content_col.controls.append(chip)
+                        
+                    remaining = len(day_events) - 5
+                    if remaining > 0:
+                         day_content_col.controls.append(ft.Text(f"+{remaining}", size=8, color="grey", text_align="center"))
+
+
+
+                    # Main Day Container
+                    week_row.controls.append(
                         ft.Container(
-                            content=ft.Column(day_cols, spacing=2),
+                            expand=True, # Share horizontal space equally
+                            content=day_content_col,
                             bgcolor="white",
-                            border=ft.border.all(0.5, "#CCCCCC"),
-                            padding=5,
-                            on_click=lambda e, d=day: (open_staff_day_ledger(d) if current_cal_type=="staff" else open_event_editor_dialog(d)),
-                            alignment=ft.alignment.top_left
+                            border=ft.border.all(0.5, "#E0E0E0"),
+                            padding=2,
+                            on_click=lambda e, d=day: handle_day_click(d),
+                            alignment=ft.alignment.top_center
                         )
                     )
+                
+                calendar_container.controls.append(week_row)
+
             if page: page.update()
         except Exception as build_err:
             print(f"Calendar Build Error: {build_err}")
             import traceback
             traceback.print_exc()
-            debug_text.value = f"Build Error: {build_err}"
+            # debug_text removed
             if page: page.update()
 
+    def open_day_agenda_dialog(day):
+        y, m = view_state["year"], view_state["month"]
+        # Find events for this day
+        day_str = f"{y}-{m:02d}-{day:02d}"
+        day_events = [ev for ev in view_state["events"] if not ev.get('is_virtual') and str(ev.get('start_date', '')).startswith(day_str)]
+        day_events.sort(key=lambda x: x.get('start_date', ''))
+
+        # Get weekday name
+        weekday_map = ["월", "화", "수", "목", "금", "토", "일"]
+        d_obj = datetime(y, m, day)
+        wd = weekday_map[d_obj.weekday()]
+
+        agenda_items = []
+        for ev in day_events:
+            start_time = ev.get('start_date', '')[11:16]
+            end_time = ev.get('end_date', '')[11:16]
+            time_display = f"{start_time}-{end_time}" if start_time else "종일"
+            
+            agenda_items.append(
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text(time_display, size=12, color=AppColors.TEXT_SECONDARY, width=80),
+                        ft.VerticalDivider(width=1, color=AppColors.PRIMARY),
+                        ft.Text(ev['title'], size=15, weight="bold", color=AppColors.TEXT_PRIMARY, expand=True),
+                        ft.Icon(ft.Icons.ARROW_FORWARD_IOS, size=12, color=AppColors.BORDER)
+                    ], spacing=10),
+                    padding=15,
+                    bgcolor=AppColors.SURFACE_VARIANT,
+                    border_radius=10,
+                    on_click=lambda e, ev=ev: (page.close(agenda_dlg), open_event_detail_dialog(ev, day))
+                )
+            )
+
+        if not agenda_items:
+            agenda_items.append(
+                ft.Container(
+                    content=ft.Text("오늘 등록된 일정이 없습니다.", color=AppColors.TEXT_SECONDARY),
+                    alignment=ft.alignment.center,
+                    expand=True,
+                    padding=40
+                )
+            )
+
+        agenda_dlg = ft.AlertDialog(
+            content=ft.Container(
+                bgcolor=AppColors.SURFACE,
+                padding=10,
+                width=400,
+                height=500,
+                content=ft.Column([
+                    ft.Row([
+                        ft.Text(f"{m}월 {day}일 {wd}요일", size=22, weight="bold", color=AppColors.TEXT_PRIMARY),
+                        ft.IconButton(ft.Icons.ADD_CIRCLE, icon_color=AppColors.PRIMARY, icon_size=32, 
+                                      on_click=lambda _: (page.close(agenda_dlg), open_event_editor_dialog(day))),
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    ft.Divider(height=10, color="transparent"),
+                    ft.Column(agenda_items, spacing=10, scroll=ft.ScrollMode.AUTO, expand=True)
+                ])
+            ),
+            actions=[ft.TextButton("닫기", on_click=lambda _: page.close(agenda_dlg))],
+            actions_alignment=ft.MainAxisAlignment.END,
+            shape=ft.RoundedRectangleBorder(radius=20),
+        )
+        page.open(agenda_dlg)
+        page.update()
+
     def open_event_detail_dialog(ev, day):
+        # [NEW] Helper for pretty date formatting
+        def format_pretty_date(date_str):
+            if not date_str: return "-"
+            try:
+                # Flexible parsing for both YYYY-MM-DD HH:MM and YYYY-MM-DDTHH:MM
+                clean_str = date_str.replace("T", " ")[:16]
+                dt = datetime.strptime(clean_str, "%Y-%m-%d %H:%M")
+                wd_map = ["일", "월", "화", "수", "목", "금", "토"] # wd starts from 0=Sun in some contexts, but dt.weekday() is 0=Mon
+                wd_map = ["월", "화", "수", "목", "금", "토", "일"]
+                wd = wd_map[dt.weekday()]
+                return f"{dt.year}년 {dt.month}월 {dt.day}일 ({wd})"
+            except Exception as e:
+                log_debug(f"Date format err: {e}")
+                return date_str
+
         def delete_ev(e):
             async def _del():
                 try:
@@ -337,70 +526,142 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                     page.update()
             page.run_task(_del)
 
-        def open_map(e):
-            if ev.get('location'):
-                try:
-                    query = urllib.parse.quote(ev['location'])
-                    page.launch_url(f"https://map.naver.com/p/search/{query}")
-                except Exception:
-                    pass  # URL launch failed
-
-        def open_file(e):
-            link = ev.get('link')
-            if not link: return
-            
-            content = ft.Column(tight=True)
-            low_link = link.lower()
-            if low_link.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
-                content.controls.append(ft.Image(src=link, border_radius=10, fit=ft.ImageFit.CONTAIN))
-            else:
-                content.controls.append(ft.ListTile(leading=ft.Icon(ft.Icons.DESCRIPTION), title=ft.Text("파일 정보"), subtitle=ft.Text(link.split("/")[-1])))
-            
-            dlg_prev = ft.AlertDialog(
-                title=ft.Text("파일 미리보기"),
-                content=ft.Container(width=400, content=content),
-                actions=[
-                    ft.TextButton("새 창에서 열기", icon=ft.Icons.OPEN_IN_NEW, on_click=lambda _: page.launch_url(link)),
-                    ft.TextButton("닫기", on_click=lambda _: page.close(dlg_prev))
-                ]
-            )
-            page.open(dlg_prev)
-
-        content = ft.Column([
-            ft.Text(ev['title'], size=18, weight="bold"),
-            ft.Text(f"{ev['start_date'][:16]} ~ {ev['end_date'][:16]}", size=14),
-        ], spacing=10, tight=True)
+        creator_name = ev.get('profiles', {}).get('full_name', '알 수 없음')
+        initials = creator_name[0] if creator_name else "?"
         
+        # Header (Standard navigation feel)
+        header_row = ft.Row([
+            ft.IconButton(ft.Icons.ARROW_BACK, on_click=lambda _: page.close(dlg_det), icon_color=AppColors.TEXT_PRIMARY),
+            ft.Container(expand=True),
+            ft.TextButton("수정", icon=ft.Icons.EDIT, icon_color=AppColors.PRIMARY,
+                         on_click=lambda _: (page.close(dlg_det), open_event_editor_dialog(day, existing_event=ev)))
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+
+        # Avatar & Summary
+        summary_section = ft.Column([
+            ft.Container(
+                content=ft.Text(initials, color="white", weight="bold", size=14),
+                width=36, height=36, bgcolor="#D81B60", border_radius=18, alignment=ft.alignment.center
+            ),
+            ft.Text(ev['title'], size=22, weight="bold", color="#2E7D32", text_align=ft.TextAlign.CENTER),
+            ft.Row([
+                ft.Column([
+                    ft.Text(str(ev['start_date'][:4]), size=14, color=AppColors.TEXT_SECONDARY),
+                    ft.Text(format_pretty_date(ev['start_date'])[5:], size=18, weight="bold"),
+                ], horizontal_alignment="center"),
+                ft.Icon(ft.Icons.CHEVRON_RIGHT, size=24, color=AppColors.BORDER),
+                ft.Column([
+                    ft.Text(str(ev['end_date'][:4]), size=14, color=AppColors.TEXT_SECONDARY),
+                    ft.Text(format_pretty_date(ev['end_date'])[5:], size=18, weight="bold"),
+                ], horizontal_alignment="center"),
+            ], alignment=ft.MainAxisAlignment.CENTER, spacing=20),
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=15)
+
+        # Info Rows (Only Location/Label for now)
+        info_rows = ft.Column([
+            ft.Divider(height=1, color=AppColors.BORDER_LIGHT),
+        ], spacing=0)
+
         if ev.get('location'):
-             content.controls.append(ft.TextButton(ev['location'], icon=ft.Icons.LOCATION_ON, on_click=open_map))
-        if ev.get('link'):
-             content.controls.append(ft.TextButton("첨부파일", icon=ft.Icons.ATTACH_FILE, on_click=open_file))
-
-        # [RBAC] Only Creator can delete
-        actions = [ft.TextButton("닫기", on_click=lambda _: page.close(dlg_det))]
-        # [SECURITY FIX] created_by가 없으면 삭제 불가 (False)
-        is_creator = str(ev.get('created_by')) == str(current_user_id) if ev.get('created_by') is not None else False
+            info_rows.controls.append(
+                ft.ListTile(
+                    leading=ft.Icon(ft.Icons.LABEL_OUTLINE, color="#2E7D32", size=20),
+                    title=ft.Text(ev.get('location'), size=15, color=AppColors.TEXT_PRIMARY),
+                    dense=True
+                )
+            )
         
-        # Allow Admin? (Not implemented in context yet, assume Strict Owner)
-        if is_creator:
-            actions.insert(0, ft.IconButton(ft.Icons.DELETE, icon_color="red", on_click=delete_ev))
+        # Memo Section
+        memo_section = ft.Container()
+        if ev.get('description'):
+            memo_section = ft.Container(
+                padding=ft.padding.symmetric(horizontal=15, vertical=10),
+                content=ft.Column([
+                    ft.Text("상세 메모", size=12, color=AppColors.TEXT_SECONDARY, weight="bold"),
+                    ft.Text(ev.get('description'), size=15, color=AppColors.TEXT_PRIMARY),
+                ], spacing=5)
+            )
+
+        # History Section (Simple)
+        history_section = ft.Container(
+            padding=ft.padding.only(top=20, bottom=20),
+            content=ft.Column([
+                ft.Divider(height=1, color=AppColors.BORDER_LIGHT),
+                ft.Container(height=20),
+                ft.Row([
+                    ft.Container(content=ft.Text(initials, color="white", size=10), width=24, height=24, bgcolor="#D81B60", border_radius=12, alignment=ft.alignment.center),
+                    ft.Text(f"{creator_name}님이 일정을 등록했습니다", size=14, color=AppColors.TEXT_SECONDARY),
+                ], spacing=10, alignment=ft.MainAxisAlignment.CENTER),
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+        )
+
+        # [NEW] Sophisticated Delete Button inside the card
+        delete_button_container = ft.Container(
+            content=ft.TextButton(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.DELETE_OUTLINE, size=16, color="#FF5252"),
+                    ft.Text("이 일정 삭제하기", size=13, color="#FF5252", weight="w500"),
+                ], tight=True, alignment=ft.MainAxisAlignment.CENTER),
+                on_click=delete_ev,
+            ),
+            visible=str(ev.get('created_by')) == str(current_user_id),
+            alignment=ft.alignment.center,
+            margin=ft.margin.only(top=10, bottom=20)
+        )
+
+        # Main Layout (Simplified without social bar)
+        detail_card = ft.Container(
+            width=400,
+            height=500,
+            bgcolor=AppColors.SURFACE,
+            padding=20,
+            content=ft.Column([
+                header_row,
+                ft.Container(height=20),
+                summary_section,
+                ft.Container(height=30),
+                info_rows,
+                memo_section,
+                history_section,
+                delete_button_container,
+                ft.Container(expand=True),
+            ], scroll=ft.ScrollMode.AUTO, spacing=0)
+        )
+
+        # RBAC Check: Only show Edit button if it's the owner
+        is_owner = str(ev.get('created_by')) == str(current_user_id)
+        if not is_owner:
+            # Hide the edit button if not owner
+            header_row.controls[2].visible = False
 
         dlg_det = ft.AlertDialog(
-            title=ft.Text("상세 정보"),
-            content=ft.Container(width=300, content=content),
-            actions=actions
+            content=detail_card,
+            shape=ft.RoundedRectangleBorder(radius=20),
+            actions=[
+                ft.TextButton("닫기", on_click=lambda _: page.close(dlg_det))
+            ]
         )
         page.open(dlg_det)
+        page.update()
 
     async def delete_staff_event(ev_id):
         from services.auth_service import auth_service
         from postgrest import SyncPostgrestClient
-        headers = auth_service.get_auth_headers()
-        if not headers: return
-        if "apikey" not in headers: headers["apikey"] = os.environ.get("SUPABASE_KEY")
-        url = os.environ.get("SUPABASE_URL")
-        client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
-        await asyncio.to_thread(lambda: client.from_("calendar_events").delete().eq("id", ev_id).execute())
+        client = None
+        try:
+            headers = auth_service.get_auth_headers()
+            if not headers: return
+            if "apikey" not in headers: headers["apikey"] = os.environ.get("SUPABASE_KEY")
+            url = os.environ.get("SUPABASE_URL")
+            if not url: return
+            client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
+            await asyncio.to_thread(lambda: client.from_("calendar_events").delete().eq("id", ev_id).execute())
+        finally:
+            if client:
+                try:
+                    client.session.close()
+                except Exception:
+                    pass
 
     def open_staff_day_ledger(day):
         y, m = view_state["year"], view_state["month"]
@@ -520,51 +781,69 @@ def get_calendar_controls(page: ft.Page, navigate_to):
 
             from services.auth_service import auth_service
             from postgrest import SyncPostgrestClient
-            headers = auth_service.get_auth_headers()
-            if not headers: return
-            if "apikey" not in headers: headers["apikey"] = os.environ.get("SUPABASE_KEY")
-            url = os.environ.get("SUPABASE_URL")
-            client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
+            client = None
+            try:
+                headers = auth_service.get_auth_headers()
+                if not headers: return
+                if "apikey" not in headers: headers["apikey"] = os.environ.get("SUPABASE_KEY")
+                url = os.environ.get("SUPABASE_URL")
+                if not url: return
+                client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
 
-            payload = {
-                "title": title,
-                "start_date": f"{y}-{m:02d}-{day:02d}T{st_time}:00",
-                "end_date": f"{y}-{m:02d}-{day:02d}T{et_time}:00",
-                "color": color,
-                "employee_id": eid,
-                "is_work_schedule": True,
-                "created_by": page.session.get("user_id"),
-                "channel_id": channel_id
-            }
-            res = await asyncio.to_thread(lambda: client.from_("calendar_events").insert(payload).execute())
-            if res.data:
-                current_day_evs.append(res.data[0])
-                refresh_existing()
-                load()
-                page.open(ft.SnackBar(ft.Text("기록되었습니다."), bgcolor="green"))
+                payload = {
+                    "title": title,
+                    "start_date": f"{y}-{m:02d}-{day:02d}T{st_time}:00",
+                    "end_date": f"{y}-{m:02d}-{day:02d}T{et_time}:00",
+                    "color": color,
+                    "employee_id": eid,
+                    "is_work_schedule": True,
+                    "created_by": page.session.get("user_id"),
+                    "channel_id": channel_id
+                }
+                res = await asyncio.to_thread(lambda: client.from_("calendar_events").insert(payload).execute())
+                if res.data:
+                    current_day_evs.append(res.data[0])
+                    refresh_existing()
+                    load()
+                    page.open(ft.SnackBar(ft.Text("기록되었습니다."), bgcolor="green"))
+            finally:
+                if client:
+                    try:
+                        client.session.close()
+                    except Exception:
+                        pass
 
         async def fetch_staff():
             from services.auth_service import auth_service
             from postgrest import SyncPostgrestClient
-            headers = auth_service.get_auth_headers()
-            if not headers: return
-            url = os.environ.get("SUPABASE_URL")
-            client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
-            res = await asyncio.to_thread(lambda: client.from_("labor_contracts").select("id, employee_name, contract_end_date").eq("user_id", current_user_id).order("created_at", desc=True).execute())
-            data = res.data or []
-            unique_staff = {}
-            for d in data:
-                nm = d['employee_name'].strip()
-                if nm in unique_staff: continue
-                ed = d.get('contract_end_date')
-                if ed:
+            client = None
+            try:
+                headers = auth_service.get_auth_headers()
+                if not headers: return
+                url = os.environ.get("SUPABASE_URL")
+                if not url: return
+                client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
+                res = await asyncio.to_thread(lambda: client.from_("labor_contracts").select("id, employee_name, contract_end_date").eq("user_id", current_user_id).order("created_at", desc=True).execute())
+                data = res.data or []
+                unique_staff = {}
+                for d in data:
+                    nm = d['employee_name'].strip()
+                    if nm in unique_staff: continue
+                    ed = d.get('contract_end_date')
+                    if ed:
+                        try:
+                            if datetime.strptime(ed, "%Y-%m-%d").date() < datetime.now().date(): continue
+                        except ValueError:
+                            pass  # Invalid date format
+                    unique_staff[nm] = d['id']
+                staff_dd.options = [ft.dropdown.Option(eid, nm) for nm, eid in unique_staff.items()]
+                page.update()
+            finally:
+                if client:
                     try:
-                        if datetime.strptime(ed, "%Y-%m-%d").date() < datetime.now().date(): continue
-                    except ValueError:
-                        pass  # Invalid date format
-                unique_staff[nm] = d['id']
-            staff_dd.options = [ft.dropdown.Option(eid, nm) for nm, eid in unique_staff.items()]
-            page.update()
+                        client.session.close()
+                    except Exception:
+                        pass
 
         dlg = ft.AlertDialog(
             title=ft.Text(f"{y}/{m}/{day} 일일 근무 장부"),
@@ -595,20 +874,34 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         refresh_existing()
         page.run_task(fetch_staff)
 
-    def open_event_editor_dialog(day, init=""):
+    def open_event_editor_dialog(day, init_title="", existing_event=None):
         try:
             target_date = datetime(view_state['year'], view_state['month'], day)
         except: target_date = datetime.now()
 
-        evt_state = {
-            "all_day": False,
-            "start_date": target_date.replace(hour=9,minute=0,second=0,microsecond=0),
-            "end_date": target_date.replace(hour=10,minute=0,second=0,microsecond=0),
-            "start_time": time(9,0),
-            "end_time": time(10,0),
-            "color": "#1DDB16",
-            "participants": []
-        }
+        # If editing, use existing data
+        if existing_event:
+            s_dt = datetime.strptime(existing_event["start_date"].replace("T", " ")[:19], "%Y-%m-%d %H:%M:%S")
+            e_dt = datetime.strptime(existing_event["end_date"].replace("T", " ")[:19], "%Y-%m-%d %H:%M:%S")
+            evt_state = {
+                "all_day": existing_event.get("is_all_day", False),
+                "start_date": s_dt,
+                "end_date": e_dt,
+                "start_time": s_dt.time(),
+                "end_time": e_dt.time(),
+                "color": existing_event.get("color", "#1DDB16"),
+                "participants": existing_event.get("participant_ids", []) or []
+            }
+        else:
+            evt_state = {
+                "all_day": False,
+                "start_date": target_date.replace(hour=9,minute=0,second=0,microsecond=0),
+                "end_date": target_date.replace(hour=10,minute=0,second=0,microsecond=0),
+                "start_time": time(9,0),
+                "end_time": time(10,0),
+                "color": "#1DDB16",
+                "participants": []
+            }
         
         def on_d_s(e): 
             if e.control.value: evt_state["start_date"] = e.control.value; update_ui()
@@ -625,17 +918,35 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         
         page.overlay.extend([dp_s, dp_e, tp_s, tp_e])
         
-        status_msg = ft.Text("", size=12, color="orange", visible=False)
+        status_msg = ft.Text("", size=11, color="orange", italic=True)
         saved_fname = None
-        link_tf = ft.TextField(label="클라우드 파일 링크", icon=ft.Icons.CLOUD_UPLOAD, read_only=True, expand=True)
-        title_tf = ft.TextField(label="제목", value=init, autofocus=True)
-        loc_tf = ft.TextField(label="장소", icon=ft.Icons.LOCATION_ON)
-        btn_file = ft.TextButton("클라우드 업로드", icon=ft.Icons.UPLOAD_FILE, on_click=lambda _: page.file_picker.pick_files())
         
+        link_tf = ft.TextField(
+            label="파일 업로드", 
+            icon=ft.Icons.ATTACH_FILE, 
+            read_only=True, 
+            expand=True,
+            value=existing_event.get("link", "") if existing_event else "",
+            suffix=ft.IconButton(
+                icon=ft.Icons.UPLOAD_FILE,
+                icon_color=AppColors.PRIMARY,
+                icon_size=20,
+                on_click=lambda _: page.file_picker.pick_files(),
+                tooltip="파일 업로드"
+            )
+        )
+        
+        title_tf = ft.TextField(label="제목", value=existing_event.get("title", init_title) if existing_event else init_title, autofocus=True)
+        loc_tf = ft.TextField(label="장소", icon=ft.Icons.LOCATION_ON,
+                             value=existing_event.get("location", "") if existing_event else "")
+        memo_tf = ft.TextField(label="메모", multiline=True, min_lines=2, icon=ft.Icons.NOTE,
+                              value=existing_event.get("description", "") if existing_event else "")
+        
+        # Simple stack for link field and status
         link_section = ft.Column([
             link_tf,
-            ft.Row([btn_file, status_msg], alignment="spaceBetween")
-        ], spacing=5)
+            status_msg
+        ], spacing=2)
 
         def on_upload_progress(e: ft.FilePickerUploadEvent):
             if status_msg:
@@ -761,6 +1072,7 @@ def get_calendar_controls(page: ft.Page, navigate_to):
                 "color": evt_state["color"],
                 "location": loc_tf.value,
                 "link": link_tf.value,
+                "description": memo_tf.value,
                 "participant_ids": evt_state["participants"],
                 "created_by": current_user_id,
                 # Legacy compatibility or extra tracking
@@ -770,22 +1082,27 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             
             async def _save_async():
                 try:
-                    await calendar_service.create_event(data)
+                    if existing_event:
+                        await calendar_service.update_event(existing_event["id"], data, current_user_id)
+                    else:
+                        await calendar_service.create_event(data)
                     page.snack_bar = ft.SnackBar(ft.Text("저장 완료!"))
                     page.snack_bar.open=True
                     page.close(dlg_edit)
                     load()
                     page.update()
+                except PermissionError as perm_err:
+                    page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"); page.snack_bar.open=True; page.update()
                 except Exception as ex:
                     print(f"Save Error: {ex}")
                     page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
             
             page.run_task(_save_async)
 
-        memo_tf = ft.TextField(label="메모", multiline=True, min_lines=2, icon=ft.Icons.NOTE)
+
 
         dlg_edit = ft.AlertDialog(
-            title=ft.Text("새 일정"),
+            title=ft.Text("일정 수정" if existing_event else "새 일정"),
             content=ft.Container(
                 width=400,
                 content=ft.Column([
@@ -813,6 +1130,14 @@ def get_calendar_controls(page: ft.Page, navigate_to):
         if view_state["month"] > 12: view_state["month"]=1; view_state["year"]+=1
         elif view_state["month"] < 1: view_state["month"]=12; view_state["year"]-=1
         load()
+
+    def on_swipe(e: ft.DragEndEvent):
+        # Velocity-based horizontal swipe detection
+        if e.primary_velocity is not None:
+            if e.primary_velocity > 400: # Swiping Right -> Prev Month
+                change_m(-1)
+            elif e.primary_velocity < -400: # Swiping Left -> Next Month
+                change_m(1)
 
     month_label = ft.Text(f"{view_state['year']}년 {view_state['month']}월", size=20, weight="bold", color="#0A1929")
 
@@ -905,35 +1230,18 @@ def get_calendar_controls(page: ft.Page, navigate_to):
     page.drawer = drawer
     page.update()
 
-    top_bar = ft.Container(
-        padding=10,
-        bgcolor="white",
-        content=ft.Row([
-            # Left: Menu (Drawer Trigger) - Explicitly open local drawer instance
-            ft.IconButton(ft.Icons.MENU, icon_color="#333333", icon_size=28, on_click=lambda _: page.open(drawer), tooltip="메뉴"),
-            
-            # Center: Month Nav
-            ft.Row([
-                ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=lambda _: change_m(-1), icon_color="#0A1929"), 
-                month_label, 
-                ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=lambda _: change_m(1), icon_color="#0A1929")
-            ], alignment=ft.MainAxisAlignment.CENTER, expand=True),
-            
-            # Right: Actions
-            ft.Row([
-                ft.IconButton(ft.Icons.REFRESH, on_click=lambda _: load(), icon_color="#0A1929"), 
-            ])
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-    )
-
-    header = ft.Container(
-        # Reduced height since buttons are removed
-        bgcolor="white", 
-        border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE")), 
-        padding=ft.padding.only(left=10, right=10, top=10),
-        content=ft.Column([
-            top_bar
-        ], tight=True) # Use tight to fit content
+    # [Standardized Header]
+    header = AppHeader(
+        title_text=ft.Row([
+            ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=lambda _: change_m(-1), icon_color=AppColors.TEXT_PRIMARY), 
+            month_label, 
+            ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=lambda _: change_m(1), icon_color=AppColors.TEXT_PRIMARY)
+        ], alignment=ft.MainAxisAlignment.CENTER),
+        left_button=ft.Row([
+            ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color=AppColors.TEXT_PRIMARY, on_click=lambda _: page.go_back(), tooltip="뒤로"),
+            ft.IconButton(ft.Icons.MENU, icon_color=AppColors.TEXT_PRIMARY, on_click=lambda _: page.open(drawer), tooltip="메뉴"),
+        ], spacing=0),
+        action_button=ft.IconButton(ft.Icons.REFRESH, on_click=lambda _: load(), icon_color=AppColors.TEXT_PRIMARY)
     )
     
     async def initial_load_delayed():
@@ -946,33 +1254,119 @@ def get_calendar_controls(page: ft.Page, navigate_to):
             except Exception:
                 pass  # Logging failed
 
+    async def realtime_handler():
+        print(f"DEBUG_CAL: Handler started for CID={channel_id}, UID={current_user_id}")
+        log_info("CALENDAR_SYNC: Handler started.")
+        
+        async def polling_loop():
+            print("DEBUG_CAL: Polling loop started.")
+            log_info("CALENDAR_SYNC: Polling loop started.")
+            while state["is_active"]:
+                try:
+                    await asyncio.sleep(5)
+                    if state["is_active"]:
+                        # print("DEBUG_CAL: Polling tick.")
+                        page.run_task(load_async)
+                except Exception as e:
+                    print(f"DEBUG_CAL: Polling error: {e}")
+                    await asyncio.sleep(10)
+
+        async def connection_loop():
+            log_info("CALENDAR_SYNC: Connection loop started.")
+            while state["is_active"]:
+                try:
+                    rt = supabase.get_realtime_client()
+                    if not rt:
+                        log_error("CALENDAR_SYNC: Realtime client not available.")
+                        await asyncio.sleep(60)
+                        continue
+                    
+                    await rt.connect()
+                    # Use a generic channel name for now to ensure connectivity
+                    chan_name = f"cal_realtime_{channel_id}"
+                    channel = rt.channel(chan_name)
+                    
+                    async def on_change(payload):
+                        log_info(f"CALENDAR_SYNC [RT]: {payload.get('eventType')} detected! Reloading UI.")
+                        page.run_task(load_async)
+
+                    channel.on_postgres_changes(
+                        event="*",
+                        schema="public",
+                        table="calendar_events",
+                        # Removing filter temporarily for maximum compatibility
+                        callback=on_change
+                    )
+                    
+                    await channel.subscribe()
+                    print(f"DEBUG_CAL: Subscribed successfully to {chan_name}")
+                    log_info(f"CALENDAR_SYNC [RT]: Subscribed to {chan_name}")
+                    
+                    while state["is_active"]:
+                        if hasattr(page, "is_running") and not page.is_running:
+                            state["is_active"] = False
+                            break
+                        await asyncio.sleep(10)
+                except Exception as e:
+                    print(f"DEBUG_CAL: RT ERROR: {e}")
+                    log_error(f"CALENDAR_SYNC [RT] ERROR: {e}")
+                    await asyncio.sleep(30)
+                finally:
+                    try: 
+                        if rt: await rt.disconnect()
+                    except: pass
+        
+        # Run both for maximum reliability
+        await asyncio.gather(polling_loop(), connection_loop())
+
+    def on_nav_away(e):
+        log_info("CALENDAR: Navigating away, stopping realtime.")
+        state["is_active"] = False
+
+    # Since there is no direct "on_close" for a view, we hook into the page's route change if we could, 
+    # but more simply we rely on the loop check for page.is_running.
+
     page.run_task(initial_load_delayed)
+    # Register the realtime task properly
+    rt_task = page.run_task(realtime_handler)
+
+    # Simple cleanup logic when view is logically destroyed
+    def cleanup():
+        log_info("CALENDAR: Performing cleanup...")
+        state["is_active"] = False
     
+    # We can't easily hook into view destruction in Flet without complex route logic, 
+    # but the loop in realtime_handler checks page.is_running.
+
     log_debug("Exiting get_calendar_controls (Returning UI)")
     
     # [FIX] Return layout without NavigationRail
     return [
         ft.SafeArea(expand=True, content=
             ft.Column([
-                debug_text,
                 header,
+                # debug_text removed
                 ft.Container(
                     expand=True,
                     padding=ft.padding.only(left=5, right=5, bottom=0, top=0),
-                    content=ft.Column([
-                        # Weekday header row
-                        ft.Row([
-                            ft.Container(content=ft.Text("월", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                            ft.Container(content=ft.Text("화", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                            ft.Container(content=ft.Text("수", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                            ft.Container(content=ft.Text("목", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                            ft.Container(content=ft.Text("금", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                            ft.Container(content=ft.Text("토", color="blue", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                            ft.Container(content=ft.Text("일", color="red", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
-                        ], spacing=0),
-                        # Grid
-                        grid
-                    ], spacing=0, expand=True)
+                    content=ft.GestureDetector(
+                        on_horizontal_drag_end=on_swipe,
+                        expand=True,
+                        content=ft.Column([
+                            # Weekday header row
+                            ft.Row([
+                                ft.Container(content=ft.Text("월", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                                ft.Container(content=ft.Text("화", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                                ft.Container(content=ft.Text("수", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                                ft.Container(content=ft.Text("목", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                                ft.Container(content=ft.Text("금", color="black", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                                ft.Container(content=ft.Text("토", color="blue", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                                ft.Container(content=ft.Text("일", color="red", size=13, text_align="center", weight="bold"), expand=True, alignment=ft.alignment.center, padding=5),
+                            ], spacing=0),
+                            # Grid
+                            calendar_container
+                        ], spacing=0, expand=True)
+                    )
                 )
             ], expand=True, spacing=0)
         )

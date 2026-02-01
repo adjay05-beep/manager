@@ -16,13 +16,19 @@ from views.handover_view import get_handover_controls
 
 def main(page: ft.Page):
     page.title = "The Manager"
-    # 모바일/데스크탑 반응형 대응을 위해 고정 크기 제거
     # page.window_width = 390
     # page.window_height = 844
-    page.theme_mode = ft.ThemeMode.LIGHT
+    
+    # [THEME PERSISTENCE] Load theme from client_storage
+    theme_mode_str = page.client_storage.get("theme_mode")
+    if theme_mode_str == "dark":
+        page.theme_mode = ft.ThemeMode.DARK
+    else:
+        page.theme_mode = ft.ThemeMode.LIGHT
+    
     page.padding = 0
     page.spacing = 0
-    page.bgcolor = "white" # Clean White Theme
+    # page.bgcolor = "white" # [REMOVED] Let theme control bgcolor (white/dark)
     
     # Global FilePicker for all views
     page.file_picker = ft.FilePicker()
@@ -69,6 +75,32 @@ def main(page: ft.Page):
     # Optimized Route Management
     page.history_stack = []
 
+    def cleanup_page():
+        """Robustly closes all open overlays (dialogs, sheets, banners)."""
+        try:
+            # Traditional properties
+            if hasattr(page, "dialog") and page.dialog:
+                page.dialog.open = False
+            if hasattr(page, "bottom_sheet") and page.bottom_sheet:
+                page.bottom_sheet.open = False
+            if hasattr(page, "banner") and page.banner:
+                page.banner.open = False
+            
+            # Standard way to close dialogs in newer Flet
+            # This handles dialogs opened via page.open(dlg)
+            for ctrl in page.overlay:
+                if hasattr(ctrl, "open") and not isinstance(ctrl, (ft.FilePicker, ft.AudioRecorder)):
+                    ctrl.open = False
+            
+            # Reset splash
+            if getattr(page, "splash", None):
+                page.splash = None
+            
+            page.update()
+        except Exception as e:
+            from utils.logger import log_error
+            log_error(f"Cleanup Error: {e}")
+
     def navigate_to(route, is_back=False):
         # Prevent redundant navigation to same route
         if page.route == route and page.controls:
@@ -76,6 +108,9 @@ def main(page: ft.Page):
              
         log_info(f"Navigating to: {route} (Back: {is_back})")
         
+        # [CRITICAL] Close all dialogs/overlays before leaving
+        cleanup_page()
+
         # History Management
         if not is_back and page.route:
             page.history_stack.append(page.route)
@@ -95,6 +130,7 @@ def main(page: ft.Page):
         page.clean()
         
         # Reset splash if it was lingering
+        # (Already handled in cleanup_page but good as backup)
         if getattr(page, "splash", None):
             page.splash = None
 

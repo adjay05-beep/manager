@@ -15,47 +15,43 @@ class PayrollService:
         - summary: {total_std, total_act, ...}
         - employees: List of dicts with per-employee calc details
         """
+        client = None
         try:
-            # 1. Fetch Data (Async)
             from postgrest import SyncPostgrestClient
-            # We need a client. Ideally passed in or created.
-            # Using service_supabase directly for read operations might be okay via database functions, 
-            # but to reuse the logic we saw in work_view which used a client with headers...
-            # Actually, for calculation, we can use service_supabase (admin) or pass the client.
-            # WORK_VIEW used User's client for RLS visibility.
-            # We should probably accept the client or token. But simpler: use the RLS-enforcing client if possible.
-            # For now, let's assume we use service_supabase for "calculation" but we must filter correctly.
-            # WAIT: If we use service_supabase, we bypass RLS. This might show data the user shouldn't see.
-            # The original code used a client created with user headers.
-            # Let's mock that or require passing the headers/client.
-            # For simplicity in this refactor, let's fallback to service_supabase BUT filter strictly by channel_id.
-            # Since channel_id is the boundary, and the user is a manager of that channel (checked by caller), it's safeish.
-            
-            # [SECURE] Use Authenticated Client to enforce RLS
-            # Identify User Token
             from services.auth_service import auth_service
-            session = auth_service.get_session()
-            if not session or not session.access_token:
-               # Fallback for testing/public or error - but for payroll we need security.
-               # If no session, we can't show data safely.
-               # However, current user_id is passed.
-               # Let's try to get headers.
-               headers = auth_service.get_auth_headers()
-               if not headers:
-                   print("WARNING: No Auth Headers for Payroll - RLS might fail or we use Anonymous")
-                   # Fallback to service_supabase IF we are sure (Admin Override?)
-                   # No, standard execution should fail or be empty if not auth.
-                   # But let's use the headers we got.
-               else:
-                   pass
-            else:
-                 headers = auth_service.get_auth_headers()
+
+            # [CRITICAL FIX] Safely get auth headers with fallback
+            headers = auth_service.get_auth_headers()
+
+            if not headers:
+                # Fallback to service_supabase for admin operations
+                print("WARNING: No Auth Headers for Payroll - Using service client")
+                # Use service_supabase directly instead of creating new client
+                res = await asyncio.to_thread(lambda: service_supabase.table("labor_contracts").select("*")
+                                                .eq("channel_id", channel_id).execute())
+                contracts = res.data or []
+
+                start_iso = f"{year}-{month:02d}-01T00:00:00"
+                last_day = cal_mod.monthrange(year, month)[1]
+                end_iso = f"{year}-{month:02d}-{last_day}T23:59:59"
+
+                o_res = await asyncio.to_thread(lambda: service_supabase.table("calendar_events")
+                                                .select("*")
+                                                .eq("is_work_schedule", True)
+                                                .gte("start_date", start_iso)
+                                                .lte("start_date", end_iso)
+                                                .eq("channel_id", channel_id)
+                                                .execute())
+                overrides = o_res.data or []
+                return self._process_calculation(contracts, overrides, year, month)
 
             url = os.environ.get("SUPABASE_URL")
+            if not url:
+                raise ValueError("SUPABASE_URL environment variable not set")
+
             # Create isolated client with user auth
-            # Create isolated client with user auth
-            client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public") 
-            
+            client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=30)
+
             try:
                 # Fetch Contracts
                 res = await asyncio.to_thread(lambda: client.table("labor_contracts").select("*")
@@ -140,10 +136,10 @@ class PayrollService:
             wage_type = 'hourly'
             daily_hours = 0
             work_days = []
+            is_resigned = False  # [FIX] 변수 범위를 블록 바깥으로 이동
 
             if latest:
                 # Resigned check
-                is_resigned = False
                 ed_str = latest.get('contract_end_date')
                 if ed_str:
                     try:

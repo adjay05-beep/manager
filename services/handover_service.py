@@ -58,15 +58,31 @@ class HandoverService:
             return False
 
     async def update_handover(self, handover_id: str, content: str, user_id: str):
-        """인계사항 수정 (작성자만 가능)."""
-        # [SECURITY] 소유권 검증
-        if not await self._verify_ownership(handover_id, user_id):
-            raise PermissionError("본인이 작성한 인계사항만 수정할 수 있습니다.")
-
+        """인계사항 수정 (채널 멤버 모두 가능)."""
         if not content or not content.strip():
             return False
 
         try:
+            # [SECURITY] 1. 해당 인계사항의 채널 ID 조회
+            check = await asyncio.to_thread(lambda: service_supabase.table("handovers").select("channel_id").eq("id", handover_id).single().execute())
+            if not check.data:
+                return False
+            
+            target_channel_id = check.data.get("channel_id")
+            
+            # [DEBUG]
+            print(f"[DEBUG] update_handover: id={handover_id}, user={user_id}, target_ch={target_channel_id}")
+
+            # [SECURITY] 2. 요청자가 해당 채널의 멤버인지 확인
+            is_member = await self._verify_channel_member(user_id, target_channel_id)
+            print(f"[DEBUG] is_member: {is_member}")
+
+            if not is_member:
+                 print(f"[DEBUG] Permission Denied: User {user_id} is not member of {target_channel_id}")
+                 raise PermissionError("해당 채널의 멤버만 수정할 수 있습니다.")
+
+            # 수정 실행
+            print(f"[DEBUG] Executing update...")
             res = await asyncio.to_thread(lambda: service_supabase.table("handovers").update({
                 "content": content.strip(),
                 "updated_at": datetime.now(timezone.utc).isoformat()

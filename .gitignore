@@ -5,3 +5,9 @@ __pycache__/
 .gemini/
 brain/
 *.log
+
+# Ignored
+venv312/
+nul
+backup_*/
+*.zip

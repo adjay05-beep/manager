@@ -240,7 +240,9 @@ def get_unread_counts(user_id: str, topics: List[Dict[str, Any]]) -> Dict[str, i
     try:
         # 1. Fetch unread counts from View
         view_data = ChatRepository.get_unread_counts_from_view(user_id)
-        counts = {str(item['topic_id']): int(item['unread_count']) for item in view_data if int(item['unread_count']) > 0}
+        # [FIX] Do NOT filter out 0 counts. If we filter them, they fall into 'missing_topic_ids'
+        # and get recounted as "Never Read" (Total Messages), causing the bug.
+        counts = {str(item['topic_id']): int(item['unread_count']) for item in view_data}
 
         # 2. Handle 'Never Read' topics (Fallback for topics not in chat_user_reading)
         topic_ids = [str(t['id']) for t in topics]

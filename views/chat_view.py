@@ -71,6 +71,9 @@ class ThreadSafeState:
 
 
 def get_chat_controls(page: ft.Page, navigate_to):
+    # [UI] Header Title Ref
+    chat_title_ref = ft.Ref[ft.Text]()
+    
     file_log_info("Entering Chat View (get_chat_controls)")
     # [FIX] Stability: Use Global FilePicker and Robust Lifecycle Management
     from views.components.chat_bubble import ChatBubble
@@ -113,8 +116,10 @@ def get_chat_controls(page: ft.Page, navigate_to):
     # [FIX] Helper to atomic update read status and refresh UI
     def mark_read_and_refresh(tid, uid):
         def _task():
+            log_info(f"DEBUG_READ: mark_read_and_refresh called for TID={tid}, UID={uid}")
             chat_service.update_last_read(tid, uid)
             # Refresh topic list to update badges immediately
+            log_info(f"DEBUG_READ: Refreshing topics...")
             load_topics(update_ui=True)
         threading.Thread(target=_task, daemon=True).start()
 
@@ -127,6 +132,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
             if is_bottom:
                 tid = state.get("current_topic_id")
                 uid = current_user_id
+                log_info(f"DEBUG_READ: Scroll Bottom Triggered. TID={tid}")
                 if tid and uid:
                     # file_log_info(f"SCROLL: Reached bottom of {tid}. Marking as read.")
                     mark_read_and_refresh(tid, uid)
@@ -806,10 +812,9 @@ def get_chat_controls(page: ft.Page, navigate_to):
                 log_info(f"Select Topic Thread Error: {ex}")
                 load_messages_thread()
 
-        if 'chat_page_header' in locals():
-            chat_page_header.content.controls[1].value = topic['name']
-        else:
-            chat_page_header.content.controls[1].value = topic['name']
+        if chat_title_ref.current:
+            chat_title_ref.current.value = topic['name']
+            # No update() here, page.update() below will handle it once the view switches
         msg_input.disabled = False
         state["view_mode"] = "chat"
         update_layer_view()
@@ -1981,7 +1986,7 @@ def get_chat_controls(page: ft.Page, navigate_to):
 
 
     chat_page_header = AppHeader(
-        title_text="스레드",
+        title_text=ft.Text("대화", ref=chat_title_ref, style=AppTextStyles.HEADER_TITLE, color=AppColors.TEXT_PRIMARY),
         on_back_click=lambda _: back_to_list(),
         action_button=ft.Row([
             ft.IconButton(ft.Icons.SEARCH, icon_color=AppColors.TEXT_SECONDARY, tooltip="검색", on_click=open_search_dialog),

@@ -115,14 +115,24 @@ def get_work_controls(page: ft.Page, navigate_to):
     days_map = {0: "월", 1: "화", 2: "수", 3: "목", 4: "금", 5: "토", 6: "일"}
     
     # Uniform Mode Inputs
-    uniform_start = ft.TextField(label="시작", value="09:00", width=90, text_align="center", height=45, text_size=14, border_color="#E0E0E0", content_padding=5, border_radius=8)
-    uniform_end = ft.TextField(label="종료", value="18:00", width=90, text_align="center", height=45, text_size=14, border_color="#E0E0E0", content_padding=5, border_radius=8)
+    # [Refactor] Time Input Helper
+    def create_time_input(hh="09", mm="00", disabled=False):
+        tf_h = ft.TextField(value=hh, width=50, text_align="center", content_padding=5, text_size=14, disabled=disabled, 
+                            keyboard_type="number", max_length=2, border_radius=8, border_color="#E0E0E0", hint_text="HH")
+        tf_m = ft.TextField(value=mm, width=50, text_align="center", content_padding=5, text_size=14, disabled=disabled, 
+                            keyboard_type="number", max_length=2, border_radius=8, border_color="#E0E0E0", hint_text="MM")
+        row = ft.Row([tf_h, ft.Text(":", weight="bold", size=14), tf_m], spacing=5, vertical_alignment="center")
+        return row, tf_h, tf_m
+
+    # Uniform Mode Inputs
+    uni_start_row, uni_start_h, uni_start_m = create_time_input("09", "00")
+    uni_end_row, uni_end_h, uni_end_m = create_time_input("18", "00")
     # Replaced CustomCheckbox with DayToggleButton
     uniform_day_checks = [DayToggleButton(days_map[i]) for i in range(7)]
 
     uniform_content = ft.Column([
         ft.Text("근무 시간 설정", size=12, color="grey"),
-        ft.Row([uniform_start, ft.Text("~", size=16, weight="bold"), uniform_end], alignment="start"),
+        ft.Row([uni_start_row, ft.Text("~", size=16, weight="bold"), uni_end_row], alignment="start"),
         ft.Container(height=10),
         ft.Text("근무 요일 선택", size=12, color="grey"),
         ft.Row(uniform_day_checks, alignment="start", spacing=10)
@@ -137,25 +147,26 @@ def get_work_controls(page: ft.Page, navigate_to):
         # Compatibility wrapper for submit logic which expects .value
         # Actually existing code calls day_schedule[i]["enabled"].value
         
-        start_t = ft.TextField(value="09:00", width=70, height=35, text_size=12, content_padding=5, border_color="#E0E0E0", text_align="center", disabled=True)
-        end_t = ft.TextField(value="18:00", width=70, height=35, text_size=12, content_padding=5, border_color="#E0E0E0", text_align="center", disabled=True)
+        row_s, h_s, m_s = create_time_input("09", "00", disabled=True)
+        row_e, h_e, m_e = create_time_input("18", "00", disabled=True)
         
-        def on_day_switch(e, s=start_t, en=end_t):
-            s.disabled = not e.control.value
-            en.disabled = not e.control.value
+        def on_day_switch(e, h1=h_s, m1=m_s, h2=h_e, m2=m_e):
+            val = not e.control.value
+            h1.disabled = val; m1.disabled = val
+            h2.disabled = val; m2.disabled = val
             e.page.update()
         
         en_chk.on_change = on_day_switch
         
         day_schedule[day_idx] = {
-            "enabled": en_chk, "start": start_t, "end": end_t
+            "enabled": en_chk, "start_h": h_s, "start_m": m_s, "end_h": h_e, "end_m": m_e
         }
         
         custom_rows.append(
             ft.Row([
                 ft.Text(days_map[day_idx], weight="bold", width=30),
                 en_chk,
-                start_t, ft.Text("~"), end_t
+                row_s, ft.Text("~"), row_e
             ], alignment="spaceBetween")
         )
 
@@ -165,7 +176,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     schedule_mode_state = {"value": "uniform"}
     
     btn_uniform = ft.Container(
-        content=ft.Text("간편 설정 (동일 시간)", weight="bold"),
+        content=ft.Text("간편 설정 (동일 시간)", weight="bold", color="white"), # [FIX] Initial White
         alignment=ft.alignment.center, width=150, padding=10,
         bgcolor=AppColors.PRIMARY, border_radius=8,
         on_click=lambda e: set_mode("uniform")
@@ -682,15 +693,20 @@ def get_work_controls(page: ft.Page, navigate_to):
                 work_schedule = {}
                 # schedule_mode_state is defined in get_work_controls closure
                 if schedule_mode_state["value"] == "uniform":
+                    uni_s_str = f"{uni_start_h.value.zfill(2)}:{uni_start_m.value.zfill(2)}"
+                    uni_e_str = f"{uni_end_h.value.zfill(2)}:{uni_end_m.value.zfill(2)}"
                     for idx in range(7):
                         if uniform_day_checks[idx].value:
-                            work_schedule[str(idx)] = {"start": uniform_start.value, "end": uniform_end.value}
+                            work_schedule[str(idx)] = {"start": uni_s_str, "end": uni_e_str}
                 else:
                     for idx in range(7):
                         if day_schedule[idx]["enabled"].value:
+                            s = day_schedule[idx]
+                            s_str = f"{s['start_h'].value.zfill(2)}:{s['start_m'].value.zfill(2)}"
+                            e_str = f"{s['end_h'].value.zfill(2)}:{s['end_m'].value.zfill(2)}"
                             work_schedule[str(idx)] = {
-                                "start": day_schedule[idx]["start"].value,
-                                "end": day_schedule[idx]["end"].value
+                                "start": s_str,
+                                "end": e_str
                             }
                 
                 selected_days = [int(i) for i in work_schedule.keys()]
@@ -793,7 +809,8 @@ def get_work_controls(page: ft.Page, navigate_to):
         ft.Text("나의 직원 리스트", weight="bold", color="black"),
         contract_list,
         ft.Text("요일별 근무 명단", weight="bold", size=16, color="black"),
-        weekly_summary_container
+        weekly_summary_container,
+        ft.Container(height=50) # [FIX] Bottom padding to prevent clipping
     ], scroll=ft.ScrollMode.ALWAYS, expand=True)
     
     labor_content = ft.Column([
@@ -852,7 +869,7 @@ def get_work_controls(page: ft.Page, navigate_to):
     # Payroll (Simplified)
     payroll_res_col = ft.Column()
     now_dt = datetime.now()
-    dd_year = ft.Dropdown(options=[ft.dropdown.Option(str(y)) for y in range(2025, 2030)], value=str(now_dt.year), width=100)
+    dd_year = ft.Dropdown(options=[ft.dropdown.Option(str(y)) for y in range(2025, 2030)], value=str(now_dt.year), width=120) # [FIX] Wider
     dd_month = ft.Dropdown(options=[ft.dropdown.Option(str(m)) for m in range(1, 13)], value=str(now_dt.month), width=80)
 
     def calc_payroll(e):
@@ -1017,12 +1034,15 @@ def get_work_controls(page: ft.Page, navigate_to):
                 page.update()
         page.run_task(_calc)
 
+        page.run_task(_calc)
+ 
     payroll_content = ft.Column([
         ft.Text("급여 정산", weight="bold", size=18),
         ft.Text("* 상단: 계약 기준 예상 / 하단: 캘린더 실제 기록 기준", size=12, color="grey"),
         ft.Row([dd_year, ft.Text("년", size=14), dd_month, ft.Text("월", size=14), ft.ElevatedButton("조회", on_click=calc_payroll, style=AppButtons.PRIMARY(), width=80)], vertical_alignment="center"),
         ft.Divider(),
-        payroll_res_col
+        payroll_res_col,
+        ft.Container(height=150) # [FIX] Prevent dropdown clipping
     ], scroll=ft.ScrollMode.AUTO)
 
     

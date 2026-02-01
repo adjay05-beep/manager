@@ -312,9 +312,20 @@ def get_handover_controls(page: ft.Page, navigate_to):
         edit_tf = ft.TextField(value=item.get("content", ""), multiline=True, expand=True)
 
         async def save_edit(e):
-            if await handover_service.update_handover(item.get("id"), edit_tf.value):
-                page.close(dlg)
-                await fetch_and_update()
+            print(f"[VIEW DEBUG] save_edit clicked. Item ID: {item.get('id')}, User ID: {user_id}")
+            try:
+                if await handover_service.update_handover(item.get("id"), edit_tf.value, user_id):
+                    print("[VIEW DEBUG] Update success")
+                    page.close(dlg)
+                    await fetch_and_update()
+                else:
+                    print("[VIEW DEBUG] Update returned False")
+                    page.open(ft.SnackBar(ft.Text("수정 실패: 권한이 없거나 오류 발생"), bgcolor="red"))
+                    page.update()
+            except Exception as ex:
+                print(f"[VIEW DEBUG] Update Exception: {ex}")
+                page.open(ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red"))
+                page.update()
 
         dlg = ft.AlertDialog(
             title=ft.Text("기록 수정"),
@@ -327,7 +338,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
         page.open(dlg)
 
     async def delete_entry(item_id):
-        await handover_service.delete_handover(item_id)
+        await handover_service.delete_handover(item_id, user_id)
         await fetch_and_update()
 
     def render_feed():
@@ -390,6 +401,12 @@ def get_handover_controls(page: ft.Page, navigate_to):
 
         list_view.controls.append(ft.Container(height=20))
         page.update()
+        # [FIX] Scroll to bottom aka "Latest"
+        try:
+            list_view.scroll_to(offset=-1, duration=300)
+            page.update()
+        except Exception:
+            pass
 
     async def fetch_and_update():
         raw = await handover_service.get_handovers(channel_id)
@@ -480,10 +497,17 @@ def get_handover_controls(page: ft.Page, navigate_to):
     # Custom Header Container was combining title and tabs. 
     # Now AppHeader handles title. Tabs should be separate.
 
+    async def poll_updates():
+        while True:
+            await asyncio.sleep(POLL_INTERVAL)
+            # Only poll if this view is effectively active (simple check)
+            try:
+                await fetch_and_update()
+            except Exception:
+                break
+
     page.run_task(fetch_and_update)
-    page.run_task(fetch_and_update)
-    page.run_task(fetch_and_update)
-    page.run_task(fetch_and_update)
+    page.run_task(poll_updates)
     return [
         ft.SafeArea(
             expand=True,

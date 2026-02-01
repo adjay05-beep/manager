@@ -4,34 +4,40 @@ from services.auth_service import auth_service
 from db import service_supabase
 from postgrest import SyncPostgrestClient
 import os
+from datetime import datetime, timezone
 from utils.logger import log_debug, log_error, log_info
 from views.styles import AppColors, AppTextStyles, AppLayout, AppButtons
 from views.components.app_header import AppHeader
 
+
 def get_store_manage_controls(page: ft.Page, navigate_to):
-    log_debug(f"Entering Store Manage. User: {page.session.get('user_id')}")
     """Unified Settings Page: Store Info + My Profile + Logout"""
-    
-    # 1. Get Context
+    log_debug(f"Entering Store Manage. User: {page.session.get('user_id')}")
+
+    # === 1. GET CONTEXT ===
     user_id = page.session.get("user_id")
     channel_id = page.session.get("channel_id")
-    role = page.session.get("user_role")
     user_email = page.session.get("user_email") or "unknown@example.com"
-    
+
     if not channel_id:
         return [ft.Text("매장 정보가 없습니다.")]
 
-    # 2. Fetch Store Data
-    # [FIX] Pass token for RLS
-    from services.auth_service import auth_service
-    token = auth_service.get_access_token()
-    channels = channel_service.get_user_channels(user_id, token)
-    current_ch = next((c for c in channels if c["id"] == channel_id), None)
-    
+    # === 2. FETCH STORE DATA ===
+    try:
+        token = auth_service.get_access_token()
+        channels = channel_service.get_user_channels(user_id, token)
+        current_ch = next((c for c in channels if c["id"] == channel_id), None)
+    except Exception as e:
+        log_error(f"Failed to fetch channels: {e}")
+        return [ft.Text("매장 정보를 불러올 수 없습니다.")]
+
     if not current_ch:
         return [ft.Text("매장 정보를 불러올 수 없습니다.")]
 
-    # 3. Fetch User Profile Data
+    # [FIX] Use fresh role from DB, not stale session
+    role = current_ch.get("role", "staff")
+
+    # === 3. FETCH USER PROFILE DATA ===
     user_profile = None
     try:
         res = service_supabase.table("profiles").select("*").eq("id", user_id).single().execute()
@@ -40,82 +46,47 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         log_error(f"Failed to fetch user profile: {e}")
 
     # === UI STATE ===
-    
-    # Store Section
-    store_name_tf = ft.TextField(
-        label="매장 이름", 
-        value=current_ch["name"],
-        read_only=(role != "owner"),
-        color="black",
-        border_color="#E0E0E0",
-        label_style=ft.TextStyle(color="grey"),
-        height=45,
-        border_radius=8,
-        content_padding=10,
-        text_size=14
-    )
-    
-    # Profile Section
-    profile_name_tf = ft.TextField(
-        label="내 이름",
-        value=user_profile.get("full_name", "") if user_profile else "",
-        color="black",
-        border_color="#E0E0E0",
-        label_style=ft.TextStyle(color="grey"),
-        height=45,
-        border_radius=8,
-        content_padding=10,
-        text_size=14
-    )
-    
-    profile_role_tf = ft.TextField(
-        label="등급",
-        value=user_profile.get("role", "staff") if user_profile else "staff",
-        read_only=True,
-        color="black",
-        border_color="#E0E0E0",
-        label_style=ft.TextStyle(color="grey"),
-        height=45,
-        border_radius=8,
-        content_padding=10,
-        text_size=14
-    )
-    
-    # Invite Code Section
-    active_codes = channel_service.get_active_invite_codes(channel_id)
-    code_display = ft.Text("", selectable=True, color="#00BCD4", size=16, weight="bold")
-    code_expiry = ft.Text("", size=12, color="grey")
-    
     msg = ft.Text("", size=12)
 
+    # Invite Code Section
+    try:
+        active_codes = channel_service.get_active_invite_codes(channel_id)
+    except Exception:
+        active_codes = []
+
+    code_display = ft.Text("", selectable=True, color="#00BCD4", size=16, weight="bold")
+    code_expiry = ft.Text("", size=12, color="grey")
+
     def update_code_display():
-        if active_codes and len(active_codes) > 0:
-            latest = active_codes[0]
-            code_display.value = latest["code"]
-            
-            from datetime import datetime, timezone
-            expires = datetime.fromisoformat(latest["expires_at"].replace("Z", "+00:00"))
-            now = datetime.now(timezone.utc)
-            remaining = expires - now
-            minutes = int(remaining.total_seconds() / 60)
-            
-            if minutes > 0:
-                code_expiry.value = f"⏱ {minutes}분 후 만료 | 사용 횟수: {latest.get('used_count', 0)}회"
+        try:
+            if active_codes and len(active_codes) > 0:
+                latest = active_codes[0]
+                code_display.value = latest["code"]
+
+                expires = datetime.fromisoformat(latest["expires_at"].replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                remaining = expires - now
+                minutes = int(remaining.total_seconds() / 60)
+
+                if minutes > 0:
+                    code_expiry.value = f"⏱ {minutes}분 후 만료 | 사용 횟수: {latest.get('used_count', 0)}회"
+                else:
+                    code_expiry.value = "⚠ 만료됨"
+                    code_display.value = "만료된 코드"
             else:
-                code_expiry.value = "⚠ 만료됨"
-                code_display.value = "만료된 코드"
-        else:
-            code_display.value = "생성된 코드가 없습니다"
-            code_expiry.value = "새 코드를 생성하세요"
-        
-        page.update()
-    
+                code_display.value = "생성된 코드가 없습니다"
+                code_expiry.value = "새 코드를 생성하세요"
+        except Exception as e:
+            log_error(f"Update code display error: {e}")
+            code_display.value = "코드 로드 실패"
+            code_expiry.value = ""
+
     update_code_display()
 
     # === EVENT HANDLERS ===
-    
+
     def copy_code(e):
-        if active_codes and code_display.value != "생성된 코드가 없습니다":
+        if active_codes and code_display.value not in ["생성된 코드가 없습니다", "만료된 코드", "코드 로드 실패"]:
             page.set_clipboard(code_display.value)
             page.snack_bar = ft.SnackBar(ft.Text(f"초대 코드 복사 완료: {code_display.value}"))
             page.snack_bar.open = True
@@ -129,127 +100,91 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
             active_codes.clear()
             active_codes.extend(channel_service.get_active_invite_codes(channel_id))
             update_code_display()
-            
+
             msg.value = f"새 초대 코드 생성됨: {new_code}"
             msg.color = "green"
+            page.update()
+        except PermissionError as pe:
+            msg.value = str(pe)
+            msg.color = "red"
             page.update()
         except Exception as ex:
             log_error(f"Generate Code Error: {ex}")
             msg.value = f"코드 생성 실패: {ex}"
             msg.color = "red"
             page.update()
-    
+
     generate_btn = ft.ElevatedButton(
-        "새 초대 코드 생성 (10분)", 
-        icon=ft.Icons.REFRESH, 
-        visible=(role in ["owner", "manager"]), 
+        "새 초대 코드 생성 (10분)",
+        icon=ft.Icons.REFRESH,
+        visible=(role in ["owner", "manager"]),
         style=AppButtons.PRIMARY(),
         height=40,
         on_click=generate_new_code
     )
 
-    def save_store_changes(e):
-        if role != "owner":
-            msg.value = "매장 정보 수정 권한이 없습니다."
-            msg.color = "red"
-            page.update()
-            return
-
-        try:
-            channel_service.update_channel(channel_id, store_name_tf.value)
-            page.session.set("channel_name", store_name_tf.value)
-            msg.value = "매장 정보가 업데이트되었습니다."
-            msg.color = "green"
-            page.update()
-        except Exception as ex:
-            msg.value = f"업데이트 실패: {ex}"
-            msg.color = "red"
-            page.update()
-
-    def save_profile_changes(e):
-        try:
-            headers = auth_service.get_auth_headers()
-            if not headers:
-                raise Exception("세션이 만료되었습니다. 다시 로그인해주세요.")
-            
-            url = os.environ.get("SUPABASE_URL")
-            user_client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
-            
-            try:
-                user_client.from_("profiles").upsert({
-                    "id": user_id,
-                    "full_name": profile_name_tf.value,
-                    "updated_at": "now()"
-                }).execute()
-            finally:
-                try:
-                    user_client.session.close()
-                except Exception:
-                    pass  # Session cleanup
-            
-            # Update session with new display name
-            page.session.set("display_name", profile_name_tf.value)
-            
-            msg.value = f"프로필 저장 완료! (권한: {profile_role_dd.value})"
-            msg.color = "green"
-            page.update()
-            
-        except Exception as ex:
-            msg.value = f"프로필 저장 실패: {ex}"
-            msg.color = "red"
-            page.update()
-
-    def perform_logout(e):
-        try:
-            auth_service.sign_out()
-            page.session.clear()
-            page.client_storage.remove("supa_session")
-            navigate_to("login")
-        except Exception as ex:
-            print(f"Logout error: {ex}")
-            # Force logout anyway
-            page.session.clear()
-            navigate_to("login")
-
-    # === CREATE NEW STORE DIALOG ===
-    new_store_name = ft.TextField(label="새 매장 이름")
-    
-    def perform_create(e):
-        if not new_store_name.value:
-            return
-        
-        try:
-            new_ch = channel_service.create_channel(user_id, new_store_name.value)
-            page.session.set("channel_id", new_ch["id"])
-            page.session.set("channel_name", new_ch["name"])
-            page.session.set("user_role", "owner")
-            
-            page.close(create_dialog)
-            page.snack_bar = ft.SnackBar(ft.Text(f"새 매장 '{new_ch['name']}'으로 전환되었습니다."))
-            page.snack_bar.open = True
-            navigate_to("home")
-            
-        except Exception as ex:
-            print(f"Create Error: {ex}")
-
-    create_dialog = ft.AlertDialog(
-        title=ft.Text("새 매장 추가"),
-        content=ft.Column([
-            ft.Text("새로운 매장을 만들어 관리하세요."),
-            new_store_name
-        ], height=100),
-        actions=[
-            ft.TextButton("취소", on_click=lambda _: page.close(create_dialog)),
-            ft.ElevatedButton("생성하기", on_click=perform_create)
-        ]
-    )
-
-    def open_create_dialog(e):
-        page.open(create_dialog)
-
     # === MEMBER MANAGEMENT (Owner Only) ===
     member_mgmt_col = ft.Column(spacing=10)
-    current_members_data = [] # Store for transfer dialog
+    current_members_data = []  # Store for transfer dialog
+
+    def perform_transfer_and_logout(new_owner_id: str, target_name: str, dlg_confirm, dlg_transfer):
+        """양도 실행 및 로그아웃 처리 - 안정적인 순차 실행"""
+        try:
+            # 1. 양도 실행
+            log_info(f"[Transfer] Starting ownership transfer to {new_owner_id}")
+            token = auth_service.get_access_token()
+            channel_service.transfer_channel_ownership(channel_id, new_owner_id, token=token)
+            log_info("[Transfer] Ownership transferred successfully")
+
+            # 2. 다이얼로그 닫기 (먼저)
+            try:
+                page.close(dlg_confirm)
+                page.close(dlg_transfer)
+            except Exception:
+                pass
+
+            # 3. 성공 메시지 표시
+            page.snack_bar = ft.SnackBar(
+                ft.Text(f"매장 대표가 '{target_name}'님으로 변경되었습니다."),
+                bgcolor="green"
+            )
+            page.snack_bar.open = True
+            page.update()
+
+            # 4. 세션 및 스토리지 정리
+            log_info("[Transfer] Starting session cleanup")
+            try:
+                auth_service.sign_out()
+                log_info("[Transfer] sign_out completed")
+            except Exception as logout_err:
+                log_error(f"[Transfer] Logout error (non-critical): {logout_err}")
+
+            try:
+                page.session.clear()
+                log_info("[Transfer] session.clear completed")
+            except Exception as session_err:
+                log_error(f"[Transfer] Session clear error: {session_err}")
+
+            try:
+                page.client_storage.remove("supa_session")
+                log_info("[Transfer] client_storage cleared")
+            except Exception as storage_err:
+                log_error(f"[Transfer] Storage clear error: {storage_err}")
+
+            # 5. 로그인 페이지로 이동
+            log_info("[Transfer] Navigating to login...")
+            navigate_to("login")
+            log_info("[Transfer] navigate_to('login') completed")
+
+        except Exception as ex:
+            log_error(f"[Transfer] Transfer failed: {ex}")
+            try:
+                page.close(dlg_confirm)
+            except Exception:
+                pass
+            page.snack_bar = ft.SnackBar(ft.Text(f"양도 실패: {ex}"), bgcolor="red")
+            page.snack_bar.open = True
+            page.update()
 
     def open_transfer_dialog(e):
         candidates = [m for m in current_members_data if m["user_id"] != user_id]
@@ -258,62 +193,110 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
             page.snack_bar.open = True
             page.update()
             return
-            
-        selected_candidate = [None] # Mutable container
-        
-        def set_candidate(e):
-            selected_candidate[0] = e.control.value
 
-        def final_transfer_confirm(e):
-            if not selected_candidate[0]: return
-            try:
-                # Call service logic
-                token = auth_service.get_access_token()
-                channel_service.transfer_channel_ownership(channel_id, selected_candidate[0], token=token)
-                
-                page.close(dlg_confirm)
-                page.close(dlg_transfer)
-                
-                page.snack_bar = ft.SnackBar(ft.Text("매장 권한을 양도했습니다."))
-                page.snack_bar.open = True
-                page.update()
-                
-                navigate_to("home") 
-            except Exception as ex:
-                page.close(dlg_confirm)
-                page.snack_bar = ft.SnackBar(ft.Text(f"양도 실패: {ex}"))
-                page.snack_bar.open = True
-                page.update()
+        selected_candidate = [None]  # Mutable container
 
-        def do_transfer_check(e):
-            if not selected_candidate[0]: 
+        def set_candidate(ev):
+            selected_candidate[0] = ev.control.value
+
+        def do_transfer_check(ev):
+            if not selected_candidate[0]:
                 page.snack_bar = ft.SnackBar(ft.Text("새 대표를 선택해주세요."))
                 page.snack_bar.open = True
                 page.update()
                 return
-                
+
             # Find name for confirmation message
             target_name = "Unknown"
             for m in candidates:
                 if m["user_id"] == selected_candidate[0]:
                     target_name = m.get("full_name", "Unknown")
                     break
-            
+
+            # [SECURITY] Password Verification Dialog
+            confirm_btn = ft.ElevatedButton(
+                "확인 (양도)",
+                bgcolor="red",
+                color="white",
+                disabled=True
+            )
+
+            password_tf = ft.TextField(
+                label="비밀번호 확인",
+                password=True,
+                can_reveal_password=True,
+                hint_text="본인 확인을 위해 비밀번호를 입력하세요.",
+                text_align=ft.TextAlign.CENTER
+            )
+
+            def on_password_change(pw_ev):
+                password_tf.error_text = None
+                password_tf.update()
+                confirm_btn.disabled = not bool(password_tf.value)
+                confirm_btn.update()
+
+            password_tf.on_change = on_password_change
+
+            def final_transfer_confirm(confirm_ev):
+                log_info("[Transfer] final_transfer_confirm called")
+                if not password_tf.value:
+                    log_info("[Transfer] No password entered")
+                    return
+
+                # Disable button to prevent double-click
+                confirm_btn.disabled = True
+                confirm_btn.text = "처리 중..."
+                confirm_btn.update()
+
+                # [SECURITY] Verify Password
+                try:
+                    current_email = auth_service.get_user().email
+                    log_info(f"[Transfer] Verifying password for {current_email}")
+                    if not current_email:
+                        raise Exception("사용자 이메일 정보를 찾을 수 없습니다.")
+
+                    # Attempt Re-login to verify password
+                    auth_service.sign_in(current_email, password_tf.value)
+                    log_info("[Transfer] Password verified successfully")
+                except Exception as pwd_err:
+                    log_error(f"[Transfer] Password verification failed: {pwd_err}")
+                    password_tf.error_text = "잘못된 비밀번호입니다."
+                    password_tf.update()
+                    confirm_btn.disabled = False
+                    confirm_btn.text = "확인 (양도)"
+                    confirm_btn.update()
+                    return
+
+                # Execute transfer
+                perform_transfer_and_logout(
+                    selected_candidate[0],
+                    target_name,
+                    dlg_confirm,
+                    dlg_transfer
+                )
+
+            confirm_btn.on_click = final_transfer_confirm
+
             dlg_confirm = ft.AlertDialog(
-                title=ft.Text("양도 확인"),
-                content=ft.Text(f"정말 '{target_name}'님에게 매장 대표 권한을 양도하시겠습니까?\n\n양도 후 귀하는 '관리자' 등급으로 변경되며, 이 작업은 되돌릴 수 없습니다."),
+                title=ft.Text("양도 확인 (최종)", text_align=ft.TextAlign.CENTER),
+                content=ft.Column([
+                    ft.Text(f"정말 '{target_name}'님에게 매장 대표 권한을 양도하시겠습니까?", weight="bold"),
+                    ft.Text(
+                        "양도 후 귀하는 '관리자' 등급으로 변경되며,\n이 작업은 되돌릴 수 없습니다.",
+                        color="red",
+                        size=12,
+                        text_align=ft.TextAlign.CENTER
+                    ),
+                    ft.Container(height=5),
+                    password_tf
+                ], height=180, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                 actions=[
                     ft.TextButton("취소", on_click=lambda _: page.close(dlg_confirm)),
-                    ft.ElevatedButton("확인 (양도)", bgcolor="red", color="white", on_click=final_transfer_confirm)
-                ]
+                    confirm_btn
+                ],
+                actions_alignment=ft.MainAxisAlignment.CENTER
             )
-            # Make the variable available to the inner function by attaching it to page or similar referencing?
-            # Actually inner function captures variables from enclosing scope. 
-            # We need to register 'dlg_confirm' variable so we can close it. 
-            # Since create_dialog is local, we need to pass it or declare it before.
-            # Python closure will capture the variable name, but it must be assigned before use.
-            # Let's use page.open(dlg_confirm) and rely on lambda capturing.
-            
+
             page.open(dlg_confirm)
 
         dlg_transfer = ft.AlertDialog(
@@ -324,7 +307,7 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                     label="새 대표 선택",
                     width=280,
                     options=[
-                        ft.dropdown.Option(m["user_id"], m.get("full_name") or "Unknown") 
+                        ft.dropdown.Option(m["user_id"], m.get("full_name") or "Unknown")
                         for m in candidates
                     ],
                     on_change=set_candidate
@@ -339,40 +322,44 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         page.open(dlg_transfer)
 
     def load_members():
-        # Log members
-        if role != "owner": return
+        if role != "owner":
+            return
         try:
-            # [Fix] Pass token for RLS
             token = auth_service.get_access_token()
             members = channel_service.get_channel_members_with_profiles(channel_id, access_token=token)
-            
-            # [Iteration 28 Refresh] Sort by rank precedence: owner(0) > manager(1) > staff(2)
+
+            # Sort by rank precedence: owner(0) > manager(1) > staff(2)
             precedence = {"owner": 0, "manager": 1, "staff": 2}
             members.sort(key=lambda x: precedence.get(x.get("role"), 9))
-            
+
             current_members_data.clear()
-            items = []
+            member_items = []
+            other_members_count = 0
+
             for m in members:
                 uid = m["user_id"]
                 u_role = m["role"]
                 is_me = (uid == user_id)
-                current_members_data.append(m) # Store for transfer
-                
-                # Role Display Mapping check
-                if u_role == "owner": role_label = "대표"
-                elif u_role == "manager": role_label = "관리자"
-                else: 
+                current_members_data.append(m)
+
+                if not is_me:
+                    other_members_count += 1
+
+                # Role Display Mapping
+                if u_role == "owner":
+                    role_label = "대표"
+                elif u_role == "manager":
+                    role_label = "관리자"
+                else:
                     role_label = "멤버"
-                    # Normalize u_role for dropdown value matching
                     if u_role not in ["manager", "staff"]:
-                        u_role = "staff" 
-                
+                        u_role = "staff"
+
                 # UI for Role Selection
                 if u_role == "owner":
-                    # Representative is shown as text, not a dropdown
                     role_selector = ft.Container(
                         content=ft.Text("대표", weight="bold", size=14, color="#2196F3"),
-                        width=100, 
+                        width=100,
                         alignment=ft.alignment.center
                     )
                 else:
@@ -386,26 +373,25 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                         content_padding=ft.padding.symmetric(horizontal=10, vertical=0),
                         text_size=13,
                         text_style=ft.TextStyle(weight=ft.FontWeight.BOLD),
-                        # Removed fixed height to prevent clipping in Flet 0.28.3
                         border_radius=8,
-                        on_change=lambda e, uid=uid: update_member_role(uid, e.control.value),
-                        disabled=is_me # Technically redundant if owner is filtered above, but keeps logic safe
+                        on_change=lambda ev, uid=uid: update_member_role(uid, ev.control.value),
+                        disabled=is_me
                     )
-                
+
                 kick_btn = ft.IconButton(
-                    ft.Icons.REMOVE_CIRCLE_OUTLINE, 
-                    icon_color="red", 
+                    ft.Icons.REMOVE_CIRCLE_OUTLINE,
+                    icon_color="red",
                     tooltip="내보내기",
-                    on_click=lambda e, uid=uid, name=m["full_name"]: confirm_kick(uid, name),
-                    visible=(not is_me) # Cannot kick self
+                    on_click=lambda ev, uid=uid, name=m.get("full_name", "Unknown"): confirm_kick(uid, name),
+                    visible=(not is_me and u_role != "owner")
                 )
-                
-                items.append(
+
+                member_items.append(
                     ft.Container(
                         content=ft.Row([
                             ft.Column([
                                 ft.Row([
-                                    ft.Text(m["full_name"], weight="bold", size=14),
+                                    ft.Text(m.get("full_name", "Unknown"), weight="bold", size=14),
                                     ft.Container(
                                         content=ft.Text(role_label, size=10, color="white", weight="bold"),
                                         bgcolor="#2196F3" if u_role == "owner" else "#4CAF50" if u_role == "manager" else "#9E9E9E",
@@ -413,7 +399,11 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                                         border_radius=4
                                     )
                                 ], spacing=5),
-                                ft.Text(f"@{m.get('username')}" if m.get("username") else f"User #{m['user_id'][-4:]}", size=10, color="grey")
+                                ft.Text(
+                                    f"@{m.get('username')}" if m.get("username") else f"User #{uid[-4:]}",
+                                    size=10,
+                                    color="grey"
+                                )
                             ], expand=True, spacing=2),
                             role_selector,
                             kick_btn
@@ -424,24 +414,28 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                     )
                 )
 
-            # [Iteration 28] Ownership Transfer Section
+            # Ownership Transfer Section (only if there are other members)
             transfer_section = ft.Container(
                 content=ft.Column([
                     ft.Text("매장 양도 (소유권 이전)", weight="bold", size=16),
                     ft.Text("대표 권한을 다른 멤버에게 넘깁니다. 이 작업은 되돌릴 수 없습니다.", size=12, color="grey"),
                     ft.ElevatedButton(
-                        "양도할 멤버 선택 및 넘기기", 
+                        "양도할 멤버 선택 및 넘기기",
                         icon=ft.Icons.PERSON_SEARCH,
-                        bgcolor="#FF5252", color="white",
+                        bgcolor="#FF5252",
+                        color="white",
                         on_click=open_transfer_dialog
                     )
                 ]),
-                padding=20, border=ft.border.all(1, "#FFEBEE"), border_radius=10, bgcolor="#FFEBEE",
-                visible=(len(items) > 1) # Only show if there are other members
+                padding=20,
+                border=ft.border.all(1, "#FFEBEE"),
+                border_radius=10,
+                bgcolor="#FFEBEE",
+                visible=(other_members_count > 0)
             )
-            items.append(transfer_section)
-            # Check if only owner is present
-            if len(items) <= 1:
+
+            # Build final controls
+            if other_members_count == 0:
                 member_mgmt_col.controls = [
                     ft.Container(
                         content=ft.Column([
@@ -456,8 +450,11 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
                     )
                 ]
             else:
-                member_mgmt_col.controls = items
-            
+                member_items.append(ft.Container(height=30))
+                member_items.append(ft.Divider())
+                member_items.append(transfer_section)
+                member_mgmt_col.controls = member_items
+
             page.update()
         except Exception as ex:
             log_error(f"Load Members Error: {ex}")
@@ -466,24 +463,36 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         try:
             token = auth_service.get_access_token()
             channel_service.update_member_role(channel_id, uid, new_role, user_id, token=token)
-            page.snack_bar = ft.SnackBar(ft.Text("권한이 수정되었습니다."), bgcolor="green"); page.snack_bar.open=True; page.update()
+            page.snack_bar = ft.SnackBar(ft.Text("권한이 수정되었습니다."), bgcolor="green")
+            page.snack_bar.open = True
+            page.update()
         except PermissionError as perm_err:
-            page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"); page.snack_bar.open=True; page.update()
+            page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red")
+            page.snack_bar.open = True
+            page.update()
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
+            page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red")
+            page.snack_bar.open = True
+            page.update()
 
     def confirm_kick(uid, name):
-        def do_kick(e):
+        def do_kick(ev):
             try:
                 token = auth_service.get_access_token()
                 channel_service.remove_member(channel_id, uid, user_id, token=token)
                 page.close(dlg)
                 load_members()
-                page.snack_bar = ft.SnackBar(ft.Text(f"{name}님을 내보냈습니다."), bgcolor="green"); page.snack_bar.open=True; page.update()
+                page.snack_bar = ft.SnackBar(ft.Text(f"{name}님을 내보냈습니다."), bgcolor="green")
+                page.snack_bar.open = True
+                page.update()
             except PermissionError as perm_err:
-                page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"); page.snack_bar.open=True; page.update()
+                page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red")
+                page.snack_bar.open = True
+                page.update()
             except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"내보내기 실패: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
+                page.snack_bar = ft.SnackBar(ft.Text(f"내보내기 실패: {ex}"), bgcolor="red")
+                page.snack_bar.open = True
+                page.update()
                 log_error(f"Kick Error: {ex}")
 
         dlg = ft.AlertDialog(
@@ -496,13 +505,58 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         )
         page.open(dlg)
 
-    # Log state
+    def confirm_leave_store(e):
+        """매장 탈퇴 확인 다이얼로그"""
+        def do_leave(ev):
+            try:
+                token = auth_service.get_access_token()
+                channel_service.remove_member(channel_id, user_id, user_id, token=token)
+
+                # Cleanup session specific to this channel
+                page.session.set("channel_id", None)
+                page.session.set("channel_name", None)
+                page.session.set("user_role", None)
+
+                page.close(dlg_leave)
+                page.snack_bar = ft.SnackBar(ft.Text("매장을 탈퇴했습니다."), bgcolor="green")
+                page.snack_bar.open = True
+                page.update()
+                navigate_to("home")
+            except PermissionError as pe:
+                page.snack_bar = ft.SnackBar(ft.Text(str(pe)), bgcolor="red")
+                page.snack_bar.open = True
+                page.update()
+                page.close(dlg_leave)
+            except Exception as ex:
+                log_error(f"Leave Store Error: {ex}")
+                page.snack_bar = ft.SnackBar(ft.Text(f"탈퇴 실패: {ex}"), bgcolor="red")
+                page.snack_bar.open = True
+                page.update()
+
+        dlg_leave = ft.AlertDialog(
+            title=ft.Text("매장 탈퇴"),
+            content=ft.Text("정말 이 매장에서 나가시겠습니까?\n이 작업은 되돌릴 수 없습니다."),
+            actions=[
+                ft.TextButton("취소", on_click=lambda _: page.close(dlg_leave)),
+                ft.ElevatedButton("탈퇴하기", bgcolor="red", color="white", on_click=do_leave)
+            ]
+        )
+        page.open(dlg_leave)
+
+    def toggle_theme(e):
+        is_dark = e.control.value
+        page.theme_mode = ft.ThemeMode.DARK if is_dark else ft.ThemeMode.LIGHT
+
+        try:
+            page.client_storage.set("theme_mode", "dark" if is_dark else "light")
+        except Exception as ex:
+            log_error(f"Failed to save theme preference: {ex}")
+
+        page.update()
+
+    # Load members if owner
     if role == "owner":
         load_members()
-
-    # Imports moved to top
-
-    # ... (Previous imports kept if possible, but replace strict block)
 
     # === LAYOUT CONSTRUCTION ===
 
@@ -510,55 +564,139 @@ def get_store_manage_controls(page: ft.Page, navigate_to):
         title_text="설정",
         on_back_click=page.go_back
     )
-    
-    # Store Settings Only
+
     current_store_settings = ft.Container(
         padding=AppLayout.CONTENT_PADDING,
         content=ft.Column([
-            ft.Text(f"'{current_ch['name']}' 관리", style=ft.TextStyle(size=18, weight=ft.FontWeight.BOLD, color=AppColors.TEXT_PRIMARY)),
-            ft.Container(height=10),
-            
-            ft.Text("매장 이름 수정", style=AppTextStyles.BODY_SMALL),
-            ft.Row([
-                ft.Container(store_name_tf, expand=True),
-                ft.ElevatedButton("저장", on_click=save_store_changes, visible=(role=="owner"), style=AppButtons.SUCCESS()),
-            ]),
-            
-            ft.Container(height=20),
-            
-            # Invite Code
-            ft.Text("직원 초대 코드", style=AppTextStyles.BODY_SMALL),
+            # Invite Code Section
             ft.Container(
-                padding=15, bgcolor=AppColors.SURFACE_VARIANT, border_radius=8,
                 content=ft.Column([
-                    ft.Row([ft.Icon(ft.Icons.QR_CODE, color=AppColors.SECONDARY), code_display]),
-                    code_expiry,
-                    ft.Row([generate_btn, ft.IconButton(ft.Icons.COPY, icon_color=AppColors.SECONDARY, on_click=copy_code)])
-                ])
+                    ft.Text("직원 초대 코드", style=AppTextStyles.BODY_SMALL),
+                    ft.Container(
+                        padding=15,
+                        bgcolor=AppColors.SURFACE_VARIANT,
+                        border_radius=8,
+                        content=ft.Column([
+                            ft.Row([ft.Icon(ft.Icons.QR_CODE, color=AppColors.SECONDARY), code_display]),
+                            code_expiry,
+                            ft.Row([
+                                generate_btn,
+                                ft.IconButton(ft.Icons.COPY, icon_color=AppColors.SECONDARY, on_click=copy_code)
+                            ])
+                        ])
+                    ),
+                ]),
+                visible=(role in ["owner", "manager"])
             ),
-            
-            ft.Container(height=20),
-            ft.Text("매장 멤버 관리", style=ft.TextStyle(size=16, weight=ft.FontWeight.BOLD, color=AppColors.TEXT_PRIMARY), visible=(role=="owner")),
-            member_mgmt_col if role == "owner" else ft.Container()
+
+            ft.Container(height=30),
+
+            # Personal Settings Section
+            ft.Text("개인 설정", style=AppTextStyles.BODY_SMALL),
+            ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Icon(ft.Icons.PERSON_OUTLINE, color=AppColors.TEXT_SECONDARY),
+                        ft.Text("내 프로필 관리", expand=True, size=14),
+                        ft.IconButton(
+                            ft.Icons.CHEVRON_RIGHT,
+                            icon_color=AppColors.TEXT_SECONDARY,
+                            on_click=lambda _: navigate_to("profile")
+                        )
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+
+                    ft.Divider(height=10, color="transparent"),
+
+                    ft.Row([
+                        ft.Icon(ft.Icons.DARK_MODE_OUTLINED, color=AppColors.TEXT_SECONDARY),
+                        ft.Text("테마 설정 (다크 모드)", expand=True, size=14),
+                        ft.Switch(
+                            value=(page.theme_mode == ft.ThemeMode.DARK),
+                            active_color=AppColors.PRIMARY,
+                            on_change=toggle_theme
+                        )
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+
+                    ft.Divider(height=10, color="transparent"),
+
+                    ft.Row([
+                        ft.Icon(ft.Icons.NOTIFICATIONS_OUTLINED, color=AppColors.TEXT_SECONDARY),
+                        ft.Text("푸시 알림 받기", expand=True, size=14),
+                        ft.Switch(value=True, active_color=AppColors.PRIMARY)
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+
+                    ft.Divider(height=10, color="transparent"),
+
+                    ft.Row([
+                        ft.Icon(ft.Icons.EXIT_TO_APP, color="red"),
+                        ft.Text("매장 탈퇴하기", expand=True, size=14, color="red"),
+                        ft.IconButton(
+                            ft.Icons.CHEVRON_RIGHT,
+                            icon_color="red",
+                            on_click=confirm_leave_store
+                        )
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                ]),
+                padding=15,
+                bgcolor="white",
+                border_radius=10,
+                border=ft.border.all(1, "#EEEEEE")
+            ),
+
+            ft.Container(height=30),
+
+            # Member Management Section (Owner only)
+            ft.Text(
+                "매장 멤버 관리",
+                style=ft.TextStyle(size=16, weight=ft.FontWeight.BOLD, color=AppColors.TEXT_PRIMARY),
+                visible=(role == "owner")
+            ),
+            member_mgmt_col if role == "owner" else ft.Container(),
+
+            ft.Container(height=30),
+
+            # App Info Section
+            ft.Text("앱 정보", style=AppTextStyles.BODY_SMALL),
+            ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Text("버전 정보", expand=True, size=14),
+                        ft.Text("v1.0.0", size=14, color="grey")
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    ft.Divider(height=1, color="#EEEEEE"),
+                    ft.Row([
+                        ft.Text("이용약관", expand=True, size=14),
+                        ft.Icon(ft.Icons.OPEN_IN_NEW, size=16, color="grey")
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                    ft.Divider(height=1, color="#EEEEEE"),
+                    ft.Row([
+                        ft.Text("개인정보 처리방침", expand=True, size=14),
+                        ft.Icon(ft.Icons.OPEN_IN_NEW, size=16, color="grey")
+                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ], spacing=15),
+                padding=15,
+                bgcolor="white",
+                border_radius=10,
+                border=ft.border.all(1, "#EEEEEE")
+            )
         ])
     )
 
     return [
-        ft.SafeArea(expand=True,
+        ft.SafeArea(
+            expand=True,
             content=ft.Container(
                 expand=True,
                 bgcolor=AppColors.SURFACE,
                 content=ft.ListView(
                     controls=[
-                        # Header
                         header,
-                        
-                        ft.Container(
-                            content=current_store_settings, 
-                        ),
-                        
+                        ft.Container(content=current_store_settings),
                         msg
-                    ], expand=True, spacing=0)
+                    ],
+                    expand=True,
+                    spacing=0
+                )
             )
         )
     ]

@@ -8,22 +8,29 @@ class ChannelRepository:
     @staticmethod
     def get_user_channels(user_id, token=None):
         """Fetch all channels the user is a member of."""
-        client = service_supabase # Default to service role for broad checks? 
-        # Actually professional way is to use the user's token if available for RLS
-        # But for system-level logic we use service_supabase
-        
-        # [FIX] Multichannel join: channel_members -> channels
-        res = service_supabase.table("channel_members")\
-            .select("role, channels(id, name, channel_code)")\
-            .eq("user_id", user_id)\
-            .execute()
-        
-        channels = []
-        for item in res.data:
-            ch = item["channels"]
-            ch["role"] = item["role"]
-            channels.append(ch)
-        return channels
+        try:
+            res = service_supabase.table("channel_members")\
+                .select("role, channels(id, name, channel_code)")\
+                .eq("user_id", user_id)\
+                .execute()
+
+            channels = []
+            # [FIX] NoneType 접근 방지
+            for item in (res.data or []):
+                ch = item.get("channels")
+                if not ch:
+                    continue  # channels가 None이면 건너뜀
+                # channels가 리스트인 경우 처리
+                if isinstance(ch, list):
+                    ch = ch[0] if ch else None
+                if not ch:
+                    continue
+                ch["role"] = item.get("role", "staff")
+                channels.append(ch)
+            return channels
+        except Exception as e:
+            log_error(f"ChannelRepository.get_user_channels error: {e}")
+            return []
 
     @staticmethod
     def get_channel_members(channel_id):

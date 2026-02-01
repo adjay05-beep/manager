@@ -21,9 +21,79 @@ def get_profile_controls(page: ft.Page, navigate_to):
     except Exception:
         pass  # Profile fetch failed
 
-    # Fetch User Channles
+    # Fetch User Channels
     token = auth_service.get_access_token()
     channels = channel_service.get_user_channels(user_id, token)
+
+    # --- [NEW] Contract Info Fetching ---
+    contract_info_container = ft.Column(spacing=10)
+    
+    def get_contract_ui(contract):
+        if not contract:
+            return ft.Container(
+                content=ft.Text("등록된 계약 내용이 없습니다.", color="grey", size=13),
+                padding=10
+            )
+        
+        days_map = {0: "월", 1: "화", 2: "수", 3: "목", 4: "금", 5: "토", 6: "일"}
+        w_days = [days_map[d] for d in contract.get('work_days', []) if d in days_map]
+        day_str = ", ".join(w_days) if w_days else "없음"
+        
+        wage_type_kr = "시급" if contract.get("wage_type") == "hourly" else "월급"
+        wage_val = contract.get("hourly_wage") or contract.get("monthly_wage") or 0
+        emp_type_kr = "정규직" if contract.get("employee_type") == "full" else "아르바이트"
+
+        return ft.Container(
+            content=ft.Column([
+                ft.Container(
+                    content=ft.Row([
+                        ft.Text(emp_type_kr, size=12, weight="bold", color="white"),
+                    ]), 
+                    bgcolor=AppColors.PRIMARY, 
+                    padding=ft.padding.symmetric(horizontal=8, vertical=2), 
+                    border_radius=5,
+                    width=80 if emp_type_kr == "정규직" else 90 # Adjust width for label
+                ),
+                ft.Row([
+                    ft.Icon(ft.Icons.PAYMENTS_OUTLINED, size=16, color="grey"),
+                    ft.Text(f"{wage_type_kr}: {wage_val:,}원", size=14, color="black", weight="bold"),
+                ]),
+                ft.Row([
+                    ft.Icon(ft.Icons.CALENDAR_MONTH_OUTLINED, size=16, color="grey"),
+                    ft.Text(f"근무 요일: {day_str}", size=14, color="black"),
+                ]),
+                ft.Row([
+                    ft.Icon(ft.Icons.PLAY_ARROW_OUTLINED, size=16, color="grey"),
+                    ft.Text(f"근무 시작일: {contract.get('contract_start_date', '-')}", size=14, color="black"),
+                ]),
+            ], spacing=8),
+            padding=15,
+            border=ft.border.all(1, "#EEEEEE"),
+            border_radius=10,
+            bgcolor="#F9FAFB"
+        )
+
+    async def load_contract_async():
+        try:
+            # We filter by both user_id and channel_id to get the contract for THIS store
+            res = service_supabase.table("labor_contracts")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .eq("channel_id", channel_id)\
+                .order("created_at", desc=True)\
+                .limit(1)\
+                .execute()
+            
+            contract = res.data[0] if res.data else None
+            contract_info_container.controls = [get_contract_ui(contract)]
+            page.update()
+        except Exception as ex:
+            print(f"Profile Contract Fetch Error: {ex}")
+            contract_info_container.controls = [ft.Text("계약 정보를 불러오는 중 오류가 발생했습니다.", color="red", size=12)]
+            page.update()
+
+    page.run_task(load_contract_async)
+    # ------------------------------------
 
     # UI Components
     profile_name_tf = ft.TextField(
@@ -137,6 +207,16 @@ def get_profile_controls(page: ft.Page, navigate_to):
                     AppHeader("내 프로필", on_back_click=page.go_back),
                     
                     profile_card,
+                    
+                    # [NEW] Contract Section
+                    ft.Container(
+                        padding=ft.padding.symmetric(horizontal=20, vertical=10),
+                        content=ft.Column([
+                            ft.Text("나의 계약 정보", size=16, weight="bold", color="#0A1929"),
+                            contract_info_container
+                        ])
+                    ),
+
                     ft.Divider(color="#EEEEEE", thickness=5),
                     
                     ft.Container(

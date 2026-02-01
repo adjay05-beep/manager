@@ -7,7 +7,9 @@ from services.memo_service import save_transcription, get_memos, delete_memo
 from services.auth_service import auth_service
 
 # Mock User ID for integration tests (Must exist in profiles table via migrate_db.py)
-TEST_USER_ID = "00000000-0000-0000-0000-000000000001" 
+TEST_USER_ID = "00000000-0000-0000-0000-000000000001"
+# Mock Channel ID for integration tests
+TEST_CHANNEL_ID = 1 
 
 @pytest.fixture(scope="function")
 def setup_test_user():
@@ -48,10 +50,10 @@ async def test_full_chat_flow(setup_test_user):
     topic_name = f"Test Topic {uuid.uuid4().hex[:8]}"
     
     # 1. Create
-    create_topic(topic_name, "일반", user_id)
-    
+    create_topic(topic_name, "일반", user_id, TEST_CHANNEL_ID)
+
     # 2. Verify Visibility
-    topics = get_topics(user_id)
+    topics = get_topics(user_id, TEST_CHANNEL_ID)
     target_topic = next((t for t in topics if t['name'] == topic_name), None)
     assert target_topic is not None, "Failed to create topic or it is invisible."
     
@@ -69,7 +71,7 @@ async def test_full_chat_flow(setup_test_user):
     delete_topic(tid)
     
     # 6. Verify Deletion
-    topics_after = get_topics(user_id)
+    topics_after = get_topics(user_id, TEST_CHANNEL_ID)
     assert not any(t['id'] == tid for t in topics_after)
 
 @pytest.mark.asyncio
@@ -84,19 +86,20 @@ async def test_full_calendar_flow(setup_test_user):
         "start_date": "2026-01-01 10:00:00",
         "end_date": "2026-01-01 11:00:00",
         "created_by": user_id,
+        "channel_id": TEST_CHANNEL_ID,
         "participant_ids": [user_id]
     })
-    
+
     # 2. Verify
-    events = await get_all_events(user_id)
+    events = await get_all_events(user_id, TEST_CHANNEL_ID)
     target_event = next((e for e in events if e['title'] == title), None)
     assert target_event is not None
-    
+
     # 3. Delete
-    await delete_event(target_event['id'])
-    
+    await delete_event(target_event['id'], user_id)
+
     # 4. Verify Gone
-    events_after = await get_all_events(user_id)
+    events_after = await get_all_events(user_id, TEST_CHANNEL_ID)
     assert not any(e['id'] == target_event['id'] for e in events_after)
 
 @pytest.mark.asyncio

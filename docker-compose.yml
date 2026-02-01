@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    container_name: themanager-app
+    ports:
+      - "8555:8555"
+    env_file:
+      - .env
+    restart: always
+    volumes:
+      - ./uploads:/app/uploads

@@ -6,7 +6,43 @@ from utils.logger import log_debug, log_info, log_error
 from views.styles import AppColors, AppTextStyles, AppLayout, AppGradients, AppShadows
 from components.premium_card import PremiumCard
 
+# Safe client_storage wrapper for web mode compatibility
+def safe_storage_get(page: ft.Page, key: str, default=None):
+    """Safely get value from client_storage, returns default if unavailable."""
+    try:
+        if hasattr(page, 'client_storage') and page.client_storage:
+            return page.client_storage.get(key)
+    except Exception as e:
+        log_debug(f"client_storage.get failed for '{key}': {e}")
+    return default
+
+def safe_storage_set(page: ft.Page, key: str, value):
+    """Safely set value in client_storage, silently fails if unavailable."""
+    try:
+        if hasattr(page, 'client_storage') and page.client_storage:
+            page.client_storage.set(key, value)
+            return True
+    except Exception as e:
+        log_debug(f"client_storage.set failed for '{key}': {e}")
+    return False
+
+def safe_storage_remove(page: ft.Page, key: str):
+    """Safely remove value from client_storage, silently fails if unavailable."""
+    try:
+        if hasattr(page, 'client_storage') and page.client_storage:
+            page.client_storage.remove(key)
+            return True
+    except Exception as e:
+        log_debug(f"client_storage.remove failed for '{key}': {e}")
+    return False
+
 def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_token: str = None):
+    # [GUARD] If the page has already moved away from login, abort this flow.
+    # This prevents auto-login dialogs from popping up on the home screen if user manually navigated.
+    if page.route not in ["login", "/", ""]:
+        log_info(f"Aborting login handler: User already at {page.route}")
+        return
+
     log_info(f"User logged in: {user_data.get('email')}")
     try:
         token = access_token or (auth_service.get_session().access_token if auth_service.get_session() else None)
@@ -16,7 +52,7 @@ def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_
             current_sess = auth_service.get_session()
             if current_sess and hasattr(current_sess, "refresh_token"):
                  sess_data["refresh_token"] = current_sess.refresh_token
-            page.client_storage.set("supa_session", json.dumps(sess_data))
+            safe_storage_set(page, "supa_session", json.dumps(sess_data))
 
         channels = []
         try:
@@ -92,7 +128,11 @@ def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_
 def get_login_controls(page: ft.Page, navigate_to):
     # Auto-Login Logic (Deferred to prevent race condition)
     def check_auto_login():
-        stored_session_json = page.client_storage.get("supa_session")
+        # [GUARD] Ensure we are still on login page when this runs
+        if page.route not in ["login", "/", ""]:
+            return
+            
+        stored_session_json = safe_storage_get(page, "supa_session")
         if stored_session_json:
             try:
                 sess_data = json.loads(stored_session_json)
@@ -101,7 +141,7 @@ def get_login_controls(page: ft.Page, navigate_to):
                     handle_successful_login(page, sess_data["user"], navigate_to, sess_data.get("access_token"))
             except Exception as e:
                 log_error(f"Auto-login failed: {e}")
-                page.client_storage.remove("supa_session")
+                safe_storage_remove(page, "supa_session")
 
     # Start auto-login check after a small delay
     import threading
@@ -113,7 +153,7 @@ def get_login_controls(page: ft.Page, navigate_to):
         text_size=14,
         border_radius=AppLayout.BORDER_RADIUS_MD,
         bgcolor=ft.Colors.WHITE,
-        value=page.client_storage.get("saved_email") or ""
+        value=safe_storage_get(page, "saved_email", "") or ""
     )
 
     pw_tf = ft.TextField(
@@ -128,11 +168,7 @@ def get_login_controls(page: ft.Page, navigate_to):
     )
 
     print("DEBUG: get_login_controls called")
-    saved_email_val = False
-    try:
-        saved_email_val = bool(page.client_storage.get("saved_email"))
-    except Exception as e:
-        print(f"DEBUG: client_storage error: {e}")
+    saved_email_val = bool(safe_storage_get(page, "saved_email"))
 
     save_email_check = ft.Checkbox(
         label="이메일 저장",
@@ -156,9 +192,9 @@ def get_login_controls(page: ft.Page, navigate_to):
             res = auth_service.sign_in(email_tf.value, pw_tf.value)
             
             if save_email_check.value:
-                page.client_storage.set("saved_email", email_tf.value)
+                safe_storage_set(page, "saved_email", email_tf.value)
             else:
-                page.client_storage.remove("saved_email")
+                safe_storage_remove(page, "saved_email")
             
             user_data = {"id": res.user.id, "email": res.user.email}
             handle_successful_login(page, user_data, navigate_to, res.session.access_token if res.session else None)

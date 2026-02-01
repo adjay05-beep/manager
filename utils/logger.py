@@ -44,18 +44,22 @@ def _append_log(msg):
 def log_debug(msg):
     logger.debug(msg)
     _append_log(f"[DEBUG] {msg}")
+    print(f"[DEBUG] {msg}")
 
 def log_info(msg):
     logger.info(msg)
     _append_log(f"[INFO] {msg}")
+    print(f"[INFO] {msg}")
 
 def log_error(msg):
     logger.error(msg)
     _append_log(f"[ERROR] {msg}")
+    print(f"[ERROR] {msg}")
 
 def log_warning(msg):
     logger.warning(msg)
     _append_log(f"[WARN] {msg}")
+    print(f"[WARN] {msg}")
 
 def get_logs():
     return list(reversed(LOG_BUFFER))

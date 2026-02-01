@@ -45,22 +45,34 @@ class ChannelService:
         try:
             from datetime import datetime, timezone
             now = datetime.now(timezone.utc).isoformat()
-            
+
             res = ChannelRepository.get_invite_by_code(channel_code, now)
-            if not res.data: raise Exception("유효하지 않거나 만료된 초대 코드입니다.")
-            
+            if not res.data:
+                raise Exception("유효하지 않거나 만료된 초대 코드입니다.")
+
             invite = res.data[0]
             channel = invite.get("channels")
-            if isinstance(channel, list): channel = channel[0]
-            cid = channel['id']
-            
+
+            # [FIX] channel이 리스트인 경우 처리
+            if isinstance(channel, list):
+                channel = channel[0] if channel else None
+
+            # [FIX] channel이 None이거나 비어있는 경우 처리
+            if not channel or not isinstance(channel, dict):
+                raise Exception("채널 정보를 찾을 수 없습니다.")
+
+            cid = channel.get('id')
+            if not cid:
+                raise Exception("채널 ID를 찾을 수 없습니다.")
+
             # Check if already member
             existing_role = ChannelRepository.get_member_role(cid, user_id)
-            if existing_role: raise Exception("이미 가입된 매장입니다.")
-            
+            if existing_role:
+                raise Exception("이미 가입된 매장입니다.")
+
             ChannelRepository.create_membership(cid, user_id, "staff")
             ChannelRepository.increment_invite_usage(invite["id"], invite.get("used_count", 0))
-            
+
             channel["role"] = "staff"
             return channel
         except Exception as e:
@@ -82,6 +94,11 @@ class ChannelService:
 
     def generate_invite_code(self, channel_id: int, user_id: str, duration_minutes: int = 10) -> str:
         """Generate a time-limited invite code."""
+        # [PERMISSION CHECK] Only owners and managers can generate new codes
+        role = self.get_channel_role(channel_id, user_id)
+        if role not in ["owner", "manager"]:
+            raise PermissionError("초대 코드 생성 권한이 없습니다.")
+
         try:
             from datetime import datetime, timedelta, timezone
             import secrets
@@ -92,7 +109,8 @@ class ChannelService:
             if res.data: return code
             raise Exception("Failed to generate code")
         except Exception as e:
-            log_error(f"Error generating invite code: {e}")
+            if not isinstance(e, PermissionError):
+                log_error(f"Error generating invite code: {e}")
             raise e
 
     def get_active_invite_codes(self, channel_id: int):
@@ -123,7 +141,7 @@ class ChannelService:
             log_error(f"Transfer Ownership Failed: {e}")
             raise e
 
-    def update_member_role(self, channel_id: int, target_user_id: str, new_role: str, requesting_user_id: str = None):
+    def update_member_role(self, channel_id: int, target_user_id: str, new_role: str, requesting_user_id: str = None, token: str = None):
         """Update member role with permission check."""
         if requesting_user_id:
             req_role = self.get_channel_role(channel_id, requesting_user_id)
@@ -136,12 +154,20 @@ class ChannelService:
             log_error(f"Role Update Failed: {e}")
             raise e
 
-    def remove_member(self, channel_id: int, target_user_id: str, requesting_user_id: str = None):
+    def remove_member(self, channel_id: int, target_user_id: str, requesting_user_id: str = None, token: str = None):
         """Remove member from channel."""
+        # Check target role first
+        target_role = self.get_channel_role(channel_id, target_user_id)
+        if target_role == "owner":
+            raise PermissionError("매장 대표는 탈퇴하거나 내보낼 수 없습니다. 먼저 권한을 양도해주세요.")
+
         if requesting_user_id:
-            req_role = self.get_channel_role(channel_id, requesting_user_id)
-            if req_role not in ["owner", "manager"]: raise PermissionError("권한이 없습니다.")
-            if self.get_channel_role(channel_id, target_user_id) == "owner": raise PermissionError("Owner는 제외 불가.")
+            # Allow verification if it's self-removal
+            if requesting_user_id != target_user_id:
+                # If removing someone else, must be owner or manager
+                req_role = self.get_channel_role(channel_id, requesting_user_id)
+                if req_role not in ["owner", "manager"]: 
+                    raise PermissionError("권한이 없습니다.")
 
         try:
             ChannelRepository.remove_member(channel_id, target_user_id)

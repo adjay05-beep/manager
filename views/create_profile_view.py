@@ -45,10 +45,13 @@ def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email)
                 status_text.color = "green"
                 page.update()
                 
-                # 2초 후 홈으로 이동
-                import time
-                time.sleep(2)
-                navigate_to("home")
+                # 2초 후 홈으로 이동 (비차단 방식)
+                async def go_home_delayed():
+                    import asyncio
+                    await asyncio.sleep(2)
+                    navigate_to("home")
+                
+                page.run_task(go_home_delayed)
             else:
                 status_text.value = "❌ 프로필 생성 실패"
                 status_text.color = "red"
@@ -60,9 +63,13 @@ def get_create_profile_controls(page: ft.Page, navigate_to, user_id, user_email)
                 status_text.value = "✅ 프로필이 이미 존재합니다!"
                 status_text.color = "green"
                 page.update()
-                import time
-                time.sleep(2)
-                navigate_to("home")
+                
+                async def go_home_delayed():
+                    import asyncio
+                    await asyncio.sleep(2)
+                    navigate_to("home")
+                
+                page.run_task(go_home_delayed)
             else:
                 status_text.value = f"❌ 오류: {ex}"
                 status_text.color = "red"

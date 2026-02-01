@@ -107,3 +107,31 @@ async def load_profiles(channel_id: int) -> List[Dict[str, Any]]:
 async def create_event(event_data: Dict[str, Any]):
     """Create a new calendar event."""
     await asyncio.to_thread(lambda: service_supabase.table("calendar_events").insert(event_data).execute())
+
+async def update_event(event_id: str, event_data: Dict[str, Any], user_id: str):
+    """Update an event by ID with ownership verification."""
+    # [SECURITY] Ownership check
+    event_res = await asyncio.to_thread(
+        lambda: service_supabase.table("calendar_events")
+            .select("id, created_by")
+            .eq("id", event_id)
+            .single()
+            .execute()
+    )
+
+    if not event_res.data:
+        raise PermissionError("이벤트를 찾을 수 없습니다.")
+
+    if event_res.data.get("created_by") != user_id:
+        raise PermissionError("본인이 생성한 이벤트만 수정할 수 있습니다.")
+
+    # Remove fields that shouldn't be updated manually or might cause error
+    clean_data = {k: v for k, v in event_data.items() if k not in ["id", "created_at", "created_by"]}
+    
+    await asyncio.to_thread(
+        lambda: service_supabase.table("calendar_events")
+            .update(clean_data)
+            .eq("id", event_id)
+            .execute()
+    )
+    log_info(f"Event updated: {event_id} by user {user_id}")
