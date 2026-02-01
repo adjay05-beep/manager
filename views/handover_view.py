@@ -1,10 +1,13 @@
 import flet as ft
 import asyncio
+import json
 from datetime import datetime, timedelta
 from services.handover_service import handover_service
 from services import audio_service
+from utils.logger import log_info, log_error, log_debug
 from views.styles import AppColors, AppTextStyles, AppLayout, AppButtons
 from views.components.app_header import AppHeader
+
 
 def get_handover_controls(page: ft.Page, navigate_to):
     user_id = page.session.get("user_id")
@@ -13,12 +16,12 @@ def get_handover_controls(page: ft.Page, navigate_to):
     # UI State
     current_tab = "인수 인계"
     grouped_data = {}
-    POLL_INTERVAL = 10 # Seconds
+    POLL_INTERVAL = 10  # Seconds
 
     # Voice Recording State
     voice_state = {"is_recording": False, "is_listening": False}
     audio_recorder = getattr(page, "audio_recorder", None)
-    is_web_mode = page.web
+    is_web_mode = getattr(page, "web", True)  # Default to web mode for safety
 
     # Controls
     list_view = ft.ListView(expand=True, spacing=10, padding=20)
@@ -68,134 +71,230 @@ def get_handover_controls(page: ft.Page, navigate_to):
 
     # ============================================
     # Web Speech API (모바일/웹용) - JavaScript 기반
+    # iOS Safari 호환성 개선
     # ============================================
     async def start_web_speech():
-        """Web Speech API를 사용한 브라우저 내 음성인식"""
+        """Web Speech API를 사용한 브라우저 내 음성인식 (iOS 호환)"""
         if voice_state["is_listening"]:
+            log_debug("[Voice] Already listening, skipping")
             return
 
         voice_state["is_listening"] = True
         update_mic_ui(True, "🎤 말씀하세요...")
+        log_info("[Voice] Starting Web Speech API")
 
-        # Web Speech API JavaScript
+        # iOS Safari 호환 Web Speech API JavaScript
+        # - iOS에서는 webkitSpeechRecognition 사용
+        # - 에러 처리 강화
+        # - 타임아웃 처리 추가
         js_code = """
         (function() {
+            // 이전 결과 초기화
+            window.speechResult = { status: 'initializing' };
+
+            // iOS/Safari 호환성 체크
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
             if (!SpeechRecognition) {
-                window.speechResult = { error: 'not_supported' };
+                window.speechResult = { status: 'error', error: 'not_supported' };
+                console.log('[Voice] SpeechRecognition not supported');
                 return;
             }
 
-            const recognition = new SpeechRecognition();
-            recognition.lang = 'ko-KR';
-            recognition.interimResults = false;
-            recognition.maxAlternatives = 1;
-            recognition.continuous = false;
-
-            window.speechResult = { status: 'listening' };
-
-            recognition.onresult = (event) => {
-                const transcript = event.results[0][0].transcript;
-                window.speechResult = { status: 'done', text: transcript };
-            };
-
-            recognition.onerror = (event) => {
-                window.speechResult = { status: 'error', error: event.error };
-            };
-
-            recognition.onend = () => {
-                if (window.speechResult.status === 'listening') {
-                    window.speechResult = { status: 'done', text: '' };
-                }
-            };
-
             try {
+                const recognition = new SpeechRecognition();
+                recognition.lang = 'ko-KR';
+                recognition.interimResults = false;
+                recognition.maxAlternatives = 1;
+                recognition.continuous = false;
+
+                // iOS에서 중요: 짧은 타임아웃 설정
+                let timeoutId = setTimeout(() => {
+                    console.log('[Voice] Timeout - stopping recognition');
+                    try {
+                        recognition.stop();
+                    } catch(e) {}
+                    if (window.speechResult.status === 'listening') {
+                        window.speechResult = { status: 'error', error: 'timeout' };
+                    }
+                }, 10000);  // 10초 타임아웃
+
+                window.speechResult = { status: 'listening' };
+                console.log('[Voice] Recognition started, listening...');
+
+                recognition.onresult = (event) => {
+                    clearTimeout(timeoutId);
+                    console.log('[Voice] Got result');
+                    if (event.results && event.results[0] && event.results[0][0]) {
+                        const transcript = event.results[0][0].transcript;
+                        const confidence = event.results[0][0].confidence;
+                        console.log('[Voice] Transcript:', transcript, 'Confidence:', confidence);
+                        window.speechResult = { status: 'done', text: transcript, confidence: confidence };
+                    } else {
+                        window.speechResult = { status: 'done', text: '' };
+                    }
+                };
+
+                recognition.onerror = (event) => {
+                    clearTimeout(timeoutId);
+                    console.log('[Voice] Error:', event.error);
+                    window.speechResult = { status: 'error', error: event.error || 'unknown' };
+                };
+
+                recognition.onend = () => {
+                    clearTimeout(timeoutId);
+                    console.log('[Voice] Recognition ended, current status:', window.speechResult.status);
+                    // 아직 listening 상태면 완료로 변경 (음성 없이 종료된 경우)
+                    if (window.speechResult.status === 'listening') {
+                        window.speechResult = { status: 'done', text: '' };
+                    }
+                };
+
+                recognition.onnomatch = () => {
+                    clearTimeout(timeoutId);
+                    console.log('[Voice] No match');
+                    window.speechResult = { status: 'done', text: '' };
+                };
+
+                // iOS Safari: 사용자 제스처 컨텍스트 내에서 start() 호출 필수
                 recognition.start();
+                console.log('[Voice] recognition.start() called');
+
             } catch(e) {
-                window.speechResult = { error: e.message };
+                console.log('[Voice] Exception:', e.message);
+                window.speechResult = { status: 'error', error: e.message || 'start_failed' };
             }
         })();
         """
 
         try:
             # Start speech recognition
+            log_debug("[Voice] Executing JavaScript...")
             await page.run_javascript_async(js_code)
+            log_debug("[Voice] JavaScript executed, starting poll...")
 
-            # Poll for result (max 15 seconds)
-            for i in range(30):
-                await asyncio.sleep(0.5)
-                result = await page.run_javascript_async("JSON.stringify(window.speechResult || {})")
+            # Poll for result (max 12 seconds, 0.4초 간격)
+            max_polls = 30
+            for i in range(max_polls):
+                await asyncio.sleep(0.4)
 
-                if result:
-                    import json
-                    try:
-                        data = json.loads(result)
-                    except Exception:
-                        continue
+                try:
+                    result = await page.run_javascript_async("JSON.stringify(window.speechResult || {})")
+                    log_debug(f"[Voice] Poll {i+1}/{max_polls}: {result}")
+                except Exception as js_err:
+                    log_error(f"[Voice] JavaScript poll error: {js_err}")
+                    continue
 
-                    if data.get("error") == "not_supported":
+                if not result:
+                    continue
+
+                try:
+                    data = json.loads(result)
+                except json.JSONDecodeError:
+                    log_error(f"[Voice] JSON parse error: {result}")
+                    continue
+
+                status = data.get("status", "")
+
+                # 아직 초기화/리스닝 중이면 계속 대기
+                if status in ["initializing", "listening"]:
+                    continue
+
+                # 에러 처리
+                if status == "error":
+                    error_code = data.get("error", "unknown")
+                    log_error(f"[Voice] Speech recognition error: {error_code}")
+
+                    error_messages = {
+                        "not_supported": "이 브라우저는 음성인식을 지원하지 않습니다.\niOS 14.5 이상 또는 Chrome을 사용해주세요.",
+                        "not-allowed": "마이크 권한을 허용해주세요.\n설정 > Safari > 마이크에서 권한을 확인하세요.",
+                        "no-speech": "음성이 감지되지 않았습니다.\n다시 시도해주세요.",
+                        "audio-capture": "마이크에 접근할 수 없습니다.\n다른 앱이 마이크를 사용 중인지 확인하세요.",
+                        "network": "네트워크 오류입니다. 인터넷 연결을 확인하세요.",
+                        "aborted": "음성 인식이 중단되었습니다.",
+                        "timeout": "시간이 초과되었습니다. 다시 시도해주세요.",
+                        "start_failed": "음성 인식을 시작할 수 없습니다.\nHTTPS 연결이 필요합니다.",
+                    }
+                    msg = error_messages.get(error_code, f"음성 인식 오류: {error_code}")
+
+                    page.snack_bar = ft.SnackBar(ft.Text(msg), bgcolor="red")
+                    page.snack_bar.open = True
+                    break
+
+                # 완료 처리
+                if status == "done":
+                    text = data.get("text", "").strip()
+                    log_info(f"[Voice] Recognition done. Text: '{text}'")
+
+                    if text:
+                        # 기존 텍스트에 추가
+                        if input_tf.value:
+                            input_tf.value = input_tf.value + " " + text
+                        else:
+                            input_tf.value = text
+                        input_tf.update()
                         page.snack_bar = ft.SnackBar(
-                            ft.Text("이 브라우저는 음성인식을 지원하지 않습니다."),
-                            bgcolor="red"
+                            ft.Text("✅ 음성이 변환되었습니다."),
+                            bgcolor="green"
                         )
-                        page.snack_bar.open = True
-                        break
-
-                    if data.get("status") == "done":
-                        text = data.get("text", "")
-                        if text:
-                            # 기존 텍스트에 추가
-                            if input_tf.value:
-                                input_tf.value = input_tf.value + " " + text
-                            else:
-                                input_tf.value = text
-                            input_tf.update()
-                            page.snack_bar = ft.SnackBar(
-                                ft.Text("✅ 음성이 변환되었습니다. 수정 후 전송하세요."),
-                                bgcolor="green"
-                            )
-                        else:
-                            page.snack_bar = ft.SnackBar(
-                                ft.Text("음성이 인식되지 않았습니다. 다시 시도해주세요."),
-                                bgcolor="orange"
-                            )
-                        page.snack_bar.open = True
-                        break
-
-                    if data.get("status") == "error":
-                        error_msg = data.get("error", "unknown")
-                        if error_msg == "not-allowed":
-                            msg = "마이크 권한을 허용해주세요."
-                        elif error_msg == "no-speech":
-                            msg = "음성이 감지되지 않았습니다."
-                        else:
-                            msg = f"음성 인식 오류: {error_msg}"
-                        page.snack_bar = ft.SnackBar(ft.Text(msg), bgcolor="red")
-                        page.snack_bar.open = True
-                        break
+                    else:
+                        page.snack_bar = ft.SnackBar(
+                            ft.Text("음성이 인식되지 않았습니다. 다시 시도해주세요."),
+                            bgcolor="orange"
+                        )
+                    page.snack_bar.open = True
+                    break
+            else:
+                # 폴링 완료 후에도 결과가 없으면
+                log_error("[Voice] Polling timeout - no result received")
+                page.snack_bar = ft.SnackBar(
+                    ft.Text("음성 인식 시간이 초과되었습니다."),
+                    bgcolor="orange"
+                )
+                page.snack_bar.open = True
 
         except Exception as e:
-            page.snack_bar = ft.SnackBar(ft.Text(f"음성 인식 실패: {e}"), bgcolor="red")
+            log_error(f"[Voice] start_web_speech exception: {e}")
+            page.snack_bar = ft.SnackBar(
+                ft.Text(f"음성 인식 실패: {str(e)[:50]}"),
+                bgcolor="red"
+            )
             page.snack_bar.open = True
         finally:
             voice_state["is_listening"] = False
             update_mic_ui(False)
             page.update()
+            log_info("[Voice] Web speech session ended")
 
     # ============================================
     # Desktop AudioRecorder + Whisper API
     # ============================================
     async def start_desktop_recording():
         """데스크톱: AudioRecorder + OpenAI Whisper"""
-        if voice_state["is_recording"] or not audio_recorder:
+        if voice_state["is_recording"]:
+            log_debug("[Voice] Already recording")
             return
+        if not audio_recorder:
+            log_error("[Voice] AudioRecorder not available")
+            page.snack_bar = ft.SnackBar(
+                ft.Text("오디오 녹음기를 사용할 수 없습니다."),
+                bgcolor="red"
+            )
+            page.snack_bar.open = True
+            page.update()
+            return
+
         try:
             voice_state["is_recording"] = True
             update_mic_ui(True, "🎤 녹음 중... (클릭하여 중지)")
+            log_info("[Voice] Starting desktop recording")
 
             fname = f"handover_{datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
             await audio_recorder.start_recording_async(output_path=fname)
+            log_debug(f"[Voice] Recording started: {fname}")
+
         except Exception as e:
+            log_error(f"[Voice] Recording start failed: {e}")
             voice_state["is_recording"] = False
             update_mic_ui(False)
             page.snack_bar = ft.SnackBar(ft.Text(f"녹음 시작 실패: {e}"), bgcolor="red")
@@ -205,20 +304,24 @@ def get_handover_controls(page: ft.Page, navigate_to):
     async def stop_desktop_recording():
         """데스크톱: 녹음 중지 및 Whisper 변환"""
         if not voice_state["is_recording"]:
+            log_debug("[Voice] Not recording, nothing to stop")
             return
+
         try:
             update_mic_ui(True, "⏳ AI 변환 중...")
+            log_info("[Voice] Stopping recording and transcribing")
 
             res = await audio_recorder.stop_recording_async()
             voice_state["is_recording"] = False
+            log_debug(f"[Voice] Recording stopped, result: {res}")
 
             if res:
                 # [FIX] blob URL 감지 - 웹 브라우저에서 발생
                 if res.startswith("blob:"):
-                    print(f"DEBUG: Blob URL detected in handover: {res}")
+                    log_info("[Voice] Blob URL detected, switching to Web Speech API")
                     update_mic_ui(False)
                     page.snack_bar = ft.SnackBar(
-                        ft.Text("브라우저에서는 Web Speech API를 사용합니다. 다시 시도해주세요."),
+                        ft.Text("브라우저에서는 Web Speech API를 사용합니다."),
                         bgcolor="orange"
                     )
                     page.snack_bar.open = True
@@ -228,6 +331,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
                     return
 
                 text = await asyncio.to_thread(lambda: audio_service.transcribe_audio(res))
+                log_info(f"[Voice] Transcription result: '{text[:50] if text else 'empty'}...'")
 
                 if text:
                     if input_tf.value:
@@ -236,7 +340,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
                         input_tf.value = text
                     input_tf.update()
                     page.snack_bar = ft.SnackBar(
-                        ft.Text("✅ 음성이 변환되었습니다. 수정 후 전송하세요."),
+                        ft.Text("✅ 음성이 변환되었습니다."),
                         bgcolor="green"
                     )
                 else:
@@ -245,11 +349,19 @@ def get_handover_controls(page: ft.Page, navigate_to):
                         bgcolor="orange"
                     )
                 page.snack_bar.open = True
+            else:
+                log_error("[Voice] No recording result")
+                page.snack_bar = ft.SnackBar(
+                    ft.Text("녹음 결과가 없습니다."),
+                    bgcolor="orange"
+                )
+                page.snack_bar.open = True
 
             update_mic_ui(False)
             page.update()
 
         except Exception as e:
+            log_error(f"[Voice] Transcription failed: {e}")
             voice_state["is_recording"] = False
             update_mic_ui(False)
             page.snack_bar = ft.SnackBar(ft.Text(f"음성 변환 실패: {e}"), bgcolor="red")
@@ -260,40 +372,87 @@ def get_handover_controls(page: ft.Page, navigate_to):
     # 마이크 버튼 클릭 핸들러
     # ============================================
     def on_mic_click(e):
-        # [FIX] 항상 Web Speech API를 먼저 시도 (브라우저 환경 자동 감지)
-        if not voice_state["is_listening"] and not voice_state["is_recording"]:
-            page.run_task(try_speech_recognition)
-        elif voice_state["is_recording"]:
+        """마이크 버튼 클릭 - iOS 호환성을 위해 즉시 실행"""
+        log_info(f"[Voice] Mic clicked. is_listening={voice_state['is_listening']}, is_recording={voice_state['is_recording']}")
+
+        if voice_state["is_listening"]:
+            # 이미 리스닝 중이면 무시
+            log_debug("[Voice] Already listening, ignoring click")
+            return
+
+        if voice_state["is_recording"]:
+            # 녹음 중이면 중지
             page.run_task(stop_desktop_recording)
+            return
+
+        # 음성 인식 시작
+        page.run_task(try_speech_recognition)
 
     async def try_speech_recognition():
         """Web Speech API를 먼저 시도하고, 실패 시 AudioRecorder 사용"""
+        log_info("[Voice] try_speech_recognition called")
+
         try:
+            # iOS Safari 및 모바일 브라우저 감지
             check_js = """
             (function() {
-                if (typeof window === 'undefined') return 'no_window';
-                if (window.SpeechRecognition || window.webkitSpeechRecognition) return 'supported';
-                return 'not_supported';
+                try {
+                    // window 객체 확인
+                    if (typeof window === 'undefined') return 'no_window';
+
+                    // iOS 감지
+                    var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+                    var isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+                    var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+                    // SpeechRecognition API 확인
+                    var hasSpeechAPI = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+
+                    console.log('[Voice Check] iOS:', isIOS, 'Safari:', isSafari, 'Mobile:', isMobile, 'SpeechAPI:', hasSpeechAPI);
+
+                    if (hasSpeechAPI) {
+                        return JSON.stringify({
+                            supported: true,
+                            isIOS: isIOS,
+                            isSafari: isSafari,
+                            isMobile: isMobile
+                        });
+                    }
+                    return JSON.stringify({ supported: false });
+                } catch(e) {
+                    return JSON.stringify({ supported: false, error: e.message });
+                }
             })()
             """
-            result = await page.run_javascript_async(check_js)
-            print(f"DEBUG: Speech API check result: {result}")
 
-            if result == "supported":
+            result_str = await page.run_javascript_async(check_js)
+            log_debug(f"[Voice] Speech API check result: {result_str}")
+
+            try:
+                result = json.loads(result_str) if result_str else {"supported": False}
+            except json.JSONDecodeError:
+                result = {"supported": result_str == "supported"}
+
+            if result.get("supported"):
+                log_info(f"[Voice] Web Speech API supported. iOS={result.get('isIOS')}, Safari={result.get('isSafari')}")
                 await start_web_speech()
             else:
+                log_info("[Voice] Web Speech API not supported, trying AudioRecorder")
                 if audio_recorder:
                     await start_desktop_recording()
                 else:
                     page.snack_bar = ft.SnackBar(
-                        ft.Text("음성 인식을 사용할 수 없습니다."),
+                        ft.Text("이 기기에서는 음성 인식을 사용할 수 없습니다."),
                         bgcolor="orange"
                     )
                     page.snack_bar.open = True
                     page.update()
+
         except Exception as e:
-            print(f"DEBUG: try_speech_recognition error: {e}")
+            log_error(f"[Voice] try_speech_recognition error: {e}")
+            # Web Speech 실패 시 AudioRecorder 시도
             if audio_recorder and not voice_state["is_recording"]:
+                log_info("[Voice] Falling back to AudioRecorder")
                 await start_desktop_recording()
             else:
                 page.snack_bar = ft.SnackBar(
