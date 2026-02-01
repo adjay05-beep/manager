@@ -170,7 +170,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
         try:
             # Start speech recognition
             log_debug("[Voice] Executing JavaScript...")
-            await page.run_javascript_async(js_code)
+            await page.run_javascript(js_code)
             log_debug("[Voice] JavaScript executed, starting poll...")
 
             # Poll for result (max 12 seconds, 0.4초 간격)
@@ -179,7 +179,7 @@ def get_handover_controls(page: ft.Page, navigate_to):
                 await asyncio.sleep(0.4)
 
                 try:
-                    result = await page.run_javascript_async("JSON.stringify(window.speechResult || {})")
+                    result = await page.run_javascript("JSON.stringify(window.speechResult || {})")
                     log_debug(f"[Voice] Poll {i+1}/{max_polls}: {result}")
                 except Exception as js_err:
                     log_error(f"[Voice] JavaScript poll error: {js_err}")
@@ -372,16 +372,14 @@ def get_handover_controls(page: ft.Page, navigate_to):
     # 마이크 버튼 클릭 핸들러
     # ============================================
     def on_mic_click(e):
-        """마이크 버튼 클릭 - iOS 호환성을 위해 즉시 실행"""
+        """마이크 버튼 클릭 - iOS에서는 항상 Web Speech API 사용"""
         log_info(f"[Voice] Mic clicked. is_listening={voice_state['is_listening']}, is_recording={voice_state['is_recording']}")
 
         if voice_state["is_listening"]:
-            # 이미 리스닝 중이면 무시
             log_debug("[Voice] Already listening, ignoring click")
             return
 
         if voice_state["is_recording"]:
-            # 녹음 중이면 중지
             page.run_task(stop_desktop_recording)
             return
 
@@ -389,72 +387,93 @@ def get_handover_controls(page: ft.Page, navigate_to):
         page.run_task(try_speech_recognition)
 
     async def try_speech_recognition():
-        """Web Speech API를 먼저 시도하고, 실패 시 AudioRecorder 사용"""
+        """브라우저 환경에서는 Web Speech API 사용, 데스크톱 앱에서만 AudioRecorder 사용"""
         log_info("[Voice] try_speech_recognition called")
 
+        # 먼저 브라우저 환경인지 확인
+        is_browser = is_web_mode
+
         try:
-            # iOS Safari 및 모바일 브라우저 감지
+            # 브라우저 환경 감지 및 Web Speech API 지원 확인
             check_js = """
             (function() {
                 try {
-                    // window 객체 확인
-                    if (typeof window === 'undefined') return 'no_window';
+                    if (typeof window === 'undefined') {
+                        return JSON.stringify({ isBrowser: false });
+                    }
 
-                    // iOS 감지
                     var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
                     var isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
                     var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-
-                    // SpeechRecognition API 확인
                     var hasSpeechAPI = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
 
-                    console.log('[Voice Check] iOS:', isIOS, 'Safari:', isSafari, 'Mobile:', isMobile, 'SpeechAPI:', hasSpeechAPI);
+                    console.log('[Voice] Browser check - iOS:', isIOS, 'Safari:', isSafari, 'Mobile:', isMobile, 'SpeechAPI:', hasSpeechAPI);
 
-                    if (hasSpeechAPI) {
-                        return JSON.stringify({
-                            supported: true,
-                            isIOS: isIOS,
-                            isSafari: isSafari,
-                            isMobile: isMobile
-                        });
-                    }
-                    return JSON.stringify({ supported: false });
+                    return JSON.stringify({
+                        isBrowser: true,
+                        isIOS: isIOS,
+                        isSafari: isSafari,
+                        isMobile: isMobile,
+                        hasSpeechAPI: hasSpeechAPI,
+                        userAgent: navigator.userAgent.substring(0, 100)
+                    });
                 } catch(e) {
-                    return JSON.stringify({ supported: false, error: e.message });
+                    return JSON.stringify({ isBrowser: true, error: e.message });
                 }
             })()
             """
 
-            result_str = await page.run_javascript_async(check_js)
-            log_debug(f"[Voice] Speech API check result: {result_str}")
+            result_str = await page.run_javascript(check_js)
+            log_info(f"[Voice] Browser check result: {result_str}")
 
             try:
-                result = json.loads(result_str) if result_str else {"supported": False}
+                result = json.loads(result_str) if result_str else {}
             except json.JSONDecodeError:
-                result = {"supported": result_str == "supported"}
+                log_error(f"[Voice] Failed to parse result: {result_str}")
+                result = {}
 
-            if result.get("supported"):
-                log_info(f"[Voice] Web Speech API supported. iOS={result.get('isIOS')}, Safari={result.get('isSafari')}")
-                await start_web_speech()
-            else:
-                log_info("[Voice] Web Speech API not supported, trying AudioRecorder")
-                if audio_recorder:
-                    await start_desktop_recording()
+            is_browser = result.get("isBrowser", True)
+            is_ios = result.get("isIOS", False)
+            is_mobile = result.get("isMobile", False)
+            has_speech_api = result.get("hasSpeechAPI", False)
+
+            log_info(f"[Voice] Detection - Browser:{is_browser}, iOS:{is_ios}, Mobile:{is_mobile}, SpeechAPI:{has_speech_api}")
+
+            # 브라우저 환경 (특히 iOS/모바일)에서는 무조건 Web Speech API 사용
+            if is_browser and (is_ios or is_mobile):
+                log_info("[Voice] Mobile browser detected - using Web Speech API only")
+                if has_speech_api:
+                    await start_web_speech()
                 else:
-                    page.snack_bar = ft.SnackBar(
-                        ft.Text("이 기기에서는 음성 인식을 사용할 수 없습니다."),
-                        bgcolor="orange"
-                    )
-                    page.snack_bar.open = True
-                    page.update()
+                    # iOS Safari에서 Speech API가 없다고 나오면 직접 시도
+                    log_info("[Voice] SpeechAPI not detected but trying anyway (iOS quirk)")
+                    await start_web_speech()
+                return
+
+            # 데스크톱 브라우저
+            if is_browser and has_speech_api:
+                log_info("[Voice] Desktop browser with Speech API - using Web Speech")
+                await start_web_speech()
+                return
+
+            # 데스크톱 앱 (Flet 네이티브)
+            if not is_browser and audio_recorder:
+                log_info("[Voice] Desktop app - using AudioRecorder")
+                await start_desktop_recording()
+                return
+
+            # Fallback: Web Speech 시도
+            log_info("[Voice] Fallback - trying Web Speech API")
+            await start_web_speech()
 
         except Exception as e:
             log_error(f"[Voice] try_speech_recognition error: {e}")
-            # Web Speech 실패 시 AudioRecorder 시도
-            if audio_recorder and not voice_state["is_recording"]:
-                log_info("[Voice] Falling back to AudioRecorder")
-                await start_desktop_recording()
-            else:
+            # 에러 시에도 Web Speech API 시도 (iOS에서 JavaScript 실행 실패할 수 있음)
+            log_info("[Voice] Error occurred, trying Web Speech API as fallback")
+            try:
+                await start_web_speech()
+            except Exception as e2:
+                log_error(f"[Voice] Web Speech fallback also failed: {e2}")
                 page.snack_bar = ft.SnackBar(
                     ft.Text("음성 인식을 시작할 수 없습니다."),
                     bgcolor="red"

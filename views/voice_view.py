@@ -190,12 +190,12 @@ def get_voice_controls(page: ft.Page, navigate_to):
         """
 
         try:
-            await page.run_javascript_async(js_code)
+            await page.run_javascript(js_code)
 
             # Poll for result (max 15 seconds)
             for i in range(30):
                 await asyncio.sleep(0.5)
-                result = await page.run_javascript_async("JSON.stringify(window.speechResult || {})")
+                result = await page.run_javascript("JSON.stringify(window.speechResult || {})")
 
                 if result:
                     import json
