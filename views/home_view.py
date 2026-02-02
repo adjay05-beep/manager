@@ -60,7 +60,7 @@ async def get_home_controls(page: ft.Page, navigate_to):
             page.app_session["channel_id"] = selected["id"]
             page.app_session["channel_name"] = selected["name"]
             page.app_session["user_role"] = selected["role"]
-            page.snack_bar = ft.SnackBar(ft.Text(f"✅ '{selected['name']}'(으)로 전환되었습니다."), open=True)
+            page.open(ft.SnackBar(ft.Text(f"✅ '{selected['name']}'(으)로 전환되었습니다.")))
             page.update()
             await navigate_to("home")
 
@@ -81,6 +81,7 @@ async def get_home_controls(page: ft.Page, navigate_to):
     async def go_to_voice(e): await navigate_to("voice")
     async def go_to_store_info(e): await navigate_to("store_info")
     async def go_to_work(e): await navigate_to("work")
+    async def go_to_attendance(e): await navigate_to("attendance")
     async def go_to_profile(e): await navigate_to("profile")
 
     def menu_item(label, image_path=None, icon=None, handler=None, color=AppColors.PRIMARY):
@@ -100,7 +101,8 @@ async def get_home_controls(page: ft.Page, navigate_to):
         menu_item("캘린더", image_path="images/icon_calendar_3d.png", handler=go_to_calendar),
         menu_item("업무 일지", image_path="images/icon_handover_3d_v5.png", handler=go_to_handover),
         menu_item("체크리스트", image_path="images/icon_closing_3d.png", handler=go_to_closing),
-        menu_item("음성 메모", image_path="images/icon_voice_3d.png", handler=go_to_voice),
+        # menu_item("음성 메모", image_path="images/icon_voice_3d.png", handler=go_to_voice),
+        menu_item("출퇴근", icon=ft.Icons.TIMER_OUTLINED, handler=go_to_attendance),
         menu_item("설정", image_path="images/icon_settings_3d.png", handler=go_to_store_info),
     ]
 

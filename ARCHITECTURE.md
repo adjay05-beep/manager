@@ -1,71 +1,108 @@
-# Project Architecture & Adaptation Guide
+# Project Architecture & Map
 
-This document maps the project's structure, data flow, and coding rules to help AI assistants and developers maintain consistency.
+**Last Updated:** 2026-02-01
+**Version:** 2.0 (Stabilization Phase)
 
-## 🏗️ System Overview
-**The Manager** is a cross-platform application (Mobile/Desktop) built with **Flet (Python)** for the frontend and **Supabase** for the backend/database.
+This document maps the **The Manager** project's structure, data flow, and infrastructure rules. It serves as the single source of truth for understanding the application's design.
 
-### Core Architecture Pattern
-The project follows a **Service-Repository Pattern** to separate UI, Business Logic, and Data Access.
+## 1. 🏗️ The Big Picture (System Design)
+
+The application follows a strict **Service-Repository Pattern** to ensure separation of concerns.
 
 ```mermaid
 graph TD
-    UI[Views (Flet UI)] --> Service[Services (Business Logic)]
-    Service --> Repos[Repositories (Data Access)]
-    Repos --> Supabase[(Supabase DB)]
+    User((User)) --> View[FE: Views (Flet UI)]
+    View --> Router[Service: Router]
+    View --> Service[Service: Business Logic]
     
-    subgraph Frontend
-    UI
+    subgraph "Application Core"
+    Service --> Repo[Repository: Data Access]
+    Service --> State[State: page.app_session]
     end
     
-    subgraph Application
-    Service
-    end
-    
-    subgraph Backend
-    Repos
+    subgraph "Infrastructure"
+    Repo --> Supabase[(Supabase DB)]
+    Main[main.py] --> Flet[Flet Runtime]
+    Main --> Patch[Runtime Patches]
     end
 ```
 
-## 📂 Directory Structure Rules
-
-| Directory | Responsibility | Application Rules |
-|-----------|----------------|-------------------|
-| `views/` | **UI Only.** Returns Flet Controls. | ❌ No direct DB calls.<br>❌ No complex logic.<br>✅ Call `Service` for data. |
-| `services/` | **Business Logic.** Process data, handle errors. | ✅ Manage application state (e.g., `current_user`).<br>✅ Handle exceptions from Repos.<br>❌ No Flet UI code (pure Python). |
-| `repositories/` | **Data Access.** Interact with Supabase. | ✅ Singleton pattern.<br>✅ Direct Supabase API calls.<br>❌ No business logic. |
-| `main.py` | **Entry Point.** Routing & Setup. | ✅ Initialize App.<br>✅ Define Routes.<br>❌ Avoid massive inline logic. |
-
-## 🔄 Data Flow Guidelines
-
-1.  **User Action**: User clicks a button in `views/home_view.py`.
-2.  **View Layer**: `HomeView` calls `AuthService.sign_in()`.
-3.  **Service Layer**: `AuthService` logic runs (validates input), then calls `AuthRepository.sign_in()`.
-4.  **Repository Layer**: `AuthRepository` calls `supabase.auth.sign_in_with_password()`.
-5.  **Return Path**: Data flows back up. Errors are caught in `Service` and returned as user-friendly messages or raised to `View` for strict handling.
-
-## ⚠️ Critical Development Rules (AI Instructions)
-
-1.  **UI/Logic Separation**: Never write `supabase.table(...).select(...)` inside a `view.py`. Always go through a Service.
+### Core Design Principles
+1.  **UI/Logic Separation**: Views never touch the Database. They only call Services.
 2.  **State Management**:
-    *   Use `page.app_session` for global app state (User ID, etc.).
-    *   Use `page.client_storage` only for persistent settings (Theme, Auto-login token).
-3.  **Routing**:
-    *   All navigation logic must handle "Cleaning Overlays" (Dialogs, BottomSheets) before changing routes to prevent "stuck" UI elements.
-    *   Use `navigate_to(route)` wrapper, never `page.go()` directly if possible.
-4.  **Async/Sync**:
-    *   Flet 0.21+ / 0.22+ generally prefers Async.
-    *   Most Services are Sync-compatible but called within Async wrappers in Views. *Be consistent.*
-
-## 🛠️ Key Components
-*   **Auth**: `AuthService` (Singleton) - Handles Login/Signup/Profile.
-*   **Chat**: `ChatService` - Complex logic for Topics, Categories, Messages.
-*   **Navigation**: Currently in `main.py` (To be refactored into `Router`).
-
-## 🛑 Common Pitfalls (Do Not Ignore)
-*   **Flet 0.80+ Compatibility**: `FilePicker` and `AudioRecorder` have breaking changes. Check compatibility before using.
-*   **Overlay Cleanup**: Always dismiss open dialogs before navigating away.
-*   **Supabase RLS**: If data returns empty, check Supabase Row Level Security policies first.
+    *   **Session State**: `page.app_session` (User ID, Channel ID) - Cleared on logout.
+    *   **Persistent State**: `page.client_storage` (Theme, Auto-login Tokens) - Persists across restarts.
+3.  **Logical Navigation**: structural navigation (Home -> Feature) over browser history.
 
 ---
-*Created by Antigravity on 2026-02-01 for Project Stabilization*
+
+## 2. 📂 Detailed Structure (The Map)
+
+### 🟢 Presentation Layer (`views/`)
+*   **Role**: Renders UI, handles user input, delegates to Services.
+*   **Key Files**:
+    *   `main.py`: Entry point. Contains **Infrastructure Patches** (see Section 4).
+    *   `work_view.py`: Complex Schedule/Payroll management.
+    *   `chat_view.py`: Real-time chat interface.
+    *   `voice_view.py`: Dual-mode voice recording (Web Speech API + AudioRecorder).
+    *   `handover_view.py`: Render-cached operational logs.
+
+### 🔵 Business Logic Layer (`services/`)
+*   **Role**: Validates rules, processes data, orchestrates multiple Repositories.
+*   **Key Services**:
+    *   `router.py`: Centralized navigation & overlay management (Dialog cleanup).
+    *   `chat_service.py`: **Performance Optimized** (ThreadPool for N+1 queries).
+    *   `voice_service.py`: Manages transcribing and memo lifecycle.
+    *   `payroll_service.py`: Complex salary calculations.
+
+### 🟠 Data Access Layer (`repositories/`)
+*   **Role**: Pure SQL/Supabase interactions. Singleton pattern.
+*   **Files**: `auth_repository.py`, `chat_repository.py`, `channel_repository.py`, etc.
+*   **Rule**: functions here return raw Dicts or Supabase Responses, not Flet Controls.
+
+### 🟣 Tooling & Scripts (`scripts/`)
+*   **Role**: Verification, Maintenance, and Migration tools.
+*   **Scope**: 50+ scripts for verifying logic (`verify_read_logic.py`), DB integrity, and deployment checks.
+
+---
+
+## 3. ⚡ Key Mechanisms & Flows
+
+### Navigation Flow (Logical Back)
+*   **Rule**: Sub-pages (Profile, Settings, Detail Views) must return to **HOME**, not the previous browser history page.
+*   **Implementation**: `on_back_click=lambda _: navigate_to("home")`
+*   **Reason**: Prevents users from getting stuck in a loop or returning to a login screen.
+
+### Voice Recording Strategy (Hybrid)
+*   **Web (Browser)**: Uses **Web Speech API** (JavaScript injection).
+    *   *Why?* Browsers block direct mic access for Python threads.
+*   **Desktop (Windows)**: Uses **AudioRecorder** (Flet component).
+    *   *Why?* Native quality is better and supports file saving.
+
+### Performance Optimization
+1.  **Handover View**: Implements **Data Hashing (MD5)**.
+    *   UI only re-renders if the fetched data hash changes. Prevents 10s "freeze".
+2.  **Chat Unread Counts**: Uses **ThreadPoolExecutor**.
+    *   Parallels N+1 DB queries for "never read" topics.
+
+---
+
+## 4. 🔧 Infrastructure & Runtime Patches (`main.py`)
+
+Current Flet/System environment requires specific patches injected at runtime in `main.py`. **Do NOT remove these.**
+
+| Patch Name | Target | Reason |
+| :--- | :--- | :--- |
+| **WebSocket Fix** | `starlette.websockets.receive_bytes` | Fixes `KeyError: 'bytes'` crash due to Flet/Starlette version mismatch. Filters non-bytes frames. |
+| **Page.open Polyfill** | `ft.Page.open` | Adds support for `page.open(dlg)` syntax on Flet versions where it is missing/deprecated. |
+| **Deprecation Silence** | `ft.app` | Handling of `DeprecationWarning` for older `ft.app` usage until migration to `ft.run_app`. |
+
+---
+
+## 5. 🚀 Deployment Rules
+1.  **Environment**: Requires `FLET_SECRET_KEY` for secure uploads.
+2.  **Port**: Defaults to `8555`, respects `$PORT` env var.
+3.  **Uploads**: `uploads/` directory must be writable.
+
+---
+*Maintained by Antigravity AI*

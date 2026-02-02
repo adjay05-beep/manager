@@ -16,7 +16,7 @@ async def main(page: ft.Page):
 
         fp = ft.FilePicker()
         page.overlay.append(fp)
-        page.add(ft.Button("Open Picker", on_click=lambda _: fp.pick_files()))
+        page.add(ft.ElevatedButton("Open Picker", on_click=lambda _: fp.pick_files()))
         print("FilePicker added successfully")
     except Exception as e:
         print(f"Error adding functionality: {e}")

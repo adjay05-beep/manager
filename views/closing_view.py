@@ -59,7 +59,7 @@ async def get_closing_controls(page: ft.Page, navigate_to):
                                 on_change=lambda e: asyncio.create_task(toggle_confirm(e)),
                                 label_style=ft.TextStyle(color=AppColors.TEXT_PRIMARY)
                             ),
-                            ft.Button(
+                            ft.ElevatedButton(
                                 ref=complete_button,
                                 content=ft.Text("점검 완료 및 퇴근"),
                                 on_click=lambda e: asyncio.create_task(go_home(e)),

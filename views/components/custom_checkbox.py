@@ -46,3 +46,12 @@ class CustomCheckbox(ft.Container):
         self.check_icon.visible = self.value
         if self.box.page:
             self.box.update()
+    
+    def update(self):
+        """Update the checkbox visual state"""
+        self.check_icon.visible = self.value
+        if self.box.page:
+            self.box.update()
+        # Also call parent update
+        if self.page:
+            super().update()

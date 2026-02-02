@@ -120,7 +120,7 @@ async def get_onboarding_controls(page: ft.Page, navigate_to):
         page.app_session["channel_id"] = ch["id"]
         page.app_session["channel_name"] = ch["name"]
         page.app_session["user_role"] = ch["role"]
-        page.snack_bar = ft.SnackBar(ft.Text(f"환영합니다! {ch['name']}에 접속했습니다."), open=True)
+        page.open(ft.SnackBar(ft.Text(f"환영합니다! {ch['name']}에 접속했습니다.")))
         page.update()
         await navigate_to("home")
 

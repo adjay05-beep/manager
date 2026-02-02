@@ -89,8 +89,7 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
     async def copy_code(e):
         if active_codes and code_display.value not in ["생성된 코드가 없습니다", "만료된 코드", "코드 로드 실패"]:
             page.set_clipboard(code_display.value)
-            page.snack_bar = ft.SnackBar(ft.Text(f"초대 코드 복사 완료: {code_display.value}"))
-            page.snack_bar.open = True
+            page.open(ft.SnackBar(ft.Text(f"초대 코드 복사 완료: {code_display.value}")))
             page.update()
 
     async def generate_new_code(e):
@@ -146,11 +145,10 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
                 pass
 
             # 3. 성공 메시지 표시
-            page.snack_bar = ft.SnackBar(
+            page.open(ft.SnackBar(
                 ft.Text(f"매장 대표가 '{target_name}'님으로 변경되었습니다."),
                 bgcolor="green"
-            )
-            page.snack_bar.open = True
+            ))
             page.update()
 
             # 4. 세션 및 스토리지 정리
@@ -169,8 +167,8 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
                 log_error(f"[Transfer] Session clear error: {session_err}")
 
             try:
-                page.client_storage.remove("supa_session")
-                log_info("[Transfer] client_storage cleared")
+                page.shared_preferences.remove("supa_session")
+                log_info("[Transfer] shared_preferences cleared")
             except Exception as storage_err:
                 log_error(f"[Transfer] Storage clear error: {storage_err}")
 
@@ -185,15 +183,13 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
                 page.close(dlg_confirm)
             except Exception:
                 pass
-            page.snack_bar = ft.SnackBar(ft.Text(f"양도 실패: {ex}"), bgcolor="red")
-            page.snack_bar.open = True
+            page.open(ft.SnackBar(ft.Text(f"양도 실패: {ex}"), bgcolor="red"))
             page.update()
 
     async def open_transfer_dialog(e):
         candidates = [m for m in current_members_data if m["user_id"] != user_id]
         if not candidates:
-            page.snack_bar = ft.SnackBar(ft.Text("양도할 멤버가 없습니다."))
-            page.snack_bar.open = True
+            page.open(ft.SnackBar(ft.Text("양도할 멤버가 없습니다.")))
             page.update()
             return
 
@@ -204,8 +200,7 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
 
         async def do_transfer_check(ev):
             if not selected_candidate[0]:
-                page.snack_bar = ft.SnackBar(ft.Text("새 대표를 선택해주세요."))
-                page.snack_bar.open = True
+                page.open(ft.SnackBar(ft.Text("새 대표를 선택해주세요.")))
                 page.update()
                 return
 
@@ -468,16 +463,13 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
         try:
             token = auth_service.get_access_token()
             channel_service.update_member_role(channel_id, uid, new_role, user_id, token=token)
-            page.snack_bar = ft.SnackBar(ft.Text("권한이 수정되었습니다."), bgcolor="green")
-            page.snack_bar.open = True
+            page.open(ft.SnackBar(ft.Text("권한이 수정되었습니다."), bgcolor="green"))
             page.update()
         except PermissionError as perm_err:
-            page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red")
-            page.snack_bar.open = True
+            page.open(ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"))
             page.update()
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red")
-            page.snack_bar.open = True
+            page.open(ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red"))
             page.update()
 
     async def confirm_kick(uid, name):
@@ -487,16 +479,13 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
                 channel_service.remove_member(channel_id, uid, user_id, token=token)
                 await page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)
                 await load_members()
-                page.snack_bar = ft.SnackBar(ft.Text(f"{name}님을 내보냈습니다."), bgcolor="green")
-                page.snack_bar.open = True
+                page.open(ft.SnackBar(ft.Text(f"{name}님을 내보냈습니다."), bgcolor="green"))
                 page.update()
             except PermissionError as perm_err:
-                page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red")
-                page.snack_bar.open = True
+                page.open(ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"))
                 page.update()
             except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"내보내기 실패: {ex}"), bgcolor="red")
-                page.snack_bar.open = True
+                page.open(ft.SnackBar(ft.Text(f"내보내기 실패: {ex}"), bgcolor="red"))
                 page.update()
                 log_error(f"Kick Error: {ex}")
 
@@ -524,19 +513,16 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
                 page.app_session["user_role"] = None
 
                 await page.close_async(dlg_leave) if hasattr(page, "close_async") else page.close(dlg_leave)
-                page.snack_bar = ft.SnackBar(ft.Text("매장을 탈퇴했습니다."), bgcolor="green")
-                page.snack_bar.open = True
+                page.open(ft.SnackBar(ft.Text("매장을 탈퇴했습니다."), bgcolor="green"))
                 page.update()
                 await navigate_to("home")
             except PermissionError as pe:
-                page.snack_bar = ft.SnackBar(ft.Text(str(pe)), bgcolor="red")
-                page.snack_bar.open = True
+                page.open(ft.SnackBar(ft.Text(str(pe)), bgcolor="red"))
                 page.update()
                 await page.close_async(dlg_leave) if hasattr(page, "close_async") else page.close(dlg_leave)
             except Exception as ex:
                 log_error(f"Leave Store Error: {ex}")
-                page.snack_bar = ft.SnackBar(ft.Text(f"탈퇴 실패: {ex}"), bgcolor="red")
-                page.snack_bar.open = True
+                page.open(ft.SnackBar(ft.Text(f"탈퇴 실패: {ex}"), bgcolor="red"))
                 page.update()
 
         dlg_leave = ft.AlertDialog(
@@ -553,9 +539,9 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
     async def toggle_theme(e):
         # Toggle theme mode
         page.theme_mode = ft.ThemeMode.LIGHT if page.theme_mode == ft.ThemeMode.DARK else ft.ThemeMode.DARK
-        # Save preference to client storage
+        # Save preference to shared_preferences (Flet 0.80+)
         try:
-            await page.client_storage.set_async("theme_mode", "dark" if page.theme_mode == ft.ThemeMode.DARK else "light")
+            await page.shared_preferences.set("theme_mode", "dark" if page.theme_mode == ft.ThemeMode.DARK else "light")  # Flet 0.80+ uses set()
         except Exception as ex:
             log_error(f"Failed to save theme preference: {ex}")
         page.update()
@@ -575,7 +561,7 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
 
     header = AppHeader(
         title_text="설정",
-        on_back_click=lambda e: asyncio.create_task(page.go_back(e)) if hasattr(page, "go_back") else asyncio.create_task(navigate_to("home"))
+        on_back_click=lambda e: asyncio.create_task(navigate_to("home"))
     )
 
     current_store_settings = ft.Container(

@@ -74,7 +74,7 @@ class ChatBubble(ft.Container):
             if ext in ["jpg", "jpeg", "png", "gif", "webp", "ico", "bmp"]:
                 img_widget = ft.Image(src=img_url, width=200, height=200, fit=ft.ImageFit.COVER, border_radius=8)
                 if self.on_image_click:
-                    bubble_items.append(ft.Container(content=img_widget, on_click=lambda e: self.on_image_click(img_url)))
+                    bubble_items.append(ft.Container(content=img_widget, on_click=lambda e: __import__("asyncio").create_task(self.on_image_click(img_url))))
                 else: bubble_items.append(img_widget)
             elif ext in ["mp4", "mov", "avi", "wmv", "mkv", "webm"]:
                 def play_video(e):
@@ -103,9 +103,15 @@ class ChatBubble(ft.Container):
         from views.components.custom_checkbox import CustomCheckbox
         selection_ctrl = ft.Container(visible=False)
         if self.selection_mode:
+            def handle_checkbox_change(cb):
+                if self.on_select and callable(self.on_select):
+                    result = self.on_select(self.message.get('id'), cb.value)
+                    if hasattr(result, '__await__'):
+                        __import__("asyncio").create_task(result)
+            
             self.custom_checkbox = CustomCheckbox(
                 value=False,
-                on_change=lambda cb: self.on_select(self.message.get('id'), cb.value) if self.on_select else None,
+                on_change=handle_checkbox_change,
                 label_style=ft.TextStyle(size=0)
             )
             selection_ctrl = ft.Container(
@@ -137,6 +143,32 @@ class ChatBubble(ft.Container):
                 selection_ctrl,
                 ft.Container(expand=True), # Push everything to the left
             ], alignment=ft.MainAxisAlignment.START, spacing=10)
+
+
+        # [Improved Selection UX] Click anywhere to toggle
+        if self.selection_mode:
+            print(f"DEBUG_BUBBLE: Creating GestureDetector for message {self.message.get('id')}")
+            async def toggle_bubble(e):
+                print(f"DEBUG_BUBBLE: GestureDetector on_tap triggered for message {self.message.get('id')}")
+                self.custom_checkbox.value = not self.custom_checkbox.value
+                print(f"DEBUG_BUBBLE: Checkbox value now: {self.custom_checkbox.value}")
+                # Need to call on_select first to update state
+                if self.on_select and callable(self.on_select):
+                    result = self.on_select(self.message.get('id'), self.custom_checkbox.value)
+                    if hasattr(result, '__await__'):
+                        await result
+                # Update the UI
+                self.custom_checkbox.update()
+                print(f"DEBUG_BUBBLE: After update()")
+            
+            # Wrap content in GestureDetector for full-area clicking
+            original_content = self.content
+            self.content = ft.GestureDetector(
+                content=original_content,
+                on_tap=lambda e: __import__("asyncio").create_task(toggle_bubble(e)),
+                mouse_cursor=ft.MouseCursor.CLICK
+            )
+            print(f"DEBUG_BUBBLE: GestureDetector created successfully")
 
         self.opacity = 0.6 if self.is_sending else 1.0
         self.padding = ft.padding.symmetric(vertical=5)

@@ -117,8 +117,7 @@ async def get_profile_controls(page: ft.Page, navigate_to):
                 "updated_at": "now()"
             }).execute())
             page.app_session["display_name"] = profile_name_tf.value
-            page.snack_bar = ft.SnackBar(ft.Text("프로필이 저장되었습니다."), bgcolor="green");
-            page.snack_bar.open = True
+            page.open(ft.SnackBar(ft.Text("프로필이 저장되었습니다."), bgcolor="green"))
             page.update()
         except Exception as ex:
             print(ex)
@@ -127,17 +126,17 @@ async def get_profile_controls(page: ft.Page, navigate_to):
         auth_service.sign_out()
         # Clear app_session dict
         page.app_session.clear()
+        # 3. Clear storage
         try:
-            page.client_storage.remove("supa_session")
-        except:
-            pass
+            page.shared_preferences.remove("supa_session")
+        except Exception:
+            pass  # Session deletion failed
         asyncio.create_task(navigate_to("login"))
 
     def perform_create_store(e):
         # Open Create Store Dialog (Reusing logic or navigating)
         # For simplicity, navigate to a create store page or open dialog here.
         # Ideally, reuse the dialog from store_manage_view or make it shared.
-        # I'll just navigate to onboarding for now or implement a simple dialog.
         # Since I am creating a new file, I'll implement a simple dialog.
         pass # To be implemented if needed, or link to Onboarding
 
@@ -209,7 +208,7 @@ async def get_profile_controls(page: ft.Page, navigate_to):
                 bgcolor="white",
                 content=ft.Column([
                     # Header
-                    AppHeader("내 프로필", on_back_click=lambda _: asyncio.create_task(page.go_back() if hasattr(page, "go_back") else navigate_to("home"))),
+                    AppHeader("내 프로필", on_back_click=lambda e: asyncio.create_task(navigate_to("home"))),
                     
                     profile_card,
                     

@@ -1,4 +1,4 @@
-import flet as ft
+﻿import flet as ft
 import datetime
 from datetime import datetime as dt_class, timezone
 import threading
@@ -153,7 +153,8 @@ async def get_chat_controls(page: ft.Page, navigate_to):
         # If user reached bottom, hide floating button
         if state["is_near_bottom"] and floating_new_msg_container.visible:
             floating_new_msg_container.visible = False
-            floating_new_msg_container.update()
+            if floating_new_msg_container.page:
+                floating_new_msg_container.update()
 
     message_list_view = ft.ListView(
         expand=True, 
@@ -230,47 +231,32 @@ async def get_chat_controls(page: ft.Page, navigate_to):
             
         try:
             # [FIX] Absolute Session Data: Use closure-scoped variables for reliability
-            # These are captured when Chat View/Messenger List is first opened
             uid = page.app_session.get("user_id") if (hasattr(page, "session") and page.app_session) else current_user_id
             cid = page.app_session.get("channel_id") if (hasattr(page, "session") and page.app_session) else current_channel_id
             
             if not uid or not cid:
-                # If we still don't have IDs, this thread cannot proceed correctly
                 log_info(f"Chat WARNING: load_topics_thread skipped (Missing IDs). UID={uid}, CID={cid}")
                 return
             
-            # [DIAGNOSTIC] Log every background refresh attempt
-            # file_log_info(f"Background Sync: UID={uid}, CID={cid}")
-            
-            if update_ui: page.update()
+            if update_ui: 
+                try: page.update()
+                except: pass
             
             log_info(f"Loading topics for {uid} in {cid}")
             
-            # [DIAGNOSTIC] Log database connection status
-            log_info(f"Database URL: {service_supabase.url[:30]}...")
-            
-            # [FIX] Multi-Channel Support
-            current_channel_id = page.app_session.get("channel_id")
-            if not current_channel_id:
-                log_info("Chat ERROR: No channel_id in session")
-                page.snack_bar = ft.SnackBar(ft.Text("매장 정보가 없습니다. 다시 로그인해 주세요."), bgcolor="red", open=True)
-                page.update()
-                return
-
-            log_info(f"Loading topics for user {current_user_id} in channel {current_channel_id}")
-            
-            # [FIX] Async wrappers for Blocking Service Calls
-            # chat_header_title.controls[1].value = "Debug: Fetching Cats..."
-            if update_ui: page.update()
-            
-            categories_data = await asyncio.to_thread(chat_service.get_categories, current_channel_id)
+            # [TIMEOUT SAFETY] 10s limit for network ops
+            categories_data = await asyncio.wait_for(asyncio.to_thread(chat_service.get_categories, cid), timeout=10)
             log_info(f"Categories loaded: {len(categories_data) if categories_data else 0}")
             categories = [c['name'] for c in categories_data] if categories_data else ["공지", "일반", "중요", "개별 업무"]
 
+            if update_ui: 
+                try: page.update()
+                except: pass
+
             if show_all:
-                topics = await asyncio.to_thread(chat_service.get_all_topics, cid)
+                topics = await asyncio.wait_for(asyncio.to_thread(chat_service.get_all_topics, cid), timeout=10)
             else:
-                topics = await asyncio.to_thread(chat_service.get_topics, uid, cid)
+                topics = await asyncio.wait_for(asyncio.to_thread(chat_service.get_topics, uid, cid), timeout=10)
                 
             log_info(f"Topics fetched: {len(topics)}")
             # file_log_info(f"DEBUG_TOPICS: Topic IDs: {[t['id'] for t in topics]}")
@@ -279,7 +265,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
             sorted_topics = sorted(topics, key=lambda x: (x.get('display_order', 0) or 0, x.get('created_at', '')), reverse=True)
             
             # [FIX] Efficient Unread Count Fetching
-            unread_counts = await asyncio.to_thread(chat_service.get_unread_counts, uid, topics)
+            unread_counts = await asyncio.wait_for(asyncio.to_thread(chat_service.get_unread_counts, uid, topics), timeout=10)
             log_info(f"Unreads for {uid}: {sum(unread_counts.values()) if unread_counts else 0}")
 
             new_controls = []
@@ -475,14 +461,22 @@ async def get_chat_controls(page: ft.Page, navigate_to):
             
             # [DEBUG] Show detailed count
             if update_ui: 
-                topic_list_container.update()
-                page.update()
+                try:
+                    if topic_list_container.page:
+                        topic_list_container.update()
+                        page.update()
+                except Exception as update_ex:
+                    # If update fails (e.g. user navigation), just log it
+                    log_info(f"UI Update skipped: {update_ex}")
+
         except Exception as ex:
             log_info(f"Load Topics Critical Error: {ex}")
-            if update_ui:
+            # [FIX] Only show error if we are still on the page and it's not a detaching error
+            if update_ui and "Control must be added" not in str(ex):
                 try:
-                    page.snack_bar = ft.SnackBar(ft.Text(f"데이터 로딩 오류: {ex}"), bgcolor="red", open=True)
-                    page.update()
+                     if topic_list_container.page:
+                        page.open(ft.SnackBar(ft.Text(f"데이터 로딩 오류: {ex}"), bgcolor="red"))
+                        page.update()
                 except Exception:
                     pass  # Snackbar update failed
         finally:
@@ -530,7 +524,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
             await asyncio.to_thread(chat_service.toggle_topic_priority, tid, current_val, current_user_id)
             asyncio.create_task(load_topics_async(True))
         except PermissionError as perm_err:
-            page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red", open=True)
+            page.open(ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"))
             page.update()
         except Exception as ex:
             log_info(f"Toggle priority error: {ex}")
@@ -578,6 +572,241 @@ async def get_chat_controls(page: ft.Page, navigate_to):
         page.open(dlg)
         page.update()
 
+    async def open_topic_member_management_dialog(e):
+        try:
+            print(f"DEBUG: Opening Member Dialog. TopicID={state.get('current_topic_id')}")
+            if not state.get("current_topic_id"): 
+                page.open(ft.SnackBar(ft.Text("오류: 선택된 토픽이 없습니다."), bgcolor="red"))
+                page.update()
+                return
+        
+            # Load Data
+            topic_id = state.get("current_topic_id")
+            channel_id = page.app_session.get("channel_id")
+            
+            # [Iteration 25] Fetch Topic Creator
+            try:
+                topic_info = service_supabase.table("chat_topics").select("created_by").eq("id", topic_id).single().execute()
+                creator_id = topic_info.data.get("created_by") if topic_info.data else None
+            except:
+                creator_id = None
+
+            # UI Holders
+            members_col = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
+            invite_col = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
+            
+            # Views (initialized late)
+            members_view = ft.Column(visible=True)
+            invite_view = ft.Column(visible=False)
+
+            def load_members():
+                async def _load_members_async():
+                    try:
+                        members = await asyncio.to_thread(chat_service.get_topic_members, topic_id)
+                        items = []
+                        current_uid = page.app_session.get("user_id")
+                        my_ch_role = page.app_session.get("user_role")
+
+                        # [DIAGNOSTIC] Log member list to terminal
+                        print(f"DEBUG: Topic Members for {topic_id}: {len(members)}", flush=True)
+                        for m in members:
+                             print(f"  - {m.get('full_name')} ({m.get('user_id')}) role={m.get('permission_level')}", flush=True)
+
+                        for m in members:
+                            is_me = m['user_id'] == current_uid
+
+                            # [Iteration 24 Fix] User WANTS to see themselves in Member List.
+                            # if is_me: continue
+
+                            # [Fix] Delete button should appear only for non-owner members
+                            # Owner (creator) should not have delete button
+                            is_owner = (m['user_id'] == creator_id)
+                            can_kick = (my_ch_role in ['owner', 'manager']) and not is_me and not is_owner
+
+                            items.append(
+                                ft.Container(
+                                    padding=10,
+                                    bgcolor="#F5F5F5",
+                                    border_radius=8,
+                                    content=ft.Row([
+                                        ft.Row([
+                                            ft.Icon(ft.Icons.PERSON, size=20, color="grey"),
+                                            ft.Column([
+                                                ft.Row([
+                                                    ft.Text(f"{m['full_name']}", weight="bold"),
+                                                    ft.Container(
+                                                        content=ft.Text("👑 방장", size=10, color="orange", weight="bold"),
+                                                        padding=ft.padding.symmetric(horizontal=4, vertical=2),
+                                                        # Use Hex for opacity to avoid 'ft.Colors' attribute error. #1A = ~10% alpha, FF9800 = Orange
+                                                        bgcolor="#1AFF9800",
+                                                        border_radius=4,
+                                                        visible=(m['user_id'] == creator_id)
+                                                    )
+                                                ], spacing=5),
+                                                ft.Text(f"{m['email']} • {m['permission_level']}", size=12, color="grey")
+                                            ], spacing=2)
+                                        ]),
+                                        ft.IconButton(ft.Icons.REMOVE_CIRCLE_OUTLINE, icon_color="red",
+                                                    tooltip="내보내기",
+                                                    on_click=lambda e, u=m['user_id']: asyncio.create_task(kick_member(u)),
+                                                    visible=can_kick)
+                                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                                )
+                            )
+                    
+                        if not items:
+                            items.append(
+                                ft.Container(
+                                    content=ft.Column([
+                                        ft.Icon(ft.Icons.PEOPLE_OUTLINE, size=40, color="grey"),
+                                        ft.Text("참여 중인 멤버가 아무도 없습니다.", color="grey", size=14)
+                                    ], horizontal_alignment="center", spacing=10),
+                                    padding=20,
+                                    alignment=ft.Alignment(0, 0)
+                                )
+                            )
+
+                        members_col.controls = items
+                        page.update()
+
+                    except Exception as ex:
+                        print(f"Load Members Error: {ex}")
+                        members_col.controls = [
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Icon(ft.Icons.ERROR_OUTLINE, color="red", size=30),
+                                    ft.Text(f"멤버 정보를 불러오지 못했습니다:\n{str(ex)[:100]}", color="red", size=12, text_align="center")
+                                ], horizontal_alignment="center"),
+                                padding=20, alignment=ft.Alignment(0, 0)
+                            )
+                        ]
+                        page.update()
+
+                asyncio.create_task(_load_members_async())
+
+            async def kick_member(target_id):
+                try:
+                    await asyncio.to_thread(chat_service.remove_topic_member, topic_id, target_id)
+                    load_members()
+                except Exception as ex:
+                    page.open(ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red")); page.update()
+
+            async def load_candidates():
+                try:
+                    current_uid = str(page.app_session.get("user_id")).strip()
+
+                    # [Iteration 25 Fix] Pass current_uid to service to force-filter it out at source
+                    candidates = await asyncio.to_thread(chat_service.get_channel_members_not_in_topic, channel_id, topic_id, current_uid)
+                    items = []
+
+                    for c in candidates:
+                        # Double-check (though service handles it now)
+                        if str(c['user_id']).strip() == current_uid: continue
+
+                        # [Iteration 26] Disambiguation Logic
+                        candidate_name = c['full_name']
+                        disambig_info = ""
+                        if c.get("username"):
+                            disambig_info = f" (@{c['username']})"
+                        else:
+                            # Fallback to ID suffix if no unique username
+                            try:
+                                short_id = str(c['user_id']).strip()[-4:] # Last 4 chars
+                                disambig_info = f" (#{short_id})"
+                            except:
+                                disambig_info = ""
+
+                        items.append(
+                            ft.Container(
+                                padding=10, border=ft.border.all(1, "#EEEEEE"), border_radius=8,
+                                content=ft.Row([
+                                    ft.Row([
+                                        ft.Icon(ft.Icons.PERSON_OUTLINE, size=20, color="grey"),
+                                        ft.Column([
+                                            ft.Row([
+                                                ft.Text(f"{candidate_name}", weight="bold"),
+                                                ft.Text(f"{disambig_info}", size=12, color="grey")
+                                            ], spacing=5),
+                                            # ft.Text(f"ID: {can_id}", size=10, color="grey") # Optional debug
+                                        ], spacing=2)
+                                    ]),
+                                    ft.IconButton(ft.Icons.ADD_CIRCLE, icon_color="green",
+                                                tooltip="초대",
+                                                on_click=lambda e, u=c['user_id']: asyncio.create_task(invite_user(u)))
+                                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+                            )
+                        )
+                    if not items:
+                        items.append(ft.Container(content=ft.Text("초대할 수 있는 멤버가 없습니다.\n(모든 직원이 이미 참여 중입니다)", color="grey", text_align="center"), alignment=ft.Alignment(0, 0), padding=20))
+
+                    invite_col.controls = items
+                    # [DEBUG] Feedback
+                    print(f"Candidates Loaded: {len(items)}")
+                    page.update()
+
+                except Exception as ex:
+                    print(f"Load Candidates Error: {ex}")
+
+            async def invite_user(target_id):
+                try:
+                    await asyncio.to_thread(chat_service.add_topic_member, topic_id, target_id)
+                    # Toggle back
+                    invite_view.visible = False
+                    members_view.visible = True
+                    load_members()
+                    page.update()
+                except Exception as ex:
+                    page.open(ft.SnackBar(ft.Text(f"초대 실패: {ex}"), bgcolor="red")); page.update()
+
+            def show_invite_view(e):
+                members_view.visible = False
+                invite_view.visible = True
+                asyncio.create_task(load_candidates())
+                page.update()
+            
+            def show_members_view(e):
+                invite_view.visible = False
+                members_view.visible = True
+                page.update()
+
+            members_view.controls = [
+                ft.Text("현재 멤버", size=16, weight="bold"),
+                # Removed invalid max_height. Use default wrapping behavior.
+                ft.Container(content=members_col),
+                ft.ElevatedButton("멤버 초대하기", on_click=show_invite_view, width=200, bgcolor=AppColors.PRIMARY, color="white")
+            ]
+            
+            invite_view.controls = [
+                ft.Row([
+                    ft.IconButton(ft.Icons.ARROW_BACK, on_click=show_members_view),
+                    ft.Text("멤버 초대", size=16, weight="bold")
+                ]),
+                ft.Container(content=invite_col, height=300)
+            ]
+
+            dlg = ft.AlertDialog(
+                title=ft.Text("채팅방 멤버 관리"),
+                content=ft.Container(
+                    width=400,
+                    height=500, # Fixed height for stability across devices
+                    content=ft.Column([members_view, invite_view], tight=True, scroll=ft.ScrollMode.AUTO)
+                ),
+                actions=[ft.TextButton("닫기", on_click=lambda e: setattr(dlg, 'open', False) or page.update())]
+            )
+            page.open(dlg)
+
+            # Call load_members safely
+            try:
+                load_members()
+            except Exception:
+                pass  # Member list load failed
+
+        except Exception as e:
+            print(f"CRITICAL ERROR in Member Dialog: {e}")
+            import traceback
+            traceback.print_exc()
+            page.open(ft.SnackBar(ft.Text(f"대화상자 열기 실패: {e}"), bgcolor="red"))
+            page.update()
     # [FIX] Render ID to prevent race conditions in fast reloads
     render_context = {"last_id": 0}
 
@@ -591,157 +820,83 @@ async def get_chat_controls(page: ft.Page, navigate_to):
         my_id = render_context["last_id"]
         
         sel_mode = bool(state.get("selection_mode"))
+        print(f"DEBUG_CHAT: load_messages_async starting with sel_mode={sel_mode}")
         render_user_id = page.app_session.get("user_id")
         tid = state["current_topic_id"]
         # print(f"DEBUG_CHAT: [Thread {my_id}] RenderStart. User={render_user_id}, Topic={tid}", flush=True)
 
         try:
-            # 1. Fetch DB Messages
-            db_messages = await asyncio.to_thread(chat_service.get_messages, state["current_topic_id"])
+            # [TIMEOUT SAFETY] 10s limit
+            db_messages = await asyncio.wait_for(asyncio.to_thread(chat_service.get_messages, state["current_topic_id"]), timeout=10)
             
-            # 2. Extract Existing Pending Messages
-            pending_bubbles = []
-            if message_list_view.controls and isinstance(message_list_view.controls, list):
-                for ctrl in message_list_view.controls:
-                    if isinstance(ctrl, ChatBubble) and getattr(ctrl, "is_sending", False):
-                        p_content = ctrl.message.get("content")
-                        is_landed = False
-                        for db_m in reversed(db_messages[-10:]): 
-                            if db_m.get("content") == p_content and db_m.get("user_id") == current_user_id:
-                                is_landed = True
-                                break
-                        if not is_landed:
-                            pending_bubbles.append(ctrl)
+            # [OPTIMIZATION] Incremental Updates
+            # Compare current controls with DB messages to only add new ones
+            existing_controls = message_list_view.controls
+            existing_count = len(existing_controls) if existing_controls else 0
+            db_count = len(db_messages)
             
-            # 3. Build New Control List
-            new_controls = []
             def on_msg_select(mid, val):
                 if val: state.add_selected(mid)
                 else: state.remove_selected(mid)
 
-            for m in db_messages:
-                new_controls.append(ChatBubble(
-                    m,
-                    render_user_id,
-                    selection_mode=sel_mode,
-                    on_select=on_msg_select,
-                    on_image_click=show_image_viewer
-                ))
+            # Rebuild if: empty, smaller than before (deletions), or special mode (select/search)
+            is_special = sel_mode or (existing_count > 0 and not isinstance(existing_controls[0], ChatBubble))
+            should_rebuild = existing_count == 0 or db_count < existing_count or is_special
             
-            # 4. Append Pending Messages at the End
-            for p_ctrl in pending_bubbles:
-                p_ctrl.selection_mode = sel_mode
-                p_ctrl.build_ui()
-                new_controls.append(p_ctrl)
+            if should_rebuild:
+                new_controls = []
+                for m in db_messages:
+                    new_controls.append(ChatBubble(m, render_user_id, selection_mode=sel_mode, on_select=on_msg_select, on_image_click=show_image_viewer))
+                
+                if my_id == render_context["last_id"]:
+                    message_list_view.controls = new_controls
+                    # Auto-scroll on initial load if we were near bottom or it's a new room
+                    if not state.get("scrolled_to_unread"):
+                        await message_list_view.scroll_to_async(offset=-1, duration=300) if hasattr(message_list_view, "scroll_to_async") else message_list_view.scroll_to(offset=-1, duration=300)
+                        state["scrolled_to_unread"] = True
+            else:
+                # Append only new messages
+                last_loaded_id = state.get("last_loaded_msg_id")
+                new_msgs_to_append = []
+                found_last = (last_loaded_id is None)
+                
+                for m in db_messages:
+                    if found_last:
+                        new_msgs_to_append.append(m)
+                    elif str(m.get("id")) == str(last_loaded_id):
+                        found_last = True
+                
+                if new_msgs_to_append and my_id == render_context["last_id"]:
+                    for m in new_msgs_to_append:
+                        message_list_view.controls.append(ChatBubble(m, render_user_id, selection_mode=sel_mode, on_select=on_msg_select, on_image_click=show_image_viewer))
+                    
+                    # Scroll logic for new messages
+                    # If it's my message, scroll. If others, show indicator.
+                    is_me = (new_msgs_to_append[-1].get("user_id") == current_user_id)
+                    if is_me:
+                        await message_list_view.scroll_to_async(offset=-1, duration=200) if hasattr(message_list_view, "scroll_to_async") else message_list_view.scroll_to(offset=-1, duration=200)
+                    else:
+                        floating_new_msg_container.visible = True
+                        floating_new_msg_container.update()
             
             # 5. Atomic Update UI (Only if we are the LATEST thread)
             if my_id == render_context["last_id"]:
-                # [FIX] Ghost Scroll Guard: message_was_added should ONLY be True 
-                # if we already had messages loaded (old_last_id is not None)
-                old_last_id = state.get("last_loaded_msg_id")
-                new_last_id = db_messages[-1].get("id") if db_messages else None
-                message_was_added = (old_last_id is not None and new_last_id is not None and str(new_last_id) != str(old_last_id))
-                
-                # Update UI
-                message_list_view.controls = new_controls
-                # print(f"DEBUG_CHAT: [Thread {my_id}] UI Updated. NewMsg={message_was_added} (Old={old_last_id}, New={new_last_id})")
-                
-                # [Smart Scroll Logic]
-                if new_controls:
-                    last_read = state.get("last_read_at")
-                    unread_key = None
-                    
-                    # Case A: Initial Entry
-                    if not state.get("scrolled_to_unread"):
-                        if last_read:
-                            try:
-                                from datetime import datetime
-                                # Standardize last_read
-                                lr_dt = datetime.fromisoformat(last_read.replace('Z', '+00:00'))
-                                
-                                # Identify first unread message using robust datetime comparison
-                                for m in db_messages:
-                                    m_time = m.get("created_at", "")
-                                    if m_time:
-                                        m_dt = datetime.fromisoformat(m_time.replace('Z', '+00:00'))
-                                        # Buffer of 1ms to prevent overlap glitches
-                                        if m_dt.timestamp() > (lr_dt.timestamp() + 0.001):
-                                            unread_key = str(m.get("id"))
-                                            break
-                            except Exception as ts_ex:
-                                print(f"DEBUG_CHAT: Timestamp Parse Error on Entry: {ts_ex}")
-                        
-                        # print(f"DEBUG_CHAT: [Thread {my_id}] Room Entry Scroll. UnreadKey={unread_key}, LastRead={last_read}")
-                        
-                        state["scrolled_to_unread"] = True
-                        page.update() # First Layout Pass
-                        
-                        # Increased wait + Retry for better stability on varied latencies
-                        await asyncio.sleep(0.4) 
-                        
-                        if unread_key and db_messages:
-                            # 1. If unreads exist -> Scroll to first unread
-                            try: 
-                                print(f"DEBUG_CHAT: [Thread {my_id}] Scrolling to Key: {unread_key}")
-                                await message_list_view.scroll_to_async(key=unread_key, duration=500) if hasattr(message_list_view, "scroll_to_async") else message_list_view.scroll_to(key=unread_key, duration=500)
-                                # [RETRY] Wait and scroll again if needed (Double-sync)
-                                await asyncio.sleep(0.1)
-                                await message_list_view.scroll_to_async(key=unread_key, duration=100) if hasattr(message_list_view, "scroll_to_async") else message_list_view.scroll_to(key=unread_key, duration=100)
-                            except Exception as scroll_ex: 
-                                print(f"DEBUG_CHAT: Scroll to Key Error: {scroll_ex}")
-                        elif db_messages:
-                            # 2. If NO unreads -> Scroll to bottom (Triple-Tap Mastery)
-                            try: 
-                                print(f"DEBUG_CHAT: [Thread {my_id}] Room Entry Bottom Scroll (Triple-Tap)")
-                                await message_list_view.scroll_to_async(offset=-1, duration=300) if hasattr(message_list_view, "scroll_to_async") else message_list_view.scroll_to(offset=-1, duration=300)
-                                await asyncio.sleep(0.3) # Wait for first move
-                                await message_list_view.scroll_to_async(offset=-1, duration=100) if hasattr(message_list_view, "scroll_to_async") else message_list_view.scroll_to(offset=-1, duration=100)
-                                await asyncio.sleep(0.2) # Wait for second move
-                                await message_list_view.scroll_to_async(offset=-1, duration=50) if hasattr(message_list_view, "scroll_to_async") else message_list_view.scroll_to(offset=-1, duration=50)# Final anchor
-                                
-                                # [FIX] Explicitly mark as read since on_scroll might not fire for short lists
-                                asyncio.create_task(mark_read_and_refresh(state["current_topic_id"], current_user_id))
-
-                                # We now rely on on_chat_scroll to trigger the update when the scroll actually lands at bottom.
-                            except Exception as scroll_ex: 
-                                print(f"DEBUG_CHAT: Scroll to Bottom Error: {scroll_ex}")
-                    
-                    # Case B: New message arrived while room is active
-                    elif message_was_added:
-                        is_me = (db_messages and db_messages[-1].get("user_id") == current_user_id)
-                        
-                        if is_me:
-                            # 1. ALWAYS auto-scroll if it's MY message
-                            try:
-                                # print(f"DEBUG_CHAT: Auto-Scroll (Self).")
-                                await message_list_view.scroll_to_async(offset=-1, duration=300) if hasattr(message_list_view, "scroll_to_async") else message_list_view.scroll_to(offset=-1, duration=300)
-                                # [Iteration 22] Strict Honest Read: Sending logic does NOT mark as read.
-                            except Exception:
-                                pass  # Auto-scroll failed
-                        else:
-                            # 2. OTHERS' message: NEVER auto-scroll. Show Alarm.
-                            # Even if at bottom, we show the alarm to signify "New Content"
-                            # This follows the user's "No auto-scroll" requirement.
-                            # print(f"DEBUG_CHAT: Alarm Triggered (Others). No Auto-Scroll.")
-                            floating_new_msg_container.visible = True
-                            floating_new_msg_container.update()
-                
-                # Save last loaded ID
                 if db_messages:
                     state["last_loaded_msg_id"] = db_messages[-1].get("id")
                 
-                page.update()
-            else:
-                # print(f"DEBUG_CHAT: [Thread {my_id}] Ignored (Stale). Latest is {render_context['last_id']}")
-                pass
+                try: page.update()
+                except: pass
             
-            state["is_loading_messages"] = False # Unlock
-
+        except asyncio.TimeoutError:
+            log_info(f"DEBUG_CHAT: [Thread {my_id}] Timeout loading messages.")
+            state["is_loading_messages"] = False
         except Exception as ex:
-            state["is_loading_messages"] = False # Unlock on error
-            print(f"DEBUG_CHAT: [Thread {my_id}] Error: {ex}")
+            log_info(f"DEBUG_CHAT: [Thread {my_id}] Error: {ex}")
             log_info(f"Load Messages Error: {ex}")
-
+        finally:
+            # Atomic Update state and UI
+            if my_id == render_context["last_id"]:
+                state["is_loading_messages"] = False # Unlock
     async def select_topic(topic):
         tid = topic['id']
         state["current_topic_id"] = tid
@@ -825,7 +980,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                 # The load_messages_thread will merge/remove the temp message once DB has it
                 asyncio.create_task(load_messages_async())
             except Exception as ex:
-                page.snack_bar = ft.SnackBar(ft.Text(f"전송 실패: {ex}"), bgcolor="red", open=True)
+                page.open(ft.SnackBar(ft.Text(f"전송 실패: {ex}"), bgcolor="red"))
                 page.update()
         
         asyncio.create_task(_do_send())
@@ -839,11 +994,11 @@ async def get_chat_controls(page: ft.Page, navigate_to):
         from utils.logger import log_info
         log_info(f"File Selected: {f.name}, Size: {f.size} bytes")
         # Immediate Feedback
-        page.snack_bar = ft.SnackBar(ft.Text("파일 확인 중..."), open=True)
+        page.open(ft.SnackBar(ft.Text("파일 확인 중...")))
         page.update()
 
         if not state["current_topic_id"]:
-            page.snack_bar = ft.SnackBar(ft.Text("대화방을 먼저 선택해주세요."), bgcolor="red", open=True)
+            page.open(ft.SnackBar(ft.Text("대화방을 먼저 선택해주세요."), bgcolor="red"))
             page.update()
             return
             
@@ -854,7 +1009,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
         # Previously inside a thread, which caused reliable upload issues.
         async def update_snack(msg):
             try:
-                page.snack_bar = ft.SnackBar(ft.Text(msg, size=12), open=True)
+                page.open(ft.SnackBar(ft.Text(msg, size=12)))
                 page.update()
             except Exception:
                 pass  # Snackbar update failed
@@ -953,7 +1108,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                                                  final_url = await asyncio.to_thread(storage_service.upload_proxy_file_to_supabase, current_storage_name)
                                                  state["pending_image_url"] = final_url
                                                  await update_pending_ui(final_url)
-                                                 page.snack_bar = ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green", open=True)
+                                                 page.open(ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green"))
                                                  page.update()
                                                  return
                                         except Exception as fin_ex:
@@ -997,7 +1152,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
         
         if e.error:
             log_info(f"CRITICAL: Upload Event Error: {e.error}")
-            page.snack_bar = ft.SnackBar(ft.Text(f"업로드 실패: {e.error}"), bgcolor="red", open=True)
+            page.open(ft.SnackBar(ft.Text(f"업로드 실패: {e.error}"), bgcolor="red"))
             page.update()
             pending_container.visible = False
             page.update()
@@ -1024,18 +1179,18 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                              
                              # Success UI
                              asyncio.create_task(update_pending_ui(final_url))
-                             page.snack_bar = ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green", open=True)
+                             page.open(ft.SnackBar(ft.Text("🔒 보안 업로드 완료!"), bgcolor="green"))
                              page.update()
                         except Exception as fin_ex:
                              print(f"Proxy Finalize Error: {fin_ex}")
-                             page.snack_bar = ft.SnackBar(ft.Text(f"처리 실패: {fin_ex}"), bgcolor="red", open=True)
+                             page.open(ft.SnackBar(ft.Text(f"처리 실패: {fin_ex}"), bgcolor="red"))
                              page.update()
                              
                     asyncio.create_task(finalize_step())
                 
                 else:
                     asyncio.create_task(update_pending_ui(state.get("pending_image_url")))
-                    page.snack_bar = ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green", open=True)
+                    page.open(ft.SnackBar(ft.Text("이미지 로드 완료!"), bgcolor="green"))
                     page.update()
 
     # [Flet 0.80+] FilePicker disabled due to compatibility issues
@@ -1110,12 +1265,12 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                     print("DEBUG: Topics reloaded")
                 except PermissionError as perm_err:
                     print(f"DEBUG: Permission Error: {perm_err}")
-                    page.snack_bar = ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red", open=True)
+                    page.open(ft.SnackBar(ft.Text(str(perm_err)), bgcolor="red"))
                     page.update()
                 except Exception as ex:
                     print(f"DEBUG: Critical Delete Error: {ex}")
                     log_info(f"Delete topic error: {ex}")
-                    page.snack_bar = ft.SnackBar(ft.Text(f"삭제 실패: {ex}"), bgcolor="red", open=True)
+                    page.open(ft.SnackBar(ft.Text(f"삭제 실패: {ex}"), bgcolor="red"))
                     page.update()
             
             asyncio.create_task(_do_delete())
@@ -1134,8 +1289,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                 ft.TextButton(content=ft.Text("삭제", color="red"), on_click=delete_it)
             ]
         )
-        page.dialog = dlg
-        dlg.open = True
+        page.open(dlg)
         page.update()
 
     # Custom modal overlay (instead of AlertDialog/BottomSheet which don't work on mobile)
@@ -1156,22 +1310,20 @@ async def get_chat_controls(page: ft.Page, navigate_to):
     
     async def create_from_modal(e):
         # [CRITICAL DEBUG] Immediate feedback to verify click detection
-        page.snack_bar = ft.SnackBar(
+        page.open(ft.SnackBar(
             ft.Text(f"🔍 버튼 클릭 감지됨! 값: '{modal_name_field.value}'", color="white"),
             bgcolor="purple",
-            open=True,
             duration=5000
-        )
+        ))
         page.update()
         
         log_info(f"Create from modal clicked, name='{modal_name_field.value}'")
         if not modal_name_field.value:
             log_info("ERROR: Name field is empty!")
-            page.snack_bar = ft.SnackBar(
+            page.open(ft.SnackBar(
                 ft.Text("스레드 이름을 입력해주세요", color="white"),
-                bgcolor="orange",
-                open=True
-            )
+                bgcolor="orange"
+            ))
             page.update()
             return
         
@@ -1185,11 +1337,10 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                 # Hide modal and show success
                 modal_container.visible = False
                 modal_name_field.value = ""  # Clear input for next time
-                page.snack_bar = ft.SnackBar(
+                page.open(ft.SnackBar(
                     ft.Text("스레드가 생성되었습니다!", color="white"),
-                    bgcolor="green",
-                    open=True
-                )
+                    bgcolor="green"
+                ))
                 page.update()
                 
                 # [FIX] Reload topics immediately and await completion
@@ -1204,11 +1355,10 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                 log_info(f"Creation ERROR: {ex}")
                 import traceback
                 traceback.print_exc()
-                page.snack_bar = ft.SnackBar(
+                page.open(ft.SnackBar(
                     ft.Text(f"생성 실패: {ex}", color="white"),
-                    bgcolor="red",
-                    open=True
-                )
+                    bgcolor="red"
+                ))
                 page.update()
         
         asyncio.create_task(_do_create())
@@ -1249,7 +1399,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                     load_topics(True)
                 except Exception as ex:
                     log_info(f"Update Topic Error: {ex}")
-                    page.snack_bar = ft.SnackBar(ft.Text(f"수정 실패: {ex}"), bgcolor="red", open=True); page.update()
+                    page.open(ft.SnackBar(ft.Text(f"수정 실패: {ex}"), bgcolor="red")); page.update()
         
         dlg = ft.AlertDialog(
             title=ft.Text("스레드 이름 수정"),
@@ -1328,14 +1478,14 @@ async def get_chat_controls(page: ft.Page, navigate_to):
         ]
     )
 
-    # [SEARCH] Global Search Logic
+    # [SEARCH] Global Search Logic - Hoisted definitions to fix UnboundLocalError
     search_results_col = ft.Column(spacing=0, scroll=ft.ScrollMode.AUTO, height=300)
-    search_input = ft.TextField(hint_text="검색어 입력...", autofocus=True, expand=True, on_submit=lambda e: do_search())
-    
-    def do_search():
+    search_input = ft.TextField(hint_text="검색어 입력...", autofocus=True, expand=True)
+
+    async def do_search(e=None):
         query = search_input.value
         if not query or len(query) < 2:
-            page.snack_bar = ft.SnackBar(ft.Text("2글자 이상 입력해주세요."), bgcolor="red", open=True); page.update()
+            page.open(ft.SnackBar(ft.Text("2글자 이상 입력해주세요."), bgcolor="red")); page.update()
             return
 
         search_results_col.controls = [ft.Container(ft.ProgressRing(), alignment=ft.Alignment(0, 0), padding=20)]
@@ -1344,14 +1494,13 @@ async def get_chat_controls(page: ft.Page, navigate_to):
         async def _search_task():
             try:
                 cid = page.app_session.get("channel_id")
-                results = await asyncio.to_thread(chat_service.search_messages_global, query, cid)
+                results = await asyncio.wait_for(asyncio.to_thread(chat_service.search_messages_global, query, cid), timeout=10)
                 
                 items = []
                 if not results:
                     items.append(ft.Container(ft.Text("검색 결과가 없습니다.", color="grey"), padding=20, alignment=ft.Alignment(0, 0)))
                 else:
                     for r in results:
-                        # r keys: id, content, created_at, topic_id, profiles(full_name), chat_topics(name)
                         topic_name = r.get('chat_topics', {}).get('name', '알 수 없음')
                         sender = r.get('profiles', {}).get('full_name', '알 수 없음')
                         content = r.get('content', '')
@@ -1386,11 +1535,14 @@ async def get_chat_controls(page: ft.Page, navigate_to):
 
         asyncio.create_task(_search_task())
 
+    # Assign handler after definition
+    search_input.on_submit = do_search
+
     search_dlg = ft.AlertDialog(
         title=ft.Text("전체 대화 검색"),
         content=ft.Container(
             content=ft.Column([
-                ft.Row([search_input, ft.IconButton(ft.Icons.SEARCH, on_click=lambda e: do_search())]),
+                ft.Row([search_input, ft.IconButton(ft.Icons.SEARCH, on_click=do_search)]),
                 ft.Divider(),
                 search_results_col
             ], tight=True,  width=400),
@@ -1399,21 +1551,77 @@ async def get_chat_controls(page: ft.Page, navigate_to):
         actions=[ft.TextButton("닫기", on_click=lambda e: setattr(search_dlg, 'open', False) or page.update())]
     )
     
-    def open_search_dialog(e):
+    async def open_search_dialog(e):
         search_input.value = ""
         search_results_col.controls = [ft.Text("검색어를 입력하고 엔터를 누르세요.", color="grey", size=12)]
-        page.dialog = search_dlg
-        search_dlg.open = True
+        page.open(search_dlg)
         page.update()
+
+
+    # [HANDLERS] Chat navigation and mode control functions - Hoisted to fix UnboundLocalError
+    async def back_to_list(e=None):
+        """Navigate back to topic list from chat view"""
+        tid = state.get("current_topic_id")
+
+        async def _do_back():
+            if tid:
+                try:
+                    # Only update last_read on exit if user was actually at the bottom
+                    if state.get("is_near_bottom"):
+                        await asyncio.to_thread(chat_service.update_last_read, tid, current_user_id)
+                except Exception:
+                    pass  # Last read update failed
+
+            state["view_mode"] = "list"
+            state["current_topic_id"] = None
+            state["last_loaded_msg_id"] = None
+            update_layer_view()
+            # Refresh topics to clear unread counts immediately
+            await asyncio.sleep(0.1)  # Brief delay for DB propagation
+            load_topics(True)
+
+        asyncio.create_task(_do_back())
+
+    def update_layer_view():
+        """Update the main view layer based on current view mode"""
+        # [FIX] Update chat_main_layout instead of root_view to preserve Stack layers (like image viewer)
+        chat_main_layout.controls = [list_page] if state["view_mode"] == "list" else [chat_page]
+        try:
+            if chat_main_layout.page:
+                chat_main_layout.update()
+        except: pass
+
+    async def toggle_selection_mode(active):
+        """Toggle AI summary selection mode on/off"""
+        print(f"DEBUG_CHAT: Toggling Selection Mode to {active}")
+        state.set("selection_mode", active)
+        
+        # [NEW] If turning OFF selection mode, also cancel any active AI analysis
+        if not active:
+            state.set("ai_cancel_requested", True)
+            
+        print(f"DEBUG_CHAT: State after set: {state.get('selection_mode')}")
+        state.clear_selected()
+        
+        # Update UI visibility
+        selection_action_bar.visible = active
+        input_row_container.visible = not active
+        page.update()
+        
+        # [CRITICAL FIX] Reload messages on BOTH enter and exit to update checkboxes
+        # This prevents cascading re-renders when exiting
+        print(f"DEBUG_CHAT: Reloading messages for selection_mode={state.get('selection_mode')}")
+        await load_messages_async()
+
 
     list_page_content = ft.Container(
         expand=True, bgcolor="white",
         content=ft.Column([
             AppHeader(
                 title_text="메신저",
-                on_back_click=lambda _: navigate_to("home"),
+                on_back_click=lambda _: asyncio.create_task(navigate_to("home")),
                 action_button=ft.Row([
-                    ft.IconButton(ft.Icons.SEARCH, icon_color=AppColors.TEXT_SECONDARY, tooltip="전체 검색", on_click=open_search_dialog),
+                    ft.IconButton(ft.Icons.SEARCH, icon_color=AppColors.TEXT_SECONDARY, tooltip="전체 검색", on_click=lambda e: asyncio.create_task(open_search_dialog(e))),
                     ft.PopupMenuButton(
                         icon=ft.Icons.ADD,
                         icon_color=AppColors.PRIMARY,
@@ -1422,12 +1630,17 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                             ft.PopupMenuItem(
                                 content=ft.Text("새 스레드 생성"),
                                 icon=ft.Icons.ADD_COMMENT_OUTLINED,
-                                on_click=show_create_modal
+                                on_click=lambda e: asyncio.create_task(show_create_modal(e))
                             ),
                             ft.PopupMenuItem(
                                 content=ft.Text("카테고리 관리"),
                                 icon=ft.Icons.CATEGORY_OUTLINED,
-                                on_click=open_manage_categories_dialog
+                                on_click=lambda e: asyncio.create_task(open_manage_categories_dialog(e))
+                            ),
+                            ft.PopupMenuItem(
+                                content=ft.Text("멤버 관리"),
+                                icon=ft.Icons.PEOPLE_OUTLINE,
+                                on_click=lambda e: asyncio.create_task(open_topic_member_management_dialog(e))
                             ),
                         ]
                     ),
@@ -1435,7 +1648,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                         ref=edit_btn_ref,
                         content=ft.Text("편집"),
                         style=ft.ButtonStyle(color=AppColors.TEXT_SECONDARY, shape=ft.RoundedRectangleBorder(radius=30), side=ft.BorderSide(1, AppColors.BORDER_LIGHT), padding=ft.padding.symmetric(horizontal=12, vertical=0)),
-                        on_click=toggle_edit_mode
+                        on_click=lambda e: asyncio.create_task(toggle_edit_mode(e))
                     )
                 ], spacing=0)
             ),
@@ -1478,7 +1691,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                         ft.Container(height=20),
                         ft.Row([
                             ft.OutlinedButton(content=ft.Text("취소"), on_click=lambda e: asyncio.create_task(hide_create_modal(e)), expand=1),
-                            ft.Button(content=ft.Text("만들기"), on_click=lambda e: asyncio.create_task(create_from_modal(e)), bgcolor="#2E7D32", color="white", expand=1)
+                            ft.ElevatedButton(content=ft.Text("만들기"), on_click=lambda e: asyncio.create_task(create_from_modal(e)), bgcolor="#2E7D32", color="white", expand=1)
                         ], spacing=10)
                     ], tight=True, spacing=15)
                 )
@@ -1492,473 +1705,224 @@ async def get_chat_controls(page: ft.Page, navigate_to):
     ], expand=True)
 
     # [AI Calendar Feature]
-    def open_ai_calendar_dialog(e):
+    async def open_ai_calendar_dialog(e):
         from views.styles import AppColors
         from utils.logger import log_error, log_info
-        # [FIX] Local imports to resolve scope issues safely
         from services import ai_service, calendar_service
         from datetime import datetime, timedelta, time
         
-        if not state.get("current_topic_id"): return
+        # [GUARD] Double click prevention
+        if state.get("is_ai_processing") or not state.get("current_topic_id"):
+             return
+        state.set("is_ai_processing", True)
+        state.set("ai_cancel_requested", False)
         
-        # [NEW] Cancel Flag
-        is_cancelled = [False]
-        
-        def on_cancel(e):
-            is_cancelled[0] = True
-            log_info("AI Analysis Cancelled by User")
-            loading_dlg.open = False
+        loading_modal_container = None
+        editor_modal_container = None
+
+        try:
+            # 1. Loading UI - Container-wrapped Stack (EXACT pattern from working create topic modal)
+            loading_modal_container = ft.Container(
+                visible=False,
+                expand=True,
+                content=ft.Stack([
+                    # Semi-transparent background
+                    ft.Container(expand=True, bgcolor="rgba(0,0,0,0.5)"),
+                    # Loading content centered
+                    ft.Container(
+                        alignment=ft.Alignment(0, 0),
+                        content=ft.Container(
+                            width=300,
+                            bgcolor="white",
+                            border_radius=15,
+                            padding=30,
+                            content=ft.Column([
+                                ft.Row([ft.ProgressRing(), ft.Text("AI 분석 중...", size=16)], alignment=ft.MainAxisAlignment.CENTER, spacing=20),
+                                ft.Container(height=20),
+                                ft.OutlinedButton(
+                                    "취소",
+                                    on_click=lambda e: (
+                                        print("DEBUG_AI: Analysis Cancelled by user (modal)"),
+                                        state.set("ai_cancel_requested", True),
+                                        state.set("is_ai_processing", False),
+                                        setattr(loading_modal_container, 'visible', False),
+                                        page.update(),
+                                        asyncio.create_task(toggle_selection_mode(False))
+                                    ),
+                                    # [FIX] Removed expand=True to prevent vertical stretching in tight column
+                                    width=240 # Optional: fixed width instead
+                                )
+                            ], tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+                        )
+                    )
+                ])
+            )
+            
+            # Add to overlay ONCE, then toggle visibility
+            page.overlay.append(loading_modal_container)
+            loading_modal_container.visible = True
+            page.update()
+
+            # 2. Extract messages
+            selected_ids = state.get_selected_copy()
+            if state.get("selection_mode") and selected_ids:
+                full_msgs = await asyncio.to_thread(chat_service.get_messages, state.get("current_topic_id"), 100)
+                msgs = [m for m in full_msgs if str(m['id']) in selected_ids]
+            else:
+                msgs = await asyncio.to_thread(chat_service.get_messages, state.get("current_topic_id"), 50)
+
+            # 3. Analyze
+            result = await asyncio.to_thread(ai_service.analyze_chat_for_calendar, msgs)
+            
+            # [STRICT CANCEL CHECK] After AI operation - use state flag
+            if state.get("ai_cancel_requested"):
+                print("DEBUG_AI: Detected cancellation state, stopping flow.")
+                state.set("is_ai_processing", False)
+                # Modal already hidden by cancel button
+                return 
+
+            # 4. Prepare defaults
+            summary = result.get("summary", "")
+            description = result.get("description", "")
+            d_str = result.get("date")
+            t_str = result.get("time")
+
+            default_date = datetime.now()
+            if d_str:
+                try: default_date = datetime.strptime(d_str, "%Y-%m-%d")
+                except: pass
+            default_time = time(9, 0)
+            if t_str:
+                try:
+                    h, m = map(int, t_str.split(':'))
+                    default_time = time(h, m)
+                except: pass
+
+            # 5. Build Editor
+            loading_modal_container.visible = False
             page.update()
             
-        # 1. Show Loading with Cancel
-        loading_dlg = ft.AlertDialog(
-            content=ft.Row([ft.ProgressRing(), ft.Text("AI가 대화를 분석 중입니다...")], alignment="center", spacing=20), 
-            modal=True,
-            actions=[ft.TextButton("취소", on_click=on_cancel)]
-        )
-        page.dialog = loading_dlg
-        loading_dlg.open = True
-        page.update()
-        
-        # [NEW] Force Timeout Thread (Safeguard)
-        import asyncio
-        import time as tm
-        async def force_timeout_check():
-            await asyncio.sleep(45) # Async sleep
-            if not is_cancelled[0]: # If still running
-                is_cancelled[0] = True
+            tf_summary = ft.TextField(label="제목", value=summary, autofocus=True, filled=True, border_radius=8)
+            tf_description = ft.TextField(label="상세 요약", value=description, multiline=True, min_lines=2, max_lines=4, filled=True, border_radius=8)
+            tf_start_date = ft.TextField(label="시작 날짜", value=default_date.strftime("%Y-%m-%d"), read_only=True, expand=True, filled=True)
+            tf_end_date = ft.TextField(label="마감 날짜", value=default_date.strftime("%Y-%m-%d"), read_only=True, expand=True, filled=True)
+            tf_time = ft.TextField(label="시간", value=default_time.strftime("%H:%M"), read_only=True, expand=True, filled=True)
+
+            dp_start = ft.DatePicker(on_change=lambda e: (setattr(tf_start_date, "value", e.control.value.strftime("%Y-%m-%d")), page.update()) if e.control.value else None)
+            dp_end = ft.DatePicker(on_change=lambda e: (setattr(tf_end_date, "value", e.control.value.strftime("%Y-%m-%d")), page.update()) if e.control.value else None)
+            tp = ft.TimePicker(on_change=lambda e: (setattr(tf_time, "value", e.control.value.strftime("%H:%M")), page.update()) if e.control.value else None)
+            
+            # Cleanup overlay from previous AI instances (In-place modification)
+            to_remove = [c for c in page.overlay if isinstance(c, (ft.DatePicker, ft.TimePicker, ft.AlertDialog))]
+            for c in to_remove:
+                page.overlay.remove(c)
+            
+            page.overlay.extend([dp_start, dp_end, tp])
+
+            # Close loading modal
+            loading_modal_container.visible = False
+            page.update()
+
+            async def handle_register(e):
+                if not tf_summary.value:
+                    tf_summary.error_text = "제목을 입력하세요."; tf_summary.update(); return
+                
                 try:
-                    log_error("AI Analysis Timeout (Client-side 45s Limit)")
-                    loading_dlg.open = False
-                    page.snack_bar = ft.SnackBar(ft.Text("AI 분석 시간이 초과되었습니다. (서버 응답 지연)"), bgcolor="red", open=True)
+                    from datetime import datetime as dt_class
+                    d_start = dt_class.strptime(tf_start_date.value, "%Y-%m-%d")
+                    d_end = dt_class.strptime(tf_end_date.value, "%Y-%m-%d")
+                    t_val = dt_class.strptime(tf_time.value, "%H:%M").time()
+                    dt_start_full = dt_class.combine(d_start.date(), t_val)
+                    dt_end_full = dt_class.combine(d_end.date(), t_val) + timedelta(hours=1)
+
+                    payload = {
+                        "title": tf_summary.value,
+                        "start_date": dt_start_full.strftime("%Y-%m-%d %H:%M:%S"),
+                        "end_date": dt_end_full.strftime("%Y-%m-%d %H:%M:%S"),
+                        "is_all_day": False, "color": "#448AFF",
+                        "user_id": page.app_session.get("user_id"),
+                        "channel_id": page.app_session.get("channel_id"),
+                        "description": tf_description.value or "AI Generated"
+                    }
+                    
+                    # [FIX] Call module function directly
+                    await calendar_service.create_event(payload)
+                    page.open(ft.SnackBar(ft.Text("일정 등록 완료!"), bgcolor="green"))
+                    state.set("is_ai_processing", False)
+                    editor_modal_container.visible = False
+                    asyncio.create_task(toggle_selection_mode(False))
                     page.update()
-                except Exception:
-                    pass  # Timeout UI update failed
-        
-        asyncio.create_task(force_timeout_check())
+                except Exception as ex:
+                    state.set("is_ai_processing", False)
+                    log_error(f"Save Event Failed: {ex}")
+                    page.open(ft.SnackBar(ft.Text(f"등록 실패: {ex}"), bgcolor="red")); page.update()
 
-        async def run_analysis():
-            try:
-                log_info(f"AI START: TopicID={state.get('current_topic_id')}, SelectionMode={state.get('selection_mode')}")
+            def handle_cancel_editor(e):
+                print("DEBUG_AI: handle_cancel_editor FIRED!")
+                state.set("is_ai_processing", False)
+                editor_modal_container.visible = False
+                asyncio.create_task(toggle_selection_mode(False))
+                page.update()
 
-                # Get selected IDs safely (thread-safe copy)
-                selected_ids = state.get_selected_copy()
-                if state.get("selection_mode") and selected_ids:
-                    full_msgs = await asyncio.to_thread(chat_service.get_messages, state.get("current_topic_id"), 100)
-                    msgs = [m for m in full_msgs if str(m['id']) in selected_ids]
-
-                    if not msgs:
-                        log_info("AI Aborted: No messages selected.")
-                        page.snack_bar = ft.SnackBar(ft.Text("선택된 메시지가 범위 내에 없거나 로드되지 않았습니다."), bgcolor="orange"); page.snack_bar.open=True; page.update(); page.close(loading_dlg); return
-                else:
-                    msgs = await asyncio.to_thread(chat_service.get_messages, state.get("current_topic_id"), 50)
-                
-                log_info(f"AI Processing {len(msgs)} messages...")
-
-                # 3. Analyze
-                result = {}
-                try:
-                    result = await asyncio.to_thread(ai_service.analyze_chat_for_calendar, msgs)
-                except Exception as api_err:
-                     if is_cancelled[0]: return
-                     log_error(f"AI Service Critical Failure: {api_err}")
-                     print(f"AI API Error: {api_err}")
-                     # [UX Fix] Continue even if AI fails, so user can enter manually
-                     result = {
-                         "summary": "분석 실패 (직접 입력해주세요)",
-                         "date": datetime.now().strftime("%Y-%m-%d"),
-                         "time": "09:00"
-                     }
-                     page.snack_bar = ft.SnackBar(ft.Text(f"AI 연결 실패: {str(api_err)[:30]}..."), bgcolor="orange")
-                     page.snack_bar.open = True
-                     page.update()
-                
-                if is_cancelled[0]: return
-                
-                # 4. Prepare Dialog Default Values
-                summary = result.get("summary", "")
-                description = result.get("description", "")
-                d_str = result.get("date")
-                t_str = result.get("time")
-                
-                log_info(f"AI Result: Summary='{summary}', Date='{d_str}'")
-
-                default_date = datetime.now()
-                if d_str:
-                    try:
-                        default_date = datetime.strptime(d_str, "%Y-%m-%d")
-                    except ValueError:
-                        pass  # Invalid date format
-                    
-                default_time = time(9, 0)
-                if t_str:
-                    try:
-                        h, m = map(int, t_str.split(':'))
-                        default_time = time(h, m)
-                    except ValueError:
-                        pass  # Invalid time format
-                    
-                # 5. Show Editor Dialog
-                def show_editor():
-                    if is_cancelled[0]: return
-                    try:
-                        page.close(loading_dlg)
-                    except Exception:
-                        pass  # Dialog already closed
-                    
-                    tf_summary = ft.TextField(label="제목", value=summary, autofocus=True, filled=True, border_radius=8, text_size=16)
-                    tf_description = ft.TextField(label="상세 요약", value=description, multiline=True, min_lines=3, max_lines=5, filled=True, border_radius=8, text_size=14)
-                    
-                    default_end_date = default_date
-                    tf_start_date = ft.TextField(label="시작 날짜", value=default_date.strftime("%Y-%m-%d"), read_only=True, expand=True, filled=True, border_radius=8, text_size=14)
-                    tf_end_date = ft.TextField(label="마감 날짜", value=default_end_date.strftime("%Y-%m-%d"), read_only=True, expand=True, filled=True, border_radius=8, text_size=14)
-                    tf_time = ft.TextField(label="시간", value=default_time.strftime("%H:%M"), read_only=True, expand=True, filled=True, border_radius=8, text_size=14)
-                    
-                    def on_start_date_change(e):
-                        if e.control.value: tf_start_date.value = e.control.value.strftime("%Y-%m-%d"); page.update()
-                    dp_start = ft.DatePicker(on_change=on_start_date_change, value=default_date)
-
-                    def on_end_date_change(e):
-                        if e.control.value: tf_end_date.value = e.control.value.strftime("%Y-%m-%d"); page.update()
-                    dp_end = ft.DatePicker(on_change=on_end_date_change, value=default_end_date)
-                    
-                    def on_time_change(e):
-                        if e.control.value: tf_time.value = e.control.value.strftime("%H:%M"); page.update()
-                    tp = ft.TimePicker(on_change=on_time_change, value=default_time, time_picker_entry_mode=ft.TimePickerEntryMode.DIAL_ONLY)
-                    
-                    page.overlay.extend([dp_start, dp_end, tp])
-                    
-                    def start_save(e):
-                        if not tf_summary.value: tf_summary.error_text = "내용을 입력하세요."; tf_summary.update(); return
-                        
-                        async def do_save():
-                            try:
-                                d_start_val = datetime.strptime(tf_start_date.value, "%Y-%m-%d")
-                                d_end_val = datetime.strptime(tf_end_date.value, "%Y-%m-%d")
-                                t_val = datetime.strptime(tf_time.value, "%H:%M").time()
-                                
-                                dt_start = datetime.combine(d_start_val.date(), t_val)
-                                dt_end = datetime.combine(d_end_val.date(), t_val) + timedelta(hours=1)
-                                
-                                payload = {
-                                    "title": tf_summary.value,
-                                    "start_date": dt_start.strftime("%Y-%m-%d %H:%M:%S"),
-                                    "end_date": dt_end.strftime("%Y-%m-%d %H:%M:%S"),
-                                    "is_all_day": False,
-                                    "color": "#448AFF",
-                                    "created_by": page.app_session.get("user_id"),
-                                    "user_id": page.app_session.get("user_id"),
-                                    "channel_id": page.app_session.get("channel_id"), 
-                                    "description": tf_description.value or "AI Generated from Chat"
-                                }
-                                
-                                await calendar_service.create_event(payload)
-                                page.snack_bar = ft.SnackBar(ft.Text("일정이 등록되었습니다!"), bgcolor="green"); page.snack_bar.open=True
-                                page.close(dlg)
-                                toggle_selection_mode(False) # Turn off selection mode
-                                page.update()
-                            except Exception as ex:
-                                log_error(f"Event Save Failed: {ex}")
-                                page.snack_bar = ft.SnackBar(ft.Text(f"등록 실패: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
-                                
-                        asyncio.create_task(do_save())
-
-                    dlg = ft.AlertDialog(
-                        title=ft.Text("일정 등록", weight="bold", size=20),
+            # Custom Container-wrapped Stack modal for editor (EXACT pattern from working create topic modal)
+            editor_modal_container = ft.Container(
+                visible=False,
+                expand=True,
+                content=ft.Stack([
+                    # Semi-transparent background
+                    ft.Container(expand=True, bgcolor="rgba(0,0,0,0.5)"),
+                    # Editor content centered
+                    ft.Container(
+                        alignment=ft.Alignment(0, 0),
                         content=ft.Container(
                             width=400,
+                            bgcolor="white",
+                            border_radius=15,
+                            padding=30,
                             content=ft.Column([
-                                tf_summary,
-                                tf_description,
                                 ft.Row([
-                                    ft.IconButton(ft.Icons.CALENDAR_MONTH, on_click=lambda _: page.open(dp_start), icon_color="#5C6BC0", tooltip="시작 날짜"),
-                                    tf_start_date
-                                ], alignment=ft.MainAxisAlignment.CENTER),
+                                    ft.Text("일정 확인", size=20, weight="bold", color="#212121"),
+                                    ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#757575", on_click=handle_cancel_editor)
+                                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                                ft.Divider(),
+                                tf_summary, tf_description,
+                                ft.Row([ft.IconButton(ft.Icons.CALENDAR_MONTH, on_click=lambda _: page.open(dp_start)), tf_start_date]),
+                                ft.Row([ft.IconButton(ft.Icons.EVENT_REPEAT, on_click=lambda _: page.open(dp_end)), tf_end_date]),
+                                ft.Row([ft.IconButton(ft.Icons.ACCESS_TIME, on_click=lambda _: page.open(tp)), tf_time]),
+                                ft.Container(height=10),
                                 ft.Row([
-                                    ft.IconButton(ft.Icons.EVENT_REPEAT, on_click=lambda _: page.open(dp_end), icon_color="#5C6BC0", tooltip="마감 날짜"),
-                                    tf_end_date
-                                ], alignment=ft.MainAxisAlignment.CENTER),
-                                ft.Row([
-                                    ft.IconButton(ft.Icons.ACCESS_TIME, on_click=lambda _: page.open(tp), icon_color="#5C6BC0"),
-                                    tf_time
-                                ], alignment=ft.MainAxisAlignment.CENTER)
-                            ], tight=True, spacing=15)
-                        ),
-                        actions=[
-                            ft.TextButton("취소", on_click=lambda _: page.close(dlg), style=ft.ButtonStyle(color="grey")),
-                            ft.ElevatedButton("등록", on_click=start_save, bgcolor=AppColors.PRIMARY, color="white", style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)))
-                        ],
-                        actions_alignment=ft.MainAxisAlignment.END,
-                        shape=ft.RoundedRectangleBorder(radius=12)
-                    )
-                    page.open(dlg)
-                    page.update()
-                
-                show_editor()
-                
-            except Exception as ex:
-                try:
-                    page.close(loading_dlg)
-                except Exception:
-                    pass  # Dialog already closed
-                log_error(f"AI Dialog System Error: {ex}")
-                print(f"AI Error: {ex}")
-                # Fallback to Editor even on Outer Exception? 
-                # If outer exception happens, 'msg' might be undefined or 'result' undefined.
-                # Just show error snackbar for critical crashes.
-                page.snack_bar = ft.SnackBar(ft.Text(f"시스템 오류: {str(ex)}"), bgcolor="red"); page.snack_bar.open=True
-                page.update()
-                
-        # [FIX] Use asyncio.create_task for Flet 0.80 compatibility
-        asyncio.create_task(run_analysis())
-
-    def open_topic_member_management_dialog(e):
-        try:
-            print(f"DEBUG: Opening Member Dialog. TopicID={state.get('current_topic_id')}")
-            if not state.get("current_topic_id"): 
-                page.snack_bar = ft.SnackBar(ft.Text("오류: 선택된 토픽이 없습니다."), bgcolor="red")
-                page.snack_bar.open = True
-                page.update()
-                return
-        
-            # Load Data
-            topic_id = state.get("current_topic_id")
-            channel_id = page.app_session.get("channel_id")
-            
-            # [Iteration 25] Fetch Topic Creator
-            try:
-                topic_info = service_supabase.table("chat_topics").select("created_by").eq("id", topic_id).single().execute()
-                creator_id = topic_info.data.get("created_by") if topic_info.data else None
-            except:
-                creator_id = None
-
-            # UI Holders
-            members_col = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
-            invite_col = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
-            
-            # Views (initialized late)
-            members_view = ft.Column(visible=True)
-            invite_view = ft.Column(visible=False)
-
-            def load_members():
-                async def _load_members_async():
-                    try:
-                        members = await asyncio.to_thread(chat_service.get_topic_members, topic_id)
-                        items = []
-                        current_uid = page.app_session.get("user_id")
-                        my_ch_role = page.app_session.get("user_role")
-
-                        # [DIAGNOSTIC] Log member list to terminal
-                        print(f"DEBUG: Topic Members for {topic_id}: {len(members)}", flush=True)
-                        for m in members:
-                             print(f"  - {m.get('full_name')} ({m.get('user_id')}) role={m.get('permission_level')}", flush=True)
-
-                        for m in members:
-                            is_me = m['user_id'] == current_uid
-
-                            # [Iteration 24 Fix] User WANTS to see themselves in Member List.
-                            # if is_me: continue
-
-                            can_kick = (my_ch_role in ['owner', 'manager']) and not is_me
-
-                            items.append(
-                                ft.Container(
-                                    padding=10,
-                                    bgcolor="#F5F5F5",
-                                    border_radius=8,
-                                    content=ft.Row([
-                                        ft.Row([
-                                            ft.Icon(ft.Icons.PERSON, size=20, color="grey"),
-                                            ft.Column([
-                                                ft.Row([
-                                                    ft.Text(f"{m['full_name']}", weight="bold"),
-                                                    ft.Container(
-                                                        content=ft.Text("👑 방장", size=10, color="orange", weight="bold"),
-                                                        padding=ft.padding.symmetric(horizontal=4, vertical=2),
-                                                        # Use Hex for opacity to avoid 'ft.Colors' attribute error. #1A = ~10% alpha, FF9800 = Orange
-                                                        bgcolor="#1AFF9800",
-                                                        border_radius=4,
-                                                        visible=(m['user_id'] == creator_id)
-                                                    )
-                                                ], spacing=5),
-                                                ft.Text(f"{m['email']} • {m['permission_level']}", size=12, color="grey")
-                                            ], spacing=2)
-                                        ]),
-                                        ft.IconButton(ft.Icons.REMOVE_CIRCLE_OUTLINE, icon_color="red",
-                                                    tooltip="내보내기",
-                                                    on_click=lambda e, u=m['user_id']: asyncio.create_task(kick_member(u)),
-                                                    visible=can_kick)
-                                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-                                )
-                            )
-                    
-                        if not items:
-                            items.append(
-                                ft.Container(
-                                    content=ft.Column([
-                                        ft.Icon(ft.Icons.PEOPLE_OUTLINE, size=40, color="grey"),
-                                        ft.Text("참여 중인 멤버가 아무도 없습니다.", color="grey", size=14)
-                                    ], horizontal_alignment="center", spacing=10),
-                                    padding=20,
-                                    alignment=ft.Alignment(0, 0)
-                                )
-                            )
-
-                        members_col.controls = items
-                        page.update()
-
-                    except Exception as ex:
-                        print(f"Load Members Error: {ex}")
-                        members_col.controls = [
-                            ft.Container(
-                                content=ft.Column([
-                                    ft.Icon(ft.Icons.ERROR_OUTLINE, color="red", size=30),
-                                    ft.Text(f"멤버 정보를 불러오지 못했습니다:\n{str(ex)[:100]}", color="red", size=12, text_align="center")
-                                ], horizontal_alignment="center"),
-                                padding=20, alignment=ft.Alignment(0, 0)
-                            )
-                        ]
-                        page.update()
-
-                asyncio.create_task(_load_members_async())
-
-            async def kick_member(target_id):
-                try:
-                    await asyncio.to_thread(chat_service.remove_topic_member, topic_id, target_id)
-                    load_members()
-                except Exception as ex:
-                    page.snack_bar = ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
-
-            async def load_candidates():
-                try:
-                    current_uid = str(page.app_session.get("user_id")).strip()
-
-                    # [Iteration 25 Fix] Pass current_uid to service to force-filter it out at source
-                    candidates = await asyncio.to_thread(chat_service.get_channel_members_not_in_topic, channel_id, topic_id, current_uid)
-                    items = []
-
-                    for c in candidates:
-                        # Double-check (though service handles it now)
-                        if str(c['user_id']).strip() == current_uid: continue
-
-                        # [Iteration 26] Disambiguation Logic
-                        candidate_name = c['full_name']
-                        disambig_info = ""
-                        if c.get("username"):
-                            disambig_info = f" (@{c['username']})"
-                        else:
-                            # Fallback to ID suffix if no unique username
-                            try:
-                                short_id = str(c['user_id']).strip()[-4:] # Last 4 chars
-                                disambig_info = f" (#{short_id})"
-                            except:
-                                disambig_info = ""
-
-                        items.append(
-                            ft.Container(
-                                padding=10, border=ft.border.all(1, "#EEEEEE"), border_radius=8,
-                                content=ft.Row([
-                                    ft.Row([
-                                        ft.Icon(ft.Icons.PERSON_OUTLINE, size=20, color="grey"),
-                                        ft.Column([
-                                            ft.Row([
-                                                ft.Text(f"{candidate_name}", weight="bold"),
-                                                ft.Text(f"{disambig_info}", size=12, color="grey")
-                                            ], spacing=5),
-                                            # ft.Text(f"ID: {can_id}", size=10, color="grey") # Optional debug
-                                        ], spacing=2)
-                                    ]),
-                                    ft.IconButton(ft.Icons.ADD_CIRCLE, icon_color="green",
-                                                tooltip="초대",
-                                                on_click=lambda e, u=c['user_id']: asyncio.create_task(invite_user(u)))
-                                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-                            )
+                                    ft.OutlinedButton("취소", on_click=handle_cancel_editor, expand=1),
+                                    ft.ElevatedButton("등록", on_click=handle_register, bgcolor=AppColors.PRIMARY, color="white", expand=1)
+                                ], spacing=10)
+                            ], tight=True, spacing=10)
                         )
-                    if not items:
-                        items.append(ft.Container(content=ft.Text("초대할 수 있는 멤버가 없습니다.\n(모든 직원이 이미 참여 중입니다)", color="grey", text_align="center"), alignment=ft.Alignment(0, 0), padding=20))
-
-                    invite_col.controls = items
-                    # [DEBUG] Feedback
-                    print(f"Candidates Loaded: {len(items)}")
-                    page.update()
-
-                except Exception as ex:
-                    print(f"Load Candidates Error: {ex}")
-
-            async def invite_user(target_id):
-                try:
-                    await asyncio.to_thread(chat_service.add_topic_member, topic_id, target_id)
-                    # Toggle back
-                    invite_view.visible = False
-                    members_view.visible = True
-                    load_members()
-                    page.update()
-                except Exception as ex:
-                    page.snack_bar = ft.SnackBar(ft.Text(f"초대 실패: {ex}"), bgcolor="red"); page.snack_bar.open=True; page.update()
-
-            def show_invite_view(e):
-                members_view.visible = False
-                invite_view.visible = True
-                asyncio.create_task(load_candidates())
-                page.update()
-            
-            def show_members_view(e):
-                invite_view.visible = False
-                members_view.visible = True
-                page.update()
-
-            members_view.controls = [
-                ft.Text("현재 멤버", size=16, weight="bold"),
-                # Removed invalid max_height. Use default wrapping behavior.
-                ft.Container(content=members_col),
-                ft.ElevatedButton("멤버 초대하기", on_click=show_invite_view, width=200, bgcolor=AppColors.PRIMARY, color="white")
-            ]
-            
-            invite_view.controls = [
-                ft.Row([
-                    ft.IconButton(ft.Icons.ARROW_BACK, on_click=show_members_view),
-                    ft.Text("멤버 초대", size=16, weight="bold")
-                ]),
-                ft.Container(content=invite_col, height=300)
-            ]
-
-            dlg = ft.AlertDialog(
-                title=ft.Text("채팅방 멤버 관리"),
-                content=ft.Container(
-                    width=400,
-                    height=500, # Fixed height for stability across devices
-                    content=ft.Column([members_view, invite_view], tight=True, scroll=ft.ScrollMode.AUTO)
-                ),
-                actions=[ft.TextButton("닫기", on_click=lambda e: setattr(dlg, 'open', False) or page.update())]
+                    )
+                ])
             )
-            page.dialog = dlg
-            dlg.open = True
+            
+            # Add to overlay ONCE, then toggle visibility
+            page.overlay.append(editor_modal_container)
+            editor_modal_container.visible = True
             page.update()
 
-            # Call load_members safely
-            try:
-                load_members()
-            except Exception:
-                pass  # Member list load failed
+        except Exception as outer_ex:
+            state.set("is_ai_processing", False)
+            if loading_modal_container and loading_modal_container in page.overlay:
+                loading_modal_container.visible = False
+            log_error(f"AI Analysis Error: {outer_ex}")
+            page.open(ft.SnackBar(ft.Text(f"AI 분석 오류: {outer_ex}"), bgcolor="red")); page.update()
 
-        except Exception as e:
-            print(f"CRITICAL ERROR in Member Dialog: {e}")
-            import traceback
-            traceback.print_exc()
-            page.snack_bar = ft.SnackBar(ft.Text(f"대화상자 열기 실패: {e}"), bgcolor="red")
-            page.snack_bar.open = True
-            page.update()
 
 
     chat_page_header = AppHeader(
         title_text=ft.Text("대화", ref=chat_title_ref, style=AppTextStyles.HEADER_TITLE, color=AppColors.TEXT_PRIMARY),
-        on_back_click=lambda _: back_to_list(),
+        on_back_click=back_to_list,
         action_button=ft.Row([
-            ft.IconButton(ft.Icons.SEARCH, icon_color=AppColors.TEXT_SECONDARY, tooltip="검색", on_click=open_search_dialog),
+            ft.IconButton(ft.Icons.SEARCH, icon_color=AppColors.TEXT_SECONDARY, tooltip="검색", on_click=lambda e: asyncio.create_task(open_search_dialog(e))),
             # [NEW] AI Summary Button (Multi-select)
-            ft.IconButton(ft.Icons.AUTO_AWESOME_OUTLINED, icon_color="#5C6BC0", tooltip="AI 요약", on_click=lambda _: toggle_selection_mode(True)),
+            ft.IconButton(ft.Icons.AUTO_AWESOME_OUTLINED, icon_color="#5C6BC0", tooltip="AI 요약", on_click=lambda _: asyncio.create_task(toggle_selection_mode(True))),
             # [NEW] Member Management
-            ft.IconButton(ft.Icons.PEOPLE_OUTLINE, icon_color=AppColors.TEXT_SECONDARY, tooltip="멤버 관리", on_click=open_topic_member_management_dialog),
+            ft.IconButton(ft.Icons.PEOPLE_OUTLINE, icon_color=AppColors.TEXT_SECONDARY, tooltip="멤버 관리", on_click=lambda e: asyncio.create_task(open_topic_member_management_dialog(e))),
              ft.PopupMenuButton(
                 icon=ft.Icons.MORE_VERT,
                 icon_color=AppColors.TEXT_SECONDARY,
@@ -1966,7 +1930,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                     ft.PopupMenuItem(
                         content=ft.Text("새로 고침"),
                         icon=ft.Icons.REFRESH,
-                        on_click=load_messages
+                        on_click=lambda e: asyncio.create_task(load_messages(e))
                     )
                 ]
             )
@@ -1976,7 +1940,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
     # [Active Selection Bar]
     selection_action_bar = ft.Container(
         content=ft.Row([
-            ft.TextButton("취소", on_click=lambda _: toggle_selection_mode(False), icon=ft.Icons.CLOSE, icon_color="white", style=ft.ButtonStyle(color="white")),
+            ft.TextButton("취소", on_click=lambda _: asyncio.create_task(toggle_selection_mode(False)), icon=ft.Icons.CLOSE, icon_color="white", style=ft.ButtonStyle(color="white")),
             ft.Container(expand=True), # Spacer
             ft.ElevatedButton("AI 요약 실행", icon=ft.Icons.AUTO_AWESOME, on_click=open_ai_calendar_dialog, bgcolor="white", color="#1976D2")
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
@@ -1985,28 +1949,16 @@ async def get_chat_controls(page: ft.Page, navigate_to):
         visible=False
     )
 
-    def toggle_selection_mode(active):
-        print(f"DEBUG_CHAT: Toggling Selection Mode to {active}")
-        state.set("selection_mode", active)
-        state.clear_selected()
-        selection_action_bar.visible = active
-        input_row_container.visible = not active
-        page.update()
-        # [FIX] Delayed load to ensure state has time to settle (optional but safer)
-        load_messages() 
 
     def try_pick_files(e):
         # FilePicker disabled in Flet 0.80 due to compatibility issues
         page.open(ft.SnackBar(ft.Text("파일 업로드 기능은 현재 버전에서 지원되지 않습니다."), bgcolor="orange"))
         page.update()
 
-    async def on_send_click(e):
-        await send_message()
-
     chat_input_row = ft.Row([
         ft.IconButton(ft.Icons.ADD_CIRCLE_OUTLINE_ROUNDED, icon_color="#757575", on_click=try_pick_files),
         msg_input,
-        ft.IconButton(ft.Icons.SEND_ROUNDED, icon_color="#2E7D32", icon_size=32, on_click=lambda e: asyncio.create_task(on_send_click(e)))
+        ft.IconButton(ft.Icons.SEND_ROUNDED, icon_color="#2E7D32", icon_size=32, on_click=lambda _: asyncio.create_task(send_message())),
     ], spacing=10)
 
     input_row_container = ft.Container(
@@ -2037,32 +1989,6 @@ async def get_chat_controls(page: ft.Page, navigate_to):
             )
         ])
     )
-    def back_to_list():
-        # [FIX] Final read update on exit to prevent "unread" badge if message arrived just before exit
-        tid = state.get("current_topic_id")
-
-        async def _do_back():
-            if tid:
-                try:
-                    # [Iteration 20] Only update last_read on exit if user was actually at the bottom
-                    if state.get("is_near_bottom"):
-                        await asyncio.to_thread(chat_service.update_last_read, tid, current_user_id)
-                except Exception:
-                    pass  # Last read update failed
-
-            state["view_mode"] = "list"
-            state["current_topic_id"] = None
-            state["last_loaded_msg_id"] = None
-            update_layer_view()
-            # [FIX] Refresh topics to clear unread counts immediately
-            await asyncio.sleep(0.1)  # Brief delay for DB propagation
-            load_topics(True)
-
-        asyncio.create_task(_do_back())
-
-    def update_layer_view():
-        root_view.controls = [list_page] if state["view_mode"] == "list" else [chat_page]
-        page.update()
 
     # Removed local import to fix scope UnboundLocalError
 
@@ -2084,7 +2010,8 @@ async def get_chat_controls(page: ft.Page, navigate_to):
             # Wait a few seconds for UI to settle before even considering auto-cleanup
             await asyncio.sleep(5)
             count = 0
-            while state["is_active"]:
+            # [FIX] termination condition: is_active AND exact route match
+            while state["is_active"] and page.route == "chat":
                 # [FIX] Safer page check - only stop if page is explicitly gone AND it was previously there
                 if hasattr(page, "is_running") and not page.is_running:
                     state["is_active"] = False
@@ -2121,7 +2048,8 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                 except Exception as poll_ex:
                     file_log_info(f"POLLING ERROR: {repr(poll_ex)}")
                 
-                await asyncio.sleep(3.3)
+                # Increased interval to 15s to reduce lag, as we have Realtime connection
+                await asyncio.sleep(15.0)
         
         # 2. Start Realtime Connection
         async def connection_loop():
@@ -2139,9 +2067,8 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                     channel = rt.channel("chat-sync")
                     
                     async def on_new_msg(payload):
-                        # file_log_info("REALTIME: Topic update detected!")
-                        # asyncio.create_task(load_topics_thread, update_ui=True)
-                        pass
+                        file_log_info("REALTIME: New Message Detected!")
+                        load_messages()
 
                     channel.on_postgres_changes(
                         event="INSERT",
@@ -2154,7 +2081,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                     file_log_info("REALTIME: Subscribed to chat_messages")
                     
                     # Keep alive while active
-                    while state["is_active"]:
+                    while state["is_active"] and page.route == "chat":
                         await asyncio.sleep(10)
                         
                 except Exception as rt_ex:

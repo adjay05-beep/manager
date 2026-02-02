@@ -17,6 +17,7 @@ async def get_handover_controls(page: ft.Page, navigate_to):
     current_tab = "인수 인계"
     grouped_data = {}
     POLL_INTERVAL = 10  # Seconds
+    render_state = {"last_hash": None}
 
     # Voice Recording State
     voice_state = {"is_recording": False, "is_listening": False}
@@ -217,8 +218,7 @@ async def get_handover_controls(page: ft.Page, navigate_to):
                     }
                     msg = error_messages.get(error_code, f"음성 인식 오류: {error_code}")
 
-                    page.snack_bar = ft.SnackBar(ft.Text(msg), bgcolor="red")
-                    page.snack_bar.open = True
+                    page.open(ft.SnackBar(ft.Text(msg), bgcolor="red"))
                     break
 
                 # 완료 처리
@@ -233,33 +233,30 @@ async def get_handover_controls(page: ft.Page, navigate_to):
                         else:
                             input_tf.value = text
                         input_tf.update()
-                        page.snack_bar = ft.SnackBar(
+                        page.open(ft.SnackBar(
                             ft.Text("✅ 음성이 변환되었습니다."),
                             bgcolor="green"
-                        )
+                        ))
                     else:
-                        page.snack_bar = ft.SnackBar(
+                        page.open(ft.SnackBar(
                             ft.Text("음성이 인식되지 않았습니다. 다시 시도해주세요."),
                             bgcolor="orange"
-                        )
-                    page.snack_bar.open = True
+                        ))
                     break
             else:
                 # 폴링 완료 후에도 결과가 없으면
                 log_error("[Voice] Polling timeout - no result received")
-                page.snack_bar = ft.SnackBar(
+                page.open(ft.SnackBar(
                     ft.Text("음성 인식 시간이 초과되었습니다."),
                     bgcolor="orange"
-                )
-                page.snack_bar.open = True
+                ))
 
         except Exception as e:
             log_error(f"[Voice] start_web_speech exception: {e}")
-            page.snack_bar = ft.SnackBar(
+            page.open(ft.SnackBar(
                 ft.Text(f"음성 인식 실패: {str(e)[:50]}"),
                 bgcolor="red"
-            )
-            page.snack_bar.open = True
+            ))
         finally:
             voice_state["is_listening"] = False
             await update_mic_ui(False)
@@ -276,11 +273,10 @@ async def get_handover_controls(page: ft.Page, navigate_to):
             return
         if not audio_recorder:
             log_error("[Voice] AudioRecorder not available")
-            page.snack_bar = ft.SnackBar(
+            page.open(ft.SnackBar(
                 ft.Text("오디오 녹음기를 사용할 수 없습니다."),
                 bgcolor="red"
-            )
-            page.snack_bar.open = True
+            ))
             page.update()
             return
 
@@ -297,8 +293,7 @@ async def get_handover_controls(page: ft.Page, navigate_to):
             log_error(f"[Voice] Recording start failed: {e}")
             voice_state["is_recording"] = False
             await update_mic_ui(False)
-            page.snack_bar = ft.SnackBar(ft.Text(f"녹음 시작 실패: {e}"), bgcolor="red")
-            page.snack_bar.open = True
+            page.open(ft.SnackBar(ft.Text(f"녹음 시작 실패: {e}"), bgcolor="red"))
             page.update()
 
     async def stop_desktop_recording():
@@ -320,11 +315,10 @@ async def get_handover_controls(page: ft.Page, navigate_to):
                 if res.startswith("blob:"):
                     log_info("[Voice] Blob URL detected, switching to Web Speech API")
                     await update_mic_ui(False)
-                    page.snack_bar = ft.SnackBar(
+                    page.open(ft.SnackBar(
                         ft.Text("브라우저에서는 Web Speech API를 사용합니다."),
                         bgcolor="orange"
-                    )
-                    page.snack_bar.open = True
+                    ))
                     page.update()
                     # Web Speech API로 재시도
                     await start_web_speech()
@@ -339,23 +333,21 @@ async def get_handover_controls(page: ft.Page, navigate_to):
                     else:
                         input_tf.value = text
                     input_tf.update()
-                    page.snack_bar = ft.SnackBar(
+                    page.open(ft.SnackBar(
                         ft.Text("✅ 음성이 변환되었습니다."),
                         bgcolor="green"
-                    )
+                    ))
                 else:
-                    page.snack_bar = ft.SnackBar(
+                    page.open(ft.SnackBar(
                         ft.Text("음성 인식 결과가 없습니다."),
                         bgcolor="orange"
-                    )
-                page.snack_bar.open = True
+                    ))
             else:
                 log_error("[Voice] No recording result")
-                page.snack_bar = ft.SnackBar(
+                page.open(ft.SnackBar(
                     ft.Text("녹음 결과가 없습니다."),
                     bgcolor="orange"
-                )
-                page.snack_bar.open = True
+                ))
 
             await update_mic_ui(False)
             page.update()
@@ -364,8 +356,7 @@ async def get_handover_controls(page: ft.Page, navigate_to):
             log_error(f"[Voice] Transcription failed: {e}")
             voice_state["is_recording"] = False
             await update_mic_ui(False)
-            page.snack_bar = ft.SnackBar(ft.Text(f"음성 변환 실패: {e}"), bgcolor="red")
-            page.snack_bar.open = True
+            page.open(ft.SnackBar(ft.Text(f"음성 변환 실패: {e}"), bgcolor="red"))
             page.update()
 
     # ============================================
@@ -474,11 +465,10 @@ async def get_handover_controls(page: ft.Page, navigate_to):
                 await start_web_speech()
             except Exception as e2:
                 log_error(f"[Voice] Web Speech fallback also failed: {e2}")
-                page.snack_bar = ft.SnackBar(
+                page.open(ft.SnackBar(
                     ft.Text("음성 인식을 시작할 수 없습니다."),
                     bgcolor="red"
-                )
-                page.snack_bar.open = True
+                ))
                 page.update()
 
     mic_btn.on_click = lambda e: asyncio.create_task(on_mic_click(e))
@@ -605,6 +595,32 @@ async def get_handover_controls(page: ft.Page, navigate_to):
                     temp_grouped[d_key][cat].append({"id": item.get("id"), "content": item.get("content"), "time_str": t_str, "user_name": user_name})
             except (ValueError, KeyError, AttributeError):
                 pass  # Invalid date or missing data
+        import hashlib
+        # Serialize for hashing
+        try:
+            # We only care about data that affects the UI: CreatedAt, Content, Category, UserID
+            # Create a lightweight list of tuples for hashing
+            hash_data = []
+            for item in raw:
+                hash_data.append(f"{item.get('id')}:{item.get('updated_at') or item.get('created_at')}")
+            
+            current_hash = hashlib.md5("".join(hash_data).encode()).hexdigest()
+        except Exception:
+            current_hash = str(datetime.now()) # Fallback
+
+        # Check against last known hash (using a closure or simple attr logic if possible, 
+        # but here we use a mutable container from outer scope or simple attribute on function if it were a class)
+        # Since this is a nested function, we can use a nonlocal or a dict in the outer scope.
+        # Let's assume 'render_state' dict exists in outer scope for this purpose.
+        
+        nonlocal render_state
+        if render_state.get("last_hash") == current_hash:
+            # log_debug("[Handover] Skipping render (No Change)")
+            return
+
+        render_state["last_hash"] = current_hash
+        log_debug(f"[Handover] Data changed (Hash: {current_hash[:8]}). Re-rendering.")
+
         nonlocal grouped_data
         grouped_data = dict(temp_grouped)
         await render_feed()
@@ -669,7 +685,7 @@ async def get_handover_controls(page: ft.Page, navigate_to):
     )
     header = AppHeader(
         title_text="업무 일지",
-        on_back_click=lambda e: asyncio.create_task(page.go_back(e)) if hasattr(page, "go_back") else asyncio.create_task(navigate_to("home"))
+        on_back_click=lambda e: asyncio.create_task(navigate_to("home"))
     )
     
     # Custom Header Container was combining title and tabs. 

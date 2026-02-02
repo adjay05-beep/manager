@@ -9,9 +9,9 @@ async def main(page: ft.Page):
     # [Flet 0.80+] Custom session storage since page.session API changed
     page.app_session = {}
     
-    # [THEME PERSISTENCE] Load theme from client_storage
+    # [THEME PERSISTENCE] Load theme from shared_preferences (Flet 0.80+)
     try:
-        theme_mode_str = await page.client_storage.get_async("theme_mode")
+        theme_mode_str = await page.shared_preferences.get("theme_mode")  # Flet 0.80+ uses get()
     except Exception as e:
         theme_mode_str = None
     
@@ -43,6 +43,109 @@ if __name__ == "__main__":
     # Ensure upload directory exists for Proxy Uploads
     os.makedirs("uploads", exist_ok=True)
 
+    # [CRITICAL PATCH] Fix KeyError: 'bytes' in Flet/Starlette compatibility
+    # Starlette's receive_bytes strict implementation crashes if 'bytes' key is missing.
+    try:
+        import starlette.websockets
+        from typing import cast
+        
+        async def patched_receive_bytes(self) -> bytes:
+            while True:
+                message = await self.receive()
+                self._raise_on_disconnect(message)
+                if "bytes" in message:
+                    return cast(bytes, message["bytes"])
+                # If non-bytes (e.g. text 'ping'), log and continue waiting
+                # This prevents the KeyError: 'bytes' crash
+                print(f"DEBUG_SOCK: Ignored non-bytes message. Type: {message.get('type')}, Keys: {list(message.keys())}")
+                # Loop continues to receive next message
+            
+        starlette.websockets.WebSocket.receive_bytes = patched_receive_bytes
+        print("SYSTEM: Applied Monkey-Patch for WebSocket.receive_bytes")
+    except ImportError:
+        print("WARNING: Could not apply WebSocket patch (Starlette not found)")
+
+    # [POLYFILL] Add Page.open support for Flet 0.80.5
+    if not hasattr(ft.Page, "open"):
+        print("SYSTEM: Applying Polyfill for Page.open (Overlay-only)")
+        def page_open_polyfill(self, control):
+            print(f"[POLYFILL] page.open called with: {type(control).__name__}")
+            
+            # For AlertDialog and similar controls with 'open' attribute
+            if hasattr(control, 'open'):
+                print(f"[POLYFILL] Using OVERLAY ONLY approach for dialog")
+                control.open = True
+                control.visible = True # Explicitly visible
+                
+                # IMPORTANT: DO NOT set self.dialog in 0.80.5 Web! 
+                if control not in self.overlay:
+                    self.overlay.append(control)
+                    print(f"[POLYFILL] Added to page.overlay")
+                
+                self.update()
+                print(f"[POLYFILL] Dialog should now be visible via overlay")
+            else:
+                # Non-dialog controls - add to overlay
+                print(f"[POLYFILL] Adding non-dialog to overlay")
+                if control not in self.overlay:
+                    self.overlay.append(control)
+                self.update()
+        ft.Page.open = page_open_polyfill
+    else:
+        print("SYSTEM: Page.open already exists, skipping polyfill")
+    
+    # [POLYFILL] Add Page.close support
+    _original_page_close = getattr(ft.Page, "close", None)
+
+    def page_close_polyfill(self, control):
+        if not control: return
+        print(f"[POLYFILL] page.close called with: {type(control).__name__}")
+
+        # Set open=False for dialog controls
+        if hasattr(control, 'open'):
+            control.open = False
+            print(f"[POLYFILL] Set open=False")
+
+        if hasattr(control, 'visible'):
+            control.visible = False
+            print(f"[POLYFILL] Set visible=False")
+
+        # [FIX] Clear content to force visual removal
+        if hasattr(control, 'content'):
+            control.content = None
+            print(f"[POLYFILL] Cleared content")
+
+        if hasattr(control, 'actions'):
+            control.actions = []
+            print(f"[POLYFILL] Cleared actions")
+
+        # [FIX] Try setting page.dialog = None
+        try:
+            self.dialog = None
+            print(f"[POLYFILL] Set page.dialog = None")
+        except Exception as e:
+            print(f"[POLYFILL] Could not set page.dialog: {e}")
+
+        # Remove from overlay
+        if control in self.overlay:
+            while control in self.overlay:
+                self.overlay.remove(control)
+            print(f"[POLYFILL] Removed from overlay")
+
+        # [FIX] Call original close if exists
+        if _original_page_close:
+            try:
+                _original_page_close(self, control)
+                print(f"[POLYFILL] Called original page.close")
+            except Exception as e:
+                print(f"[POLYFILL] Original close error: {e}")
+
+        # Force UI update
+        self.update()
+        print(f"[POLYFILL] Page updated after close")
+
+    ft.Page.close = page_close_polyfill
+
     # 클라우드 환경(Render 등)에서 제공하는 PORT 변수를 우선 사용합니다.
     port = int(os.getenv("PORT", 8555))
     host = "0.0.0.0"
@@ -57,8 +160,8 @@ if __name__ == "__main__":
 
     # flet 0.80.x 이상
     try:
-        ft.app(
-            target=main,
+        ft.run(
+            main,
             port=port,
             host=host,
             assets_dir="assets",

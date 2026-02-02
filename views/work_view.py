@@ -948,7 +948,8 @@ async def get_work_controls(page: ft.Page, navigate_to):
                     )
                     
                     save_btn = ft.ElevatedButton(
-                        text="입력", style=AppButtons.PRIMARY(),
+                        "입력",  # Flet 0.80+ uses first positional argument, not text=
+                        style=AppButtons.PRIMARY(),
                         width=60, height=36, 
                         on_click=lambda _, n=name, inp=wage_input, evs=emp['events']: asyncio.create_task(on_wage_submit(None, n, inp.value, evs))
                     )

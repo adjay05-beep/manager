@@ -1,0 +1,18 @@
+{
+  "status": "commited",
+  "type": "frontend",
+  "scope": "codebase",
+  "localEndpoint": "http://localhost:8555",
+  "loginUser": "adjay@naver.com",
+  "loginPassword": "wogns0519",
+  "executionArgs": {
+    "projectName": "Project A",
+    "projectPath": "d:\\Project A",
+    "testIds": [],
+    "additionalInstruction": "개발 환경 자동 로그인이 구현되어 있습니다. localhost:8555에 접속하면 자동으로 adjay@naver.com 계정으로 로그인됩니다. 모든 기능을 철저히 테스트해주세요.",
+    "envs": {
+      "API_KEY": "sk-user-B8yS6xG9729R_Muo1YHb8lkGTMKtVUe1uTXnrp2aOeHMY8QLwt4Ukq8ZPDPTkIfYcb0O_gixMFpdTAketjHRsE7ltkCOgEkJvxkgkHdg22uqOVf_ImA1xQlm6ND8Yha11R0"
+    }
+  },
+  "proxy": "http://8fdd4fac-efa3-4ae4-a976-6d0e776b706e:1A3rh566XH2dEefTgVAOU1Z2ZIHAADbf@tun.testsprite.com:8080"
+}

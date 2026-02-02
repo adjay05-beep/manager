@@ -6,14 +6,16 @@ import json
 from utils.logger import log_debug, log_info, log_error
 from views.styles import AppColors, AppTextStyles, AppLayout, AppGradients, AppShadows
 from components.premium_card import PremiumCard
+from views.components.inputs import StandardTextField
+from views.components.cards import AuthCard
 
-# Safe client_storage wrapper for web mode compatibility
+# Safe shared_preferences wrapper for web mode compatibility (Flet 0.80+)
 async def safe_storage_get(page: ft.Page, key: str, default=None):
-    """Safely get value from client_storage (async), returns default if unavailable."""
+    """Safely get value from shared_preferences (async), returns default if unavailable."""
     try:
-        # 웹 환경: client_storage 사용
-        if hasattr(page, 'client_storage') and page.client_storage:
-            return await page.client_storage.get_async(key)
+        # 웹 환경: shared_preferences 사용 (Flet 0.80+)
+        if hasattr(page, 'shared_preferences') and page.shared_preferences:
+            return await page.shared_preferences.get(key)  # Flet 0.80+ uses get(), not get_async()
         # 데스크톱/모바일: flet.storage 사용(가능 시) 또는 기본값
         import flet as ft
         if hasattr(ft, 'storage') and ft.storage is not None:
@@ -23,11 +25,11 @@ async def safe_storage_get(page: ft.Page, key: str, default=None):
     return default
 
 async def safe_storage_set(page: ft.Page, key: str, value):
-    """Safely set value in client_storage (async), silently fails if unavailable."""
+    """Safely set value in shared_preferences (async), silently fails if unavailable."""
     try:
-        # 웹 환경: client_storage 사용
-        if hasattr(page, 'client_storage') and page.client_storage:
-            await page.client_storage.set_async(key, value)
+        # 웹 환경: shared_preferences 사용 (Flet 0.80+)
+        if hasattr(page, 'shared_preferences') and page.shared_preferences:
+            await page.shared_preferences.set(key, value)  # Flet 0.80+ uses set(), not set_async()
             return True
         # 데스크톱/모바일: flet.storage 사용(가능 시)
         import flet as ft
@@ -39,11 +41,11 @@ async def safe_storage_set(page: ft.Page, key: str, value):
     return False
 
 async def safe_storage_remove(page: ft.Page, key: str):
-    """Safely remove value from client_storage (async), silently fails if unavailable."""
+    """Safely remove value from shared_preferences (async), silently fails if unavailable."""
     try:
-        # 웹 환경: client_storage 사용
-        if hasattr(page, 'client_storage') and page.client_storage:
-            await page.client_storage.remove_async(key)
+        # 웹 환경: shared_preferences 사용 (Flet 0.80+)
+        if hasattr(page, 'shared_preferences') and page.shared_preferences:
+            await page.shared_preferences.remove(key)  # Flet 0.80+ uses remove(), not remove_async()
             return True
         # 데스크톱/모바일: flet.storage 사용(가능 시)
         import flet as ft
@@ -184,7 +186,16 @@ async def get_login_controls(page: ft.Page, navigate_to):
         stored_session_json = await safe_storage_get(page, "supa_session")
         if stored_session_json:
             try:
-                sess_data = json.loads(stored_session_json)
+                # SharedPreferences may return string or dict depending on storage
+                if isinstance(stored_session_json, str):
+                    sess_data = json.loads(stored_session_json)
+                elif isinstance(stored_session_json, dict):
+                    sess_data = stored_session_json
+                else:
+                    log_error(f"Auto-login failed: Unexpected session type {type(stored_session_json)}")
+                    await safe_storage_remove(page, "supa_session")
+                    return
+                    
                 user = auth_service.recover_session(sess_data.get("access_token"), sess_data.get("refresh_token") or "dummy")
                 if user:
                     await handle_successful_login(page, sess_data["user"], navigate_to, sess_data.get("access_token"))
@@ -192,13 +203,7 @@ async def get_login_controls(page: ft.Page, navigate_to):
                 log_error(f"Auto-login failed: {e}")
                 await safe_storage_remove(page, "supa_session")
 
-    # [Standardized] UI Components
-    from views.components.inputs import StandardTextField
-    from views.components.cards import AuthCard
-
-    # TODO: Re-enable after fixing - asyncio.create_task(check_auto_login_task())
-    # print("DEBUG: Auto-login disabled for testing")
-
+    # [Standardized] UI Components 선언을 위로 올림
     email_tf = StandardTextField(
         label="이메일",
         width=320,
@@ -211,6 +216,59 @@ async def get_login_controls(page: ft.Page, navigate_to):
         can_reveal_password=True,
         width=320
     )
+
+    # [TEST HOOK] Handle direct login via query parameters for automation
+    async def check_test_hook():
+        test_user = None
+        test_pw = None
+        
+        try:
+            test_user = page.query.get("test_user")
+        except (KeyError, AttributeError):
+            pass
+        
+        try:
+            test_pw = page.query.get("test_pw")
+        except (KeyError, AttributeError):
+            pass
+            
+        if test_user and test_pw:
+            log_info(f"Test Hook: Attempting auto-login for {test_user}")
+            email_tf.value = test_user
+            pw_tf.value = test_pw
+            await perform_login()
+
+    # [DEV AUTO-LOGIN] Automatically login with test account on localhost
+    async def check_dev_auto_login():
+        import os
+        await asyncio.sleep(0.5)  # Wait longer to let check_auto_login run first
+        
+        # [GUARD] Skip if we're no longer on login page (already logged in)
+        if page.route not in ["login", "/", ""]:
+            return
+        
+        # [GUARD] Skip if session already exists (check_auto_login succeeded)
+        stored_session = await safe_storage_get(page, "supa_session")
+        if stored_session:
+            log_info("DEV MODE: Session exists, skipping dev auto-login")
+            return
+        
+        # Check if we're on localhost
+        is_localhost = any(host in page.url for host in ["localhost", "127.0.0.1"])
+        
+        # Check if dev auto-login is enabled (default: true)
+        dev_auto_enabled = os.environ.get("DEV_AUTO_LOGIN", "true").lower() == "true"
+        
+        if is_localhost and dev_auto_enabled:
+            log_info("DEV MODE: Auto-login activated for localhost environment")
+            email_tf.value = "adjay@naver.com"
+            pw_tf.value = "wogns0519"
+            await perform_login()
+
+    # Re-enabled tasks
+    asyncio.create_task(check_auto_login_task())
+    asyncio.create_task(check_test_hook())
+    asyncio.create_task(check_dev_auto_login())
 
     # print("DEBUG: get_login_controls called")
     saved_email_val = bool(await safe_storage_get(page, "saved_email"))

@@ -137,15 +137,13 @@ async def get_voice_controls(page: ft.Page, navigate_to):
 
     async def share_memo(mid):
         await voice_service.voice_service.share_memo(mid, "public")
-        page.snack_bar = ft.SnackBar(ft.Text("매장에 공유되었습니다 (공개 전환)"))
-        page.snack_bar.open = True
+        page.open(ft.SnackBar(ft.Text("매장에 공유되었습니다 (공개 전환)")))
         await load_memos_async()
 
     async def delete_memo(mid):
         await voice_service.voice_service.delete_memo(mid)
         await load_memos_async()
-        page.snack_bar = ft.SnackBar(ft.Text("삭제되었습니다."))
-        page.snack_bar.open = True
+        page.open(ft.SnackBar(ft.Text("삭제되었습니다.")))
         page.update()
 
     # ============================================
@@ -215,11 +213,10 @@ async def get_voice_controls(page: ft.Page, navigate_to):
                         continue
 
                     if data.get("error") == "not_supported":
-                        page.snack_bar = ft.SnackBar(
+                        page.open(ft.SnackBar(
                             ft.Text("이 브라우저는 음성인식을 지원하지 않습니다. 파일 업로드를 이용해주세요."),
                             bgcolor="red"
-                        )
-                        page.snack_bar.open = True
+                        ))
                         break
 
                     if data.get("status") == "done":
@@ -237,18 +234,16 @@ async def get_voice_controls(page: ft.Page, navigate_to):
                                 audio_url=None  # Web Speech는 오디오 저장 안함
                             )
 
-                            page.snack_bar = ft.SnackBar(
+                            page.open(ft.SnackBar(
                                 ft.Text("✅ 음성 메모가 저장되었습니다!"),
                                 bgcolor="green"
-                            )
-                            page.snack_bar.open = True
+                            ))
                             await load_memos_async()
                         else:
-                            page.snack_bar = ft.SnackBar(
+                            page.open(ft.SnackBar(
                                 ft.Text("음성이 인식되지 않았습니다. 다시 시도해주세요."),
                                 bgcolor="orange"
-                            )
-                            page.snack_bar.open = True
+                            ))
                         break
 
                     if data.get("status") == "error":
@@ -259,13 +254,11 @@ async def get_voice_controls(page: ft.Page, navigate_to):
                             msg = "음성이 감지되지 않았습니다."
                         else:
                             msg = f"음성 인식 오류: {error_msg}"
-                        page.snack_bar = ft.SnackBar(ft.Text(msg), bgcolor="red")
-                        page.snack_bar.open = True
+                        page.open(ft.SnackBar(ft.Text(msg), bgcolor="red"))
                         break
 
         except Exception as e:
-            page.snack_bar = ft.SnackBar(ft.Text(f"음성 인식 실패: {e}"), bgcolor="red")
-            page.snack_bar.open = True
+            page.open(ft.SnackBar(ft.Text(f"음성 인식 실패: {e}"), bgcolor="red"))
         finally:
             state["is_listening"] = False
             update_mic_ui(False)
@@ -309,8 +302,7 @@ async def get_voice_controls(page: ft.Page, navigate_to):
             )
 
             status_text.value = "저장 완료"
-            page.snack_bar = ft.SnackBar(ft.Text("✅ 음성 메모가 저장되었습니다!"), bgcolor="green")
-            page.snack_bar.open = True
+            page.open(ft.SnackBar(ft.Text("✅ 음성 메모가 저장되었습니다!"), bgcolor="green"))
             await load_memos_async()
 
         except Exception as ex:
@@ -328,11 +320,10 @@ async def get_voice_controls(page: ft.Page, navigate_to):
                 if res.startswith("blob:"):
                     print(f"DEBUG: Blob URL detected: {res}")
                     # blob URL은 서버에서 접근 불가 → Web Speech API 사용 안내
-                    page.snack_bar = ft.SnackBar(
+                    page.open(ft.SnackBar(
                         ft.Text("브라우저에서는 Web Speech API를 사용합니다. 다시 시도해주세요."),
                         bgcolor="orange"
-                    )
-                    page.snack_bar.open = True
+                    ))
                     page.update()
                     # Web Speech API로 재시도
                     await start_web_speech()
@@ -405,11 +396,10 @@ async def get_voice_controls(page: ft.Page, navigate_to):
             if audio_recorder and not page.web:
                 await start_desktop_recording()
             else:
-                page.snack_bar = ft.SnackBar(
+                page.open(ft.SnackBar(
                     ft.Text("음성 인식 실패. 파일 업로드를 이용해주세요."),
                     bgcolor="orange"
-                )
-                page.snack_bar.open = True
+                ))
                 page.update()
 
     # File Picker (Upload) - 백업용
@@ -417,8 +407,7 @@ async def get_voice_controls(page: ft.Page, navigate_to):
         if page.chat_file_picker:
             page.chat_file_picker.pick_files(allow_multiple=False, allowed_extensions=["mp3", "wav", "m4a"])
         else:
-            page.snack_bar = ft.SnackBar(ft.Text("파일 업로드 기능을 일시적으로 사용할 수 없습니다."), bgcolor="orange")
-            page.snack_bar.open = True
+            page.open(ft.SnackBar(ft.Text("파일 업로드 기능을 일시적으로 사용할 수 없습니다."), bgcolor="orange"))
             page.update()
 
     async def on_picker_result(e: ft.ControlEvent):
@@ -454,8 +443,7 @@ async def get_voice_controls(page: ft.Page, navigate_to):
                         audio_url=public_url
                     )
                     status_text.value = "업로드 저장 완료"
-                    page.snack_bar = ft.SnackBar(ft.Text("✅ 음성 메모가 저장되었습니다!"), bgcolor="green")
-                    page.snack_bar.open = True
+                    page.open(ft.SnackBar(ft.Text("✅ 음성 메모가 저장되었습니다!"), bgcolor="green"))
                     await load_memos_async()
             except Exception as ex:
                 status_text.value = f"Upload Error: {ex}"
@@ -487,7 +475,7 @@ async def get_voice_controls(page: ft.Page, navigate_to):
 
     header = AppHeader(
         title_text="음성 메모",
-        on_back_click=lambda _: asyncio.create_task(navigate_to("home")),
+        on_back_click=lambda e: asyncio.create_task(navigate_to("home")),
         action_button=ft.Container(
             content=ft.Row([
                 ft.Icon(ft.Icons.INFO_OUTLINE, size=14, color=AppColors.TEXT_SECONDARY),

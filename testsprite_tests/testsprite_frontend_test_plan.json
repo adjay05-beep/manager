@@ -1,0 +1,516 @@
+[
+  {
+    "id": "TC001",
+    "title": "Successful login with valid email and password",
+    "description": "Verify that a user can log into the Beep Manager platform successfully with correct email and password credentials and that a session is maintained.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the login page"
+      },
+      {
+        "type": "action",
+        "description": "Enter a valid registered email address"
+      },
+      {
+        "type": "action",
+        "description": "Enter the correct password"
+      },
+      {
+        "type": "action",
+        "description": "Click the login button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the user is routed to the Home Dashboard"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an active session is established and maintained"
+      }
+    ]
+  },
+  {
+    "id": "TC002",
+    "title": "Login fails with incorrect password",
+    "description": "Verify that the login attempt fails when the correct email is entered but an incorrect password is provided, and the user is notified accordingly.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the login page"
+      },
+      {
+        "type": "action",
+        "description": "Enter a valid registered email address"
+      },
+      {
+        "type": "action",
+        "description": "Enter an incorrect password"
+      },
+      {
+        "type": "action",
+        "description": "Click the login button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify an error message is displayed indicating invalid credentials"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the user remains on the login page"
+      }
+    ]
+  },
+  {
+    "id": "TC003",
+    "title": "Dashboard menu navigation",
+    "description": "Verify that each menu item on the Home Dashboard correctly routes the user to the respective module (Messenger, Calendar, Handover, Checklist, Attendance, Settings) without delay or errors.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Login successfully and land on Home Dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click on the Messenger menu item"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify navigation to Messenger module"
+      },
+      {
+        "type": "action",
+        "description": "Navigate back to Home Dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click on the Calendar menu item"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify navigation to Calendar module"
+      },
+      {
+        "type": "action",
+        "description": "Navigate back to Home Dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click on the Handover menu item"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify navigation to Handover module"
+      },
+      {
+        "type": "action",
+        "description": "Navigate back to Home Dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click on the Checklist menu item"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify navigation to Checklist module"
+      },
+      {
+        "type": "action",
+        "description": "Navigate back to Home Dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click on the Attendance menu item"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify navigation to Attendance module"
+      },
+      {
+        "type": "action",
+        "description": "Navigate back to Home Dashboard"
+      },
+      {
+        "type": "action",
+        "description": "Click on the Settings menu item"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify navigation to Settings module"
+      }
+    ]
+  },
+  {
+    "id": "TC004",
+    "title": "Attendance clock-in with valid GPS location",
+    "description": "Verify that a user can successfully clock-in at the store location when GPS verification confirms presence, and that status and UI update in real-time.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to Attendance module"
+      },
+      {
+        "type": "action",
+        "description": "Ensure GPS location is enabled and matching store coordinates"
+      },
+      {
+        "type": "action",
+        "description": "Click the clock-in button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify clock-in is successful"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the attendance status updates in real-time on UI"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify location verification success message or indication is shown"
+      }
+    ]
+  },
+  {
+    "id": "TC005",
+    "title": "Attendance clock-in with valid Wi-Fi verification",
+    "description": "Verify that user presence is verified correctly via Wi-Fi connection and they can successfully clock-in with the attendance status updated accordingly.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to Attendance module"
+      },
+      {
+        "type": "action",
+        "description": "Connect device to approved store Wi-Fi network"
+      },
+      {
+        "type": "action",
+        "description": "Click the clock-in button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify clock-in completes successfully"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the attendance status and UI update in real-time"
+      }
+    ]
+  },
+  {
+    "id": "TC006",
+    "title": "Attendance clock-in failure due to location mismatch",
+    "description": "Verify that if GPS or Wi-Fi verification fails (user not at store location), clock-in is not allowed and appropriate error message is displayed.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to Attendance module"
+      },
+      {
+        "type": "action",
+        "description": "Ensure GPS location does not match store location and device is not connected to store Wi-Fi"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to click the clock-in button"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify clock-in action is blocked"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify error message indicating location verification failure is shown"
+      }
+    ]
+  },
+  {
+    "id": "TC007",
+    "title": "Real-time message sync across multiple devices",
+    "description": "Verify that messages sent in a chat channel are synchronized instantly and consistently across multiple logged-in devices for the same user and other users in the channel.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Login to Messenger module on Device A and Device B with same user account"
+      },
+      {
+        "type": "action",
+        "description": "Join or open a shared chat channel on both devices"
+      },
+      {
+        "type": "action",
+        "description": "Send a text message from Device A"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the message appears on Device B instantly"
+      },
+      {
+        "type": "action",
+        "description": "Send a text message from Device B"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the message appears on Device A instantly"
+      }
+    ]
+  },
+  {
+    "id": "TC008",
+    "title": "Calendar monthly view displays events correctly",
+    "description": "Verify that the Calendar module properly displays all scheduled events in the monthly view with correct dates and formatting.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the Calendar module"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the monthly calendar view loads without errors"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify predefined or existing events are displayed on correct dates"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify event summaries or titles appear legibly within the calendar day cells"
+      }
+    ]
+  },
+  {
+    "id": "TC009",
+    "title": "Add and edit calendar events with real-time update",
+    "description": "Verify that users can create new events and edit existing events in the calendar with changes synchronized immediately across sessions.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to Calendar module"
+      },
+      {
+        "type": "action",
+        "description": "Add a new event with title, date, and time"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the new event appears instantly in the calendar view"
+      },
+      {
+        "type": "action",
+        "description": "Edit the newly created event's details"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the edits are reflected immediately in the calendar"
+      },
+      {
+        "type": "action",
+        "description": "Verify the changes are synchronized in real-time on another logged-in device or session"
+      }
+    ]
+  },
+  {
+    "id": "TC010",
+    "title": "Handover notes are saved and shared correctly",
+    "description": "Verify that daily operational notes entered in the Handover module are saved persistently and can be retrieved and viewed by other relevant users.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to Handover module"
+      },
+      {
+        "type": "action",
+        "description": "Create and save daily operational notes with various content"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify notes are saved without errors"
+      },
+      {
+        "type": "action",
+        "description": "Login with a different user account having access"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to Handover module"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the previously saved notes are viewable and content is accurate"
+      }
+    ]
+  },
+  {
+    "id": "TC011",
+    "title": "Checklist task completion and reset between shifts",
+    "description": "Verify that checklist tasks in opening and closing shifts reflect accurate completion states and that the checklist resets appropriately for new shifts.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to Checklist module during opening shift"
+      },
+      {
+        "type": "action",
+        "description": "Mark a subset of tasks as completed"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify task completion states are saved and displayed correctly"
+      },
+      {
+        "type": "action",
+        "description": "Complete remaining tasks and save"
+      },
+      {
+        "type": "action",
+        "description": "Simulate transition to closing shift"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify checklist resets to initial state or according to closing shift requirements"
+      }
+    ]
+  },
+  {
+    "id": "TC012",
+    "title": "Profile and Store Settings update persistence",
+    "description": "Verify that changes to user profile information and store-specific settings persist correctly and influence app behavior as intended.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to Profile Settings"
+      },
+      {
+        "type": "action",
+        "description": "Modify user profile fields (e.g., name, contact info)"
+      },
+      {
+        "type": "action",
+        "description": "Save changes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify changes are persisted and displayed after reload"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to Store Settings"
+      },
+      {
+        "type": "action",
+        "description": "Update store-specific preferences (e.g., store hours, location info)"
+      },
+      {
+        "type": "action",
+        "description": "Save changes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify settings are persisted and effective within app"
+      }
+    ]
+  },
+  {
+    "id": "TC013",
+    "title": "UI adherence to design standards",
+    "description": "Verify that the UI across all modules adheres to the specified design principles including glassmorphism effects, gradients, use of 3D icons, responsive layouts, and consistent light/dark mode themes.",
+    "category": "ui",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate through all main modules (Dashboard, Attendance, Messenger, Calendar, etc.)"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify glassmorphism visual effects are applied as specified"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify 3D-styled icons appear on dashboard menu items"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify gradients are used correctly per design guidelines"
+      },
+      {
+        "type": "assertion",
+        "description": "Test UI responsiveness on different screen sizes and orientations"
+      },
+      {
+        "type": "action",
+        "description": "Switch between light and dark modes"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify UI maintains consistency and adheres to design in both modes"
+      }
+    ]
+  },
+  {
+    "id": "TC014",
+    "title": "Navigation flow integrity with custom router",
+    "description": "Verify that navigation using the custom router maintains correct state, preserves history, and prevents errors or inconsistent views during view transitions.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "From Home Dashboard, navigate to Attendance module"
+      },
+      {
+        "type": "action",
+        "description": "From Attendance, navigate to Calendar module"
+      },
+      {
+        "type": "action",
+        "description": "Navigate back to Home Dashboard using router functionality"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify UI displays the expected view at each navigation step without errors"
+      },
+      {
+        "type": "action",
+        "description": "Use router history to navigate backward and forward between views"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify navigation history behaves as expected, without stale or broken views"
+      },
+      {
+        "type": "action",
+        "description": "Attempt rapid sequential navigations between modules"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify application maintains stable state and no crashes or glitches occur"
+      }
+    ]
+  }
+]

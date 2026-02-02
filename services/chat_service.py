@@ -250,15 +250,25 @@ def get_unread_counts(user_id: str, topics: List[Dict[str, Any]]) -> Dict[str, i
         missing_topic_ids = [tid for tid in topic_ids if tid not in read_topic_ids]
 
         if missing_topic_ids:
-            # For topics not yet in user_reading, we still need to check if they have messages
-            # But the view only joins on chat_user_reading.
-            # Potential Improvement: Use a better View, but for now, we use a single query for missing ones.
-            for tid in missing_topic_ids:
-                # Check if a reading record exists but count is 0? 
-                # (The view counts correctly if record exists, so if it's missing, it's a never-read topic)
-                msg_count = ChatRepository.get_message_count_for_topic(tid, user_id)
-                if msg_count > 0:
-                    counts[tid] = msg_count
+            # [OPTIMIZATION] Parallel Execution for "Never Read" topics
+            # Instead of sequential N+1 blocking calls, we parallelize the count queries.
+            # This significantly reduces latency when a user has many new topics.
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            
+            def fetch_count(tid):
+                try:
+                    c = ChatRepository.get_message_count_for_topic(tid, user_id)
+                    return tid, c
+                except Exception:
+                    return tid, 0
+
+            # Use a limited number of workers to avoid overwhelming the DB connection pool
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                future_to_tid = {executor.submit(fetch_count, tid): tid for tid in missing_topic_ids}
+                for future in as_completed(future_to_tid):
+                    tid, count = future.result()
+                    if count > 0:
+                        counts[tid] = count
 
         return counts
     except Exception as e:

@@ -19,6 +19,7 @@ from views.onboarding_view import get_onboarding_controls
 from views.store_manage_view import get_store_manage_controls
 from views.handover_view import get_handover_controls
 from views.voice_view import get_voice_controls
+from views.attendance_view import get_attendance_controls
 from views.profile_view import get_profile_controls
 from views.debug_upload_view import DebugUploadView
 
@@ -44,7 +45,8 @@ class Router:
                 ft.NavigationBarDestination(icon=ft.Icons.CALENDAR_MONTH_OUTLINED, selected_icon=ft.Icons.CALENDAR_MONTH, label="일정"),
                 ft.NavigationBarDestination(icon=ft.Icons.DESCRIPTION_OUTLINED, selected_icon=ft.Icons.DESCRIPTION, label="업무일지"),
                 ft.NavigationBarDestination(icon=ft.Icons.CHECK_CIRCLE_OUTLINE, selected_icon=ft.Icons.CHECK_CIRCLE, label="마감"),
-                ft.NavigationBarDestination(icon=ft.Icons.MIC_NONE, selected_icon=ft.Icons.MIC, label="음성"),
+                # ft.NavigationBarDestination(icon=ft.Icons.MIC_NONE, selected_icon=ft.Icons.MIC, label="음성"),
+                ft.NavigationBarDestination(icon=ft.Icons.TIMER_OUTLINED, selected_icon=ft.Icons.TIMER, label="출퇴근"),
                 ft.NavigationBarDestination(icon=ft.Icons.SETTINGS_OUTLINED, selected_icon=ft.Icons.SETTINGS, label="설정"),
             ],
             on_change=lambda e: self.page.run_task(self._on_nav_bar_change, e),
@@ -57,7 +59,7 @@ class Router:
     async def _on_nav_bar_change(self, e):
         """Handles clicks on the navigation bar."""
         idx = e.control.selected_index
-        routes = ["home", "chat", "calendar", "handover", "closing", "voice", "store_info"]
+        routes = ["home", "chat", "calendar", "handover", "closing", "attendance", "store_info"]
         route = routes[idx] if idx < len(routes) else "home"
         await self.navigate_to(route)
 
@@ -151,8 +153,7 @@ class Router:
                     page.navigation_bar.visible = True
                     mapping = {
                         "home": 0, "chat": 1, "calendar": 2, "handover": 3, 
-                        "closing": 4, "voice": 5, "order": 5, 
-                        "store_info": 6, "store_manage": 6
+                        "closing": 4, "attendance": 5, "store_info": 6, "store_manage": 6
                     }
                     # Update selected index without triggering event
                     page.navigation_bar.selected_index = mapping.get(route, 0)
@@ -196,6 +197,8 @@ class Router:
                 controls = await DebugUploadView(page)
             elif clean_route == "handover":
                 controls = await get_handover_controls(page, self.navigate_to)
+            elif clean_route == "attendance":
+                controls = await get_attendance_controls(page, self.navigate_to)
             else:
                 controls = [ft.Text(f"Page {route} not found", size=20)]
 
@@ -219,5 +222,5 @@ class Router:
             log_error(f"Navigation Error ({route}): {err_msg}")
             page.clean()
             page.add(ft.Text(f"시스템 오류: {e}", color="red"))
-            page.add(ft.Button("재시도(로그인)", on_click=lambda _: self.navigate_to("login")))
+            page.add(ft.ElevatedButton("재시도(로그인)", on_click=lambda _: self.navigate_to("login")))
             page.update()

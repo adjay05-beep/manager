@@ -1,0 +1,77 @@
+{
+    "tech_stack": [
+        "Python",
+        "Flet",
+        "Docker",
+        "PowerShell",
+        "Asyncio"
+    ],
+    "features": [
+        {
+            "name": "Authentication",
+            "description": "User login and session management via email and password.",
+            "files": [
+                "repositories/auth_repository.py",
+                "services/auth_service.py",
+                "views/login_view.py"
+            ]
+        },
+        {
+            "name": "Navigation & Routing",
+            "description": "Centralized router for switching between views and managing history.",
+            "files": [
+                "services/router.py",
+                "main.py"
+            ]
+        },
+        {
+            "name": "Messenger",
+            "description": "Real-time communication with channel-based chat support.",
+            "files": [
+                "services/chat_service.py",
+                "views/chat_view.py"
+            ]
+        },
+        {
+            "name": "Calendar",
+            "description": "Event management with monthly views and real-time synchronization.",
+            "files": [
+                "services/calendar_service.py",
+                "views/calendar_view.py"
+            ]
+        },
+        {
+            "name": "Handover",
+            "description": "Daily operational notes and work logging feature.",
+            "files": [
+                "services/handover_service.py",
+                "views/handover_view.py"
+            ]
+        },
+        {
+            "name": "Checklist",
+            "description": "Operational safety checks for opening and closing shifts.",
+            "files": [
+                "views/closing_view.py",
+                "views/components/custom_checkbox.py"
+            ]
+        },
+        {
+            "name": "Attendance",
+            "description": "Premium UI for clock-in/out with GPS and Wi-Fi verification.",
+            "files": [
+                "services/attendance_service.py",
+                "views/attendance_view.py"
+            ]
+        },
+        {
+            "name": "Profile & Settings",
+            "description": "Management of user profiles and store-specific settings.",
+            "files": [
+                "views/profile_view.py",
+                "views/profile_edit_view.py",
+                "views/order_view.py"
+            ]
+        }
+    ]
+}
