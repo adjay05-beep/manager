@@ -15,18 +15,18 @@ async def get_memos(user_id: str) -> List[Dict[str, Any]]:
 async def update_memo_content(memo_id: str, new_content: str, user_id: str):
     """Update the content of a memo with ownership verification."""
     # [SECURITY] 소유권 검증
-    check = await asyncio.to_thread(lambda: service_supabase.table("order_memos").select("user_id").eq("id", memo_id).single().execute())
-    if not check.data or check.data.get("user_id") != user_id:
-        raise PermissionError("메모 수정 권한이 없습니다.")
+    check = await asyncio.to_thread(lambda: service_supabase.table("order_memos").select("user_id").eq("id", memo_id).execute())
+    if not check.data or check.data[0].get("user_id") != user_id:
+        raise PermissionError("본인이 작성한 메모만 수정할 수 있습니다.")
 
     await asyncio.to_thread(lambda: service_supabase.table("order_memos").update({"content": new_content}).eq("id", memo_id).execute())
 
 async def delete_memo(memo_id: str, user_id: str):
     """Delete a memo with ownership verification."""
     # [SECURITY] 소유권 검증
-    check = await asyncio.to_thread(lambda: service_supabase.table("order_memos").select("user_id").eq("id", memo_id).single().execute())
-    if not check.data or check.data.get("user_id") != user_id:
-        raise PermissionError("메모 삭제 권한이 없습니다.")
+    check = await asyncio.to_thread(lambda: service_supabase.table("order_memos").select("user_id").eq("id", memo_id).execute())
+    if not check.data or check.data[0].get("user_id") != user_id:
+        raise PermissionError("본인이 작성한 메모만 삭제할 수 있습니다.")
 
     await asyncio.to_thread(lambda: service_supabase.table("order_memos").delete().eq("id", memo_id).execute())
 

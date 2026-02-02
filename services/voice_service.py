@@ -32,9 +32,10 @@ class VoiceService:
             tier = "free"
             if channel_id:
                 try:
-                    ch_res = await asyncio.to_thread(lambda: service_supabase.table("channels").select("subscription_tier").eq("id", channel_id).single().execute())
-                    if ch_res.data:
-                        tier = ch_res.data.get("subscription_tier", "free")
+                    ch_res = await asyncio.to_thread(lambda: service_supabase.table("channels").select("subscription_tier").eq("id", channel_id).execute())
+                    if not ch_res.data:
+                        raise Exception("채널 정보를 찾을 수 없습니다.")
+                    tier = ch_res.data[0].get("subscription_tier", "free")
                 except Exception as e:
                     log_info(f"Error fetching tier: {e}")
 
@@ -79,8 +80,10 @@ class VoiceService:
     async def _verify_ownership(self, memo_id: str, user_id: str) -> bool:
         """[SECURITY] Verify user owns the memo."""
         try:
-            check = await asyncio.to_thread(lambda: service_supabase.table("voice_memos").select("user_id").eq("id", memo_id).single().execute())
-            return check.data and check.data.get("user_id") == user_id
+            check = await asyncio.to_thread(lambda: service_supabase.table("voice_memos").select("user_id").eq("id", memo_id).execute())
+            if not check.data or check.data[0].get("user_id") != user_id:
+                raise PermissionError("본인이 작성한 음성 메모만 삭제할 수 있습니다.")
+            return True # Ownership verified
         except Exception:
             return False
 

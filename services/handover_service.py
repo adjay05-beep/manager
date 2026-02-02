@@ -7,16 +7,16 @@ class HandoverService:
     async def _verify_channel_member(self, user_id: str, channel_id: int) -> bool:
         """[SECURITY] 사용자가 채널 멤버인지 확인."""
         try:
-            check = await asyncio.to_thread(lambda: service_supabase.table("channel_members").select("user_id").eq("channel_id", channel_id).eq("user_id", user_id).single().execute())
-            return check.data is not None
+            check = await asyncio.to_thread(lambda: service_supabase.table("channel_members").select("user_id").eq("channel_id", channel_id).eq("user_id", user_id).execute())
+            return len(check.data) > 0 if check.data else False
         except Exception:
             return False
 
     async def _verify_ownership(self, handover_id: str, user_id: str) -> bool:
         """[SECURITY] 인계사항 소유권 확인."""
         try:
-            check = await asyncio.to_thread(lambda: service_supabase.table("handovers").select("user_id").eq("id", handover_id).single().execute())
-            return check.data and check.data.get("user_id") == user_id
+            check = await asyncio.to_thread(lambda: service_supabase.table("handovers").select("user_id").eq("id", handover_id).execute())
+            return check.data and check.data[0].get("user_id") == user_id
         except Exception:
             return False
 
@@ -64,11 +64,11 @@ class HandoverService:
 
         try:
             # [SECURITY] 1. 해당 인계사항의 채널 ID 조회
-            check = await asyncio.to_thread(lambda: service_supabase.table("handovers").select("channel_id").eq("id", handover_id).single().execute())
+            check = await asyncio.to_thread(lambda: service_supabase.table("handovers").select("channel_id").eq("id", handover_id).execute())
             if not check.data:
                 return False
             
-            target_channel_id = check.data.get("channel_id")
+            target_channel_id = check.data[0].get("channel_id")
             
             # [DEBUG]
             print(f"[DEBUG] update_handover: id={handover_id}, user={user_id}, target_ch={target_channel_id}")

@@ -54,7 +54,6 @@ async def delete_event(event_id: str, user_id: str) -> bool:
             lambda: service_supabase.table("calendar_events")
                 .select("id, created_by")
                 .eq("id", event_id)
-                .single()
                 .execute()
         )
 
@@ -115,7 +114,6 @@ async def update_event(event_id: str, event_data: Dict[str, Any], user_id: str):
         lambda: service_supabase.table("calendar_events")
             .select("id, created_by")
             .eq("id", event_id)
-            .single()
             .execute()
     )
 
