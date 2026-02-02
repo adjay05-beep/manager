@@ -136,12 +136,12 @@ async def get_voice_controls(page: ft.Page, navigate_to):
             pass
 
     async def share_memo(mid):
-        await voice_service.voice_service.share_memo(mid, "public")
+        await voice_service.voice_service.share_memo(mid, current_user_id)
         page.open(ft.SnackBar(ft.Text("매장에 공유되었습니다 (공개 전환)")))
         await load_memos_async()
 
     async def delete_memo(mid):
-        await voice_service.voice_service.delete_memo(mid)
+        await voice_service.voice_service.delete_memo(mid, current_user_id)
         await load_memos_async()
         page.open(ft.SnackBar(ft.Text("삭제되었습니다.")))
         page.update()

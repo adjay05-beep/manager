@@ -120,7 +120,7 @@ async def update_event(event_id: str, event_data: Dict[str, Any], user_id: str):
     if not event_res.data:
         raise PermissionError("이벤트를 찾을 수 없습니다.")
 
-    if event_res.data.get("created_by") != user_id:
+    if event_res.data[0].get("created_by") != user_id:
         raise PermissionError("본인이 생성한 이벤트만 수정할 수 있습니다.")
 
     # Remove fields that shouldn't be updated manually or might cause error
