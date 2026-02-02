@@ -61,7 +61,7 @@ async def delete_event(event_id: str, user_id: str) -> bool:
             log_error(f"Event not found: {event_id}")
             raise PermissionError("이벤트를 찾을 수 없습니다.")
 
-        if event_res.data.get("created_by") != user_id:
+        if event_res.data[0].get("created_by") != user_id:
             log_error(f"Unauthorized delete attempt: user={user_id}, event={event_id}")
             raise PermissionError("본인이 생성한 이벤트만 삭제할 수 있습니다.")
 
