@@ -493,7 +493,7 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
             title=ft.Text("멤버 내보내기"),
             content=ft.Text(f"정말 {name}님을 매장에서 내보내시겠습니까?"),
             actions=[
-                ft.TextButton("취소", on_click=lambda _: asyncio.create_task(page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg))),
+                ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
                 ft.ElevatedButton("내보내기", bgcolor="red", color="white", on_click=lambda e: asyncio.create_task(do_kick(e)))
             ]
         )

@@ -855,7 +855,7 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
         # Update label immediately (load will do it too but for responsiveness)
         month_label.value = f"{view_state['year']}년 {view_state['month']}월"
         load()
-        asyncio.create_task(page.close_async(page.drawer) if hasattr(page, "close_async") else page.close(page.drawer))
+        page.close(page.drawer)
 
     def build_drawer():
         print("DEBUG_CAL: build_drawer start")

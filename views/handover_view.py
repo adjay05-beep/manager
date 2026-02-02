@@ -499,7 +499,7 @@ async def get_handover_controls(page: ft.Page, navigate_to):
             title=ft.Text("기록 수정"),
             content=ft.Container(content=edit_tf, height=100),
             actions=[
-                ft.TextButton("취소", on_click=lambda _: asyncio.create_task(page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg))),
+                ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
                 ft.ElevatedButton("저장", on_click=lambda e: asyncio.create_task(save_edit(e)), style=AppButtons.PRIMARY())
             ]
         )
