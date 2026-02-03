@@ -83,7 +83,7 @@ async def main(page: ft.Page):
             self._js_result = None
             try:
                 # Wait for title change event
-                await asyncio.wait_for(self._js_event.wait(), timeout=15.0)
+                await asyncio.wait_for(self._js_event.wait(), timeout=45.0)
                 return self._js_result
             except asyncio.TimeoutError:
                 sys_log("run_javascript: ERROR - Title Bridge Timeout")

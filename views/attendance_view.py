@@ -146,46 +146,82 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                         page.open(ft.SnackBar(ft.Text("❌ 매장 위치가 설정되지 않았습니다."), bgcolor="red"))
                         return
                     
-                    # Modern Geolocation JS Script for Title-Bridge
-                    # Using the polyfill's return_value mechanism
+                    # Smart Geolocation JS Script with fallback
                     gps_script = """
                     (async function() {
-                        return new Promise((resolve, reject) => {
+                        return new Promise((resolve) => {
                             if (!navigator.geolocation) {
                                 resolve({error: 'GPS_NOT_SUPPORTED'});
                                 return;
                             }
-                            console.log('Requesting GPS...');
+                            
+                            let hasResolved = false;
+                            
+                            const optionsHigh = { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 };
+                            const optionsLow = { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 };
+                            
+                            console.log('Requesting GPS (High Accuracy)...');
                             navigator.geolocation.getCurrentPosition(
                                 (pos) => {
-                                    console.log('GPS success:', pos.coords.latitude, pos.coords.longitude);
-                                    resolve({lat: pos.coords.latitude, lng: pos.coords.longitude});
+                                    if(!hasResolved) {
+                                        hasResolved = true;
+                                        resolve({lat: pos.coords.latitude, lng: pos.coords.longitude});
+                                    }
                                 },
                                 (err) => {
-                                    console.error('GPS error:', err.message);
-                                    resolve({error: err.message});
+                                    console.warn('High accuracy failed, trying Low accuracy:', err.message);
+                                    navigator.geolocation.getCurrentPosition(
+                                        (posLow) => {
+                                            if(!hasResolved) {
+                                                hasResolved = true;
+                                                resolve({lat: posLow.coords.latitude, lng: posLow.coords.longitude});
+                                            }
+                                        },
+                                        (errLow) => {
+                                            if(!hasResolved) {
+                                                hasResolved = true;
+                                                resolve({error: errLow.message});
+                                            }
+                                        },
+                                        optionsLow
+                                    );
                                 },
-                                { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+                                optionsHigh
                             );
+                            
+                            // Safety timeout for UI
+                            setTimeout(() => {
+                                if(!hasResolved) {
+                                    hasResolved = true;
+                                    resolve({error: 'TIMEOUT_OR_PERMISSION_DENIED'});
+                                }
+                            }, 35000);
                         });
                     })()
                     """
 
-                    print("[DEBUG] Triggering GPS via Title-Bridge...")
-                    page.open(ft.SnackBar(ft.Text("📍 위치 정보를 가져오는 중..."), duration=3000))
+                    print("[DEBUG] Triggering Smart GPS via Title-Bridge...")
+                    page.open(ft.SnackBar(
+                        ft.Text("📍 위치를 가져오는 중... (권한 허용 창이 뜨면 '허용'을 눌러주세요)"), 
+                        duration=5000
+                    ))
                     
                     try:
                         # Call polyfilled run_javascript with return_value=True
                         res_str = await page.run_javascript(gps_script, return_value=True)
-                        print(f"[DEBUG] GPS result received: {res_str}")
+                        print(f"[DEBUG] Smart GPS result received: {res_str}")
                         
                         if not res_str:
-                            page.open(ft.SnackBar(ft.Text("⏱️ 위치 요청 타임아웃 또는 차단됨"), bgcolor="orange"))
+                            page.open(ft.SnackBar(ft.Text("⏱️ 위치 요청 타임아웃: 위치 권한을 허용했는지 확인해주세요."), bgcolor="orange"))
                             return
                             
                         gps_data = json.loads(res_str)
                         if "error" in gps_data:
-                            page.open(ft.SnackBar(ft.Text(f"❌ GPS 오류: {gps_data['error']}"), bgcolor="red"))
+                            err_msg = gps_data['error']
+                            if err_msg == "TIMEOUT_OR_PERMISSION_DENIED":
+                                page.open(ft.SnackBar(ft.Text("❌ 타임아웃: 브라우저 상단의 위치 정보 권한을 확인해주세요."), bgcolor="red"))
+                            else:
+                                page.open(ft.SnackBar(ft.Text(f"❌ GPS 오류: {err_msg}"), bgcolor="red"))
                             return
                         
                         user_lat = gps_data.get("lat")
