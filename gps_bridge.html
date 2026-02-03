@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>GPS Pulse Bridge</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background: #121212;
+            color: white;
+        }
+
+        .card {
+            background: #1e1e1e;
+            padding: 2rem;
+            border-radius: 1rem;
+            width: 85%;
+            max-width: 400px;
+            text-align: center;
+            border: 1px solid #333;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <div id="status">🛰️ 위치 정보를 수집하여 저장소에 기록 중...</div>
+    </div>
+
+    <script>
+        async function run() {
+            if (!navigator.geolocation) {
+                saveData({ error: 'GPS지원안함' });
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                (p) => {
+                    saveData({
+                        lat: p.coords.latitude,
+                        lng: p.coords.longitude,
+                        ts: Date.now()
+                    });
+                },
+                (e) => {
+                    saveData({ error: e.message });
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        }
+
+        function saveData(data) {
+            const status = document.getElementById('status');
+            const json = JSON.stringify(data);
+
+            // 핵심: 브라우저 고유 저장소에 저장 (본체가 여기서 비동기로 읽음)
+            localStorage.setItem('flet_gps_data', json);
+
+            status.innerHTML = "<b style='color:#0f0'>기록 완료!</b><br>본체 앱이 곧 이 데이터를 읽어갈 것입니다.";
+
+            // 1.5초 후 그냥 닫음 (연결고리 전혀 안 씀)
+            setTimeout(() => {
+                window.close();
+            }, 1500);
+        }
+
+        run();
+    </script>
+</body>
+
+</html>
