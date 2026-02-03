@@ -343,7 +343,6 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                     width=float("inf"),
                     padding=ft.padding.only(bottom=10)
                 ),
-                gps_bridge # Add bridge here
             ], scroll=ft.ScrollMode.AUTO)
         )
     ], spacing=0, expand=True)
