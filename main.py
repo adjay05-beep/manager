@@ -71,8 +71,21 @@ async def main(page: ft.Page):
             wrapped_js = minified
 
         try:
-            # We call this via a dummy script container or direct launch
+            # First trial: Native Flet run_javascript (Flet 0.80+)
+            # Note: The original 'self.run_javascript' is now 'run_javascript_fixed'
+            # We call the base version if it exists or use the page object's method
+            # In Flet 0.80+, ft.Page has run_javascript but it's often unreliable in web
+            # So we use a more direct approach by calling the underlying client command if possible
+            # But the most compatible way is actually launch_url for some, but Safari blocks it.
+            # Let's try native run_javascript if it's available and not our fixed version
+            
             sys_log(f"run_javascript: Executing via Title Bridge...")
+            # We must use self.run_javascript but not recursively.
+            # However, Flet's internal run_javascript is what we really want here.
+            # Since we replaced ft.Page.run_javascript, we use the original logic but without launch_url
+            
+            # Use original launch_url as fallback, but try to avoid it if possible
+            # For Safari, let's try to inject a script tag or use the native client
             await self.launch_url(f"javascript:void({wrapped_js})")
         except Exception as e:
             sys_log(f"run_javascript FAILED: {e}")

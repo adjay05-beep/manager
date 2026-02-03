@@ -146,82 +146,54 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                         page.open(ft.SnackBar(ft.Text("❌ 매장 위치가 설정되지 않았습니다."), bgcolor="red"))
                         return
                     
-                    # Smart Geolocation JS Script with fallback
+                    # Ultra-Simplified GPS Script for Safari compatibility
+                    # Directly calls and resolves to avoid complex async wrapping that Safari might block
                     gps_script = """
-                    (async function() {
-                        return new Promise((resolve) => {
-                            if (!navigator.geolocation) {
-                                resolve({error: 'GPS_NOT_SUPPORTED'});
-                                return;
-                            }
-                            
-                            let hasResolved = false;
-                            
-                            const optionsHigh = { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 };
-                            const optionsLow = { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 };
-                            
-                            console.log('Requesting GPS (High Accuracy)...');
+                    new Promise((resolve) => {
+                        if (!navigator.geolocation) {
+                            resolve({error: 'GPS_NOT_SUPPORTED'});
+                        } else {
                             navigator.geolocation.getCurrentPosition(
-                                (pos) => {
-                                    if(!hasResolved) {
-                                        hasResolved = true;
-                                        resolve({lat: pos.coords.latitude, lng: pos.coords.longitude});
-                                    }
-                                },
-                                (err) => {
-                                    console.warn('High accuracy failed, trying Low accuracy:', err.message);
-                                    navigator.geolocation.getCurrentPosition(
-                                        (posLow) => {
-                                            if(!hasResolved) {
-                                                hasResolved = true;
-                                                resolve({lat: posLow.coords.latitude, lng: posLow.coords.longitude});
-                                            }
-                                        },
-                                        (errLow) => {
-                                            if(!hasResolved) {
-                                                hasResolved = true;
-                                                resolve({error: errLow.message});
-                                            }
-                                        },
-                                        optionsLow
-                                    );
-                                },
-                                optionsHigh
+                                (p) => resolve({lat: p.coords.latitude, lng: p.coords.longitude}),
+                                (e) => resolve({error: e.message}),
+                                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
                             );
-                            
-                            // Safety timeout for UI
-                            setTimeout(() => {
-                                if(!hasResolved) {
-                                    hasResolved = true;
-                                    resolve({error: 'TIMEOUT_OR_PERMISSION_DENIED'});
-                                }
-                            }, 35000);
-                        });
-                    })()
+                        }
+                    })
                     """
 
-                    print("[DEBUG] Triggering Smart GPS via Title-Bridge...")
+                    print("[DEBUG] Triggering Simplified GPS...")
                     page.open(ft.SnackBar(
-                        ft.Text("📍 위치를 가져오는 중... (권한 허용 창이 뜨면 '허용'을 눌러주세요)"), 
+                        ft.Text("📍 위치 정보를 요청합니다. 허용 창이 뜨지 않으면 주소창의 '가' 버튼을 눌러보세요."), 
                         duration=5000
                     ))
                     
                     try:
                         # Call polyfilled run_javascript with return_value=True
                         res_str = await page.run_javascript(gps_script, return_value=True)
-                        print(f"[DEBUG] Smart GPS result received: {res_str}")
+                        print(f"[DEBUG] Raw result: {res_str}")
                         
                         if not res_str:
-                            page.open(ft.SnackBar(ft.Text("⏱️ 위치 요청 타임아웃: 위치 권한을 허용했는지 확인해주세요."), bgcolor="orange"))
+                            # Re-try with low accuracy if high fails silently
+                            print("[DEBUG] Retrying with low accuracy...")
+                            gps_script_low = """
+                            new Promise((resolve) => {
+                                navigator.geolocation.getCurrentPosition(
+                                    (p) => resolve({lat: p.coords.latitude, lng: p.coords.longitude}),
+                                    (e) => resolve({error: e.message}),
+                                    { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+                                );
+                            })
+                            """
+                            res_str = await page.run_javascript(gps_script_low, return_value=True)
+                        
+                        if not res_str:
+                            page.open(ft.SnackBar(ft.Text("⏱️ 응답 없음: 브라우저 설정에서 위치 권한을 확인해주세요."), bgcolor="orange"))
                             return
                             
                         gps_data = json.loads(res_str)
                         if "error" in gps_data:
-                            err_msg = gps_data['error']
-                            if err_msg == "TIMEOUT_OR_PERMISSION_DENIED":
-                                page.open(ft.SnackBar(ft.Text("❌ 타임아웃: 브라우저 상단의 위치 정보 권한을 확인해주세요."), bgcolor="red"))
-                            else:
-                                page.open(ft.SnackBar(ft.Text(f"❌ GPS 오류: {err_msg}"), bgcolor="red"))
+                            page.open(ft.SnackBar(ft.Text(f"❌ GPS 오류: {gps_data['error']}"), bgcolor="red"))
                             return
                         
                         user_lat = gps_data.get("lat")
