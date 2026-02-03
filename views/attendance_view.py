@@ -106,6 +106,57 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
         style=ft.TextStyle(size=14, color="white" if state["status"] == "ON" else AppColors.TEXT_SECONDARY)
     )
 
+    # Attendance Log UI
+    log_column = ft.Column(spacing=10)
+    
+    async def update_logs():
+        log_column.controls.clear()
+        try:
+            logs = await attendance_service.get_recent_logs(user_id, channel_id, limit=7)
+            if not logs:
+                log_column.controls.append(
+                    ft.Container(
+                        content=ft.Text("최근 기록이 없습니다.", size=13, color=AppColors.TEXT_SECONDARY),
+                        padding=20, alignment=ft.alignment.center
+                    )
+                )
+            else:
+                for log in logs:
+                    # Parse UTC to local format
+                    try:
+                        dt = datetime.fromisoformat(log["created_at"].replace("Z", "+00:00"))
+                        log_time = dt.strftime("%m/%d %H:%M")
+                    except:
+                        log_time = log["created_at"][:16]
+                        
+                    log_type = "출근" if log["type"] == "IN" else "퇴근"
+                    log_color = AppColors.SUCCESS if log["type"] == "IN" else AppColors.ERROR
+                    method = log.get("method", "---")
+                    
+                    log_column.controls.append(
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Container(
+                                    content=ft.Text(log_type, size=12, weight="bold", color="white"),
+                                    bgcolor=log_color,
+                                    padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                                    border_radius=6
+                                ),
+                                ft.Text(log_time, size=13, color=AppColors.TEXT_PRIMARY, weight="w500"),
+                                ft.VerticalDivider(width=1, color=ft.Colors.with_opacity(0.1, AppColors.TEXT_SECONDARY)),
+                                ft.Text(method, size=11, color=AppColors.TEXT_SECONDARY),
+                                ft.Container(expand=True),
+                                ft.Icon(ft.Icons.CHEVRON_RIGHT, size=14, color=ft.Colors.with_opacity(0.2, AppColors.TEXT_SECONDARY))
+                            ], alignment=ft.MainAxisAlignment.START, spacing=12),
+                            padding=ft.padding.all(12),
+                            border_radius=12,
+                            bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.GREY_400),
+                        )
+                    )
+            log_column.update()
+        except Exception as log_err:
+            print(f"Log Update Error: {log_err}")
+
     async def update_time():
         while True:
             now = datetime.now()
@@ -117,6 +168,7 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
             await asyncio.sleep(1)
             
     asyncio.create_task(update_time())
+    asyncio.create_task(update_logs())
 
     # [Bridge Removal] Removed gps_bridge TextField as we now use Title-Bridge via run_javascript(return_value=True)
 
@@ -216,8 +268,8 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                         return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
                     
                     distance = calculate_distance(user_lat, user_lng, channel_lat, channel_lng)
-                    if distance > 100:
-                        page.open(ft.SnackBar(ft.Text(f"❌ 매장에서 너무 멉니다. (약 {int(distance)}m)"), bgcolor="red"))
+                    if distance > 150:
+                        page.open(ft.SnackBar(ft.Text(f"❌ 매장에서 너무 멉니다 (약 {int(distance)}m)"), bgcolor="red"))
                         return
                     
                     lat, lng = user_lat, user_lng
@@ -258,6 +310,8 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                 date_text.color = AppColors.TEXT_SECONDARY
                 page.open(ft.SnackBar(ft.Text("✅ 퇴근 처리되었습니다"), bgcolor="green"))
             
+            # Refresh logs
+            await update_logs()
             status_card.update()
             btn.update()
         except Exception as ex:
@@ -345,13 +399,22 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                     border_radius=12,
                     bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.GREY_400)
                 ),
-                ft.Container(expand=True),
+                ft.Container(height=30),
+                # Recent Logs Section
+                ft.Row([
+                    ft.Text("최근 7회 기록", size=16, weight="bold", color=AppColors.TEXT_PRIMARY),
+                    ft.Container(expand=True),
+                    ft.TextButton("새로고침", icon=ft.Icons.REFRESH, on_click=lambda _: page.run_task(update_logs))
+                ], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Container(height=10),
+                log_column,
+                ft.Container(height=30),
                 ft.Container(
                     content=action_button,
                     width=float("inf"),
                     padding=ft.padding.only(bottom=10)
                 ),
-            ], scroll=ft.ScrollMode.AUTO)
+            ], scroll=ft.ScrollMode.HIDDEN)
         )
     ], spacing=0, expand=True)
 

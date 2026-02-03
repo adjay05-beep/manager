@@ -42,6 +42,21 @@ class AttendanceService:
             "last_log": None
         }
 
+    async def get_recent_logs(self, user_id, channel_id, limit=7):
+        """Fetches recent attendance logs for display."""
+        try:
+            res = service_supabase.table("attendance_logs")\
+                .select("*")\
+                .eq("user_id", user_id)\
+                .eq("channel_id", channel_id)\
+                .order("created_at", desc=True)\
+                .limit(limit)\
+                .execute()
+            return res.data or []
+        except Exception as e:
+            log_error(f"Get Logs Error: {e}")
+            return []
+
     def haversine(self, lat1, lon1, lat2, lon2):
         try:
             R = 6371000 # Earth radius in meters
