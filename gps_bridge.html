@@ -60,12 +60,29 @@
             const status = document.getElementById('status');
             const json = JSON.stringify(data);
 
-            // 핵심: 브라우저 고유 저장소에 저장 (본체가 여기서 비동기로 읽음)
+            // 여러 키에 저장하여 호환성 확보
             localStorage.setItem('flet_gps_data', json);
+            localStorage.setItem('flet_gps_result', json);
 
-            status.innerHTML = "<b style='color:#0f0'>기록 완료!</b><br>본체 앱이 곧 이 데이터를 읽어갈 것입니다.";
+            // Flet client_storage 호환 키 (ft. prefix)
+            try {
+                localStorage.setItem('ft.flet_gps_data', json);
+                localStorage.setItem('ft.flet_gps_result', json);
+            } catch(e) {}
 
-            // 1.5초 후 그냥 닫음 (연결고리 전혀 안 씀)
+            // 부모 창에 postMessage로 전달 시도
+            try {
+                if (window.opener) {
+                    window.opener.postMessage({type: 'GPS_RESULT', data: data}, '*');
+                }
+                if (window.parent && window.parent !== window) {
+                    window.parent.postMessage({type: 'GPS_RESULT', data: data}, '*');
+                }
+            } catch(e) {}
+
+            status.innerHTML = "<b style='color:#0f0'>위치 확인 완료!</b><br>잠시 후 자동으로 닫힙니다...";
+
+            // 1.5초 후 닫기
             setTimeout(() => {
                 window.close();
             }, 1500);
