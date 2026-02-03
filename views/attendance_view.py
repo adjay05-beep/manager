@@ -87,6 +87,15 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
     except Exception as e:
         print(f"Failed to load channel settings: {e}")
 
+    # [HYBRID] Flet Geolocator (Use native in App, Bridge in Web)
+    geolocator = None
+    if page.platform in [ft.PagePlatform.ANDROID, ft.PagePlatform.IOS]:
+        geolocator = ft.Geolocator(
+            location_settings=ft.GeolocatorSettings(accuracy=ft.GeolocatorPositionAccuracy.HIGH),
+            on_error=lambda e: print(f"[GEOLOCATOR] Error: {e.data}")
+        )
+        page.overlay.append(geolocator)
+        print("[DEBUG] Native Geolocator added for mobile platform")
 
     # Local State
     state = await attendance_service.get_status(user_id, channel_id)
@@ -199,95 +208,113 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                         page.open(ft.SnackBar(ft.Text("❌ 매장 위치가 설정되지 않았습니다."), bgcolor="red"))
                         return
                     
-                    print("[DEBUG] Triggering GPS request via GPS page...")
+                    print(f"[DEBUG] GPS Authentication triggered. Platform: {page.platform}")
 
                     user_lat = None
                     user_lng = None
 
+                    # [HYBRID] Method decision
+                    is_mobile_app = page.platform in [ft.PagePlatform.ANDROID, ft.PagePlatform.IOS]
+                    
                     try:
-                        import uuid
-                        import time
-
-                        # 고유 요청 ID 생성
-                        request_id = str(uuid.uuid4())[:8]
-                        print(f"[DEBUG] GPS request ID: {request_id}")
-
-                        # Supabase에 GPS 요청 레코드 생성
-                        try:
-                            service_supabase.table("gps_requests").insert({
-                                "id": request_id,
-                                "user_id": user_id,
-                                "status": "pending"
-                            }).execute()
-                        except Exception as db_err:
-                            print(f"[DEBUG] DB insert error (table might not exist): {db_err}")
-                            # 테이블이 없으면 localStorage 방식으로 폴백
-                            pass
-
-                        # GPS 페이지 열기 안내
-                        page.open(ft.SnackBar(
-                            ft.Text("📍 위치 확인 페이지가 열립니다. 위치 허용 후 이 탭으로 돌아와주세요."),
-                            duration=5000
-                        ))
-                        await asyncio.sleep(0.5)
-
-                        # GPS 전용 페이지 열기 (요청 ID 포함)
-                        page.launch_url(f"/assets/gps_page.html?rid={request_id}")
-                        print("[DEBUG] GPS page opened, polling for result...")
-
-                        # Supabase에서 결과 폴링 (최대 60초)
-                        gps_data = None
-                        for i in range(120):  # 0.5초 * 120 = 60초
-                            await asyncio.sleep(0.5)
-                            try:
-                                result = service_supabase.table("gps_requests").select("*").eq("id", request_id).single().execute()
-                                if result.data and result.data.get("status") == "completed":
-                                    gps_data = {
-                                        "lat": result.data.get("lat"),
-                                        "lng": result.data.get("lng")
-                                    }
-                                    print(f"[DEBUG] Got GPS from DB: {gps_data}")
-                                    # 사용한 레코드 삭제
-                                    service_supabase.table("gps_requests").delete().eq("id", request_id).execute()
-                                    break
-                                elif result.data and result.data.get("status") == "error":
-                                    gps_data = {"error": result.data.get("error_message", "Unknown error")}
-                                    service_supabase.table("gps_requests").delete().eq("id", request_id).execute()
-                                    break
-                            except Exception as poll_err:
-                                # 테이블이 없거나 다른 에러
-                                if i == 0:
-                                    print(f"[DEBUG] DB poll error: {poll_err}")
-                                continue
-
-                        if not gps_data:
-                            # 타임아웃 시 레코드 정리
-                            try:
-                                service_supabase.table("gps_requests").delete().eq("id", request_id).execute()
-                            except:
-                                pass
-                            page.open(ft.SnackBar(
-                                ft.Text("⏱️ GPS 응답 시간 초과. GPS 페이지에서 위치를 허용했는지 확인해주세요."),
-                                bgcolor="orange"
-                            ))
-                            return
-
-                        print(f"[DEBUG] GPS data: {gps_data}")
-
-                        if "error" in gps_data:
-                            error_msg = gps_data['error']
-                            if 'denied' in str(error_msg).lower():
-                                page.open(ft.SnackBar(
-                                    ft.Text("❌ 위치 권한이 거부되었습니다. 설정에서 허용해주세요."),
-                                    bgcolor="red"
-                                ))
+                        if is_mobile_app and geolocator:
+                            print("[DEBUG] Using NATIVE Geolocator for App environment...")
+                            page.open(ft.SnackBar(ft.Text("📍 네이티브 위치 정보를 요청합니다..."), duration=2000))
+                            
+                            pos = await geolocator.get_current_position_async()
+                            if pos:
+                                user_lat = pos.latitude
+                                user_lng = pos.longitude
+                                print(f"[DEBUG] Got GPS Natively: {user_lat}, {user_lng}")
                             else:
-                                page.open(ft.SnackBar(ft.Text(f"❌ GPS 오류: {error_msg}"), bgcolor="red"))
-                            return
+                                page.open(ft.SnackBar(ft.Text("❌ 위치 정보를 가져올 수 없습니다 (Device Error)"), bgcolor="red"))
+                                return
+                        else:
+                            # Use Web Bridge (Current Supabase-UUID method)
+                            print("[DEBUG] Using WEB Bridge (Supabase) for Browser environment...")
+                            import uuid
+                            import time
 
-                        user_lat = gps_data.get("lat")
-                        user_lng = gps_data.get("lng")
-                        print(f"[DEBUG] Got GPS: lat={user_lat}, lng={user_lng}")
+                            # 고유 요청 ID 생성
+                            request_id = str(uuid.uuid4())[:8]
+                            print(f"[DEBUG] GPS request ID: {request_id}")
+
+                            # Supabase에 GPS 요청 레코드 생성
+                            try:
+                                service_supabase.table("gps_requests").insert({
+                                    "id": request_id,
+                                    "user_id": user_id,
+                                    "status": "pending"
+                                }).execute()
+                            except Exception as db_err:
+                                print(f"[DEBUG] DB insert error (table might not exist): {db_err}")
+                                # 테이블이 없으면 localStorage 방식으로 폴백
+                                pass
+
+                            # GPS 페이지 열기 안내
+                            page.open(ft.SnackBar(
+                                ft.Text("📍 위치 확인 페이지가 열립니다. 위치 허용 후 이 탭으로 돌아와주세요."),
+                                duration=5000
+                            ))
+                            await asyncio.sleep(0.5)
+
+                            # GPS 전용 페이지 열기 (요청 ID 포함)
+                            page.launch_url(f"/assets/gps_page.html?rid={request_id}")
+                            print("[DEBUG] GPS page opened, polling for result...")
+
+                            # Supabase에서 결과 폴링 (최대 60초)
+                            gps_data = None
+                            for i in range(120):  # 0.5초 * 120 = 60초
+                                await asyncio.sleep(0.5)
+                                try:
+                                    result = service_supabase.table("gps_requests").select("*").eq("id", request_id).single().execute()
+                                    if result.data and result.data.get("status") == "completed":
+                                        gps_data = {
+                                            "lat": result.data.get("lat"),
+                                            "lng": result.data.get("lng")
+                                        }
+                                        print(f"[DEBUG] Got GPS from DB: {gps_data}")
+                                        # 사용한 레코드 삭제
+                                        service_supabase.table("gps_requests").delete().eq("id", request_id).execute()
+                                        break
+                                    elif result.data and result.data.get("status") == "error":
+                                        gps_data = {"error": result.data.get("error_message", "Unknown error")}
+                                        service_supabase.table("gps_requests").delete().eq("id", request_id).execute()
+                                        break
+                                except Exception as poll_err:
+                                    # 테이블이 없거나 다른 에러
+                                    if i == 0:
+                                        print(f"[DEBUG] DB poll error: {poll_err}")
+                                    continue
+
+                            if not gps_data:
+                                # 타임아웃 시 레코드 정리
+                                try:
+                                    service_supabase.table("gps_requests").delete().eq("id", request_id).execute()
+                                except:
+                                    pass
+                                page.open(ft.SnackBar(
+                                    ft.Text("⏱️ GPS 응답 시간 초과. GPS 페이지에서 위치를 허용했는지 확인해주세요."),
+                                    bgcolor="orange"
+                                ))
+                                return
+
+                            print(f"[DEBUG] GPS data: {gps_data}")
+
+                            if "error" in gps_data:
+                                error_msg = gps_data['error']
+                                if 'denied' in str(error_msg).lower():
+                                    page.open(ft.SnackBar(
+                                        ft.Text("❌ 위치 권한이 거부되었습니다. 설정에서 허용해주세요."),
+                                        bgcolor="red"
+                                    ))
+                                else:
+                                    page.open(ft.SnackBar(ft.Text(f"❌ GPS 오류: {error_msg}"), bgcolor="red"))
+                                return
+
+                            user_lat = gps_data.get("lat")
+                            user_lng = gps_data.get("lng")
+                            print(f"[DEBUG] Got GPS via Bridge: lat={user_lat}, lng={user_lng}")
 
                     except Exception as gps_err:
                         import traceback
