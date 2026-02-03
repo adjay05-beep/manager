@@ -14,13 +14,16 @@
     - **Messenger**: Real-time communication channel.
     - **Calendar**: Store schedule and event management with real-time sync.
     - **Handover (Work Log)**: Recording and sharing daily operational notes.
-    - **Checklist**: Safety and operational verification tasks for opening/closing.
+    - **Checklist**: Safety and operational verification tasks for opening/closing. (Mapped to `closing_view.py`)
     - **Attendance**: Clock-in/out tracking with GPS/Wi-Fi verification.
-    - **Settings**: Store and profile management.
+    - **Store Management**: Managing store details, members, and roles.
+    - **Profile**: User identity and account configuration.
+    - **Settings**: Centralized application and channel configuration.
 
 ### 2.3. Attendance Management (High Priority)
 - **Clock-In/Out**: Users can record their work hours via a premium UI.
-- **Verification**: Supports GPS-based (location) and Wi-Fi-based (network) verification to ensure presence at the store.
+- **GPS Verification**: Compares user location with store coordinates.
+- **Wi-Fi Verification**: Checks if the user is connected to the designated store network.
 - **Real-time Feedback**: Displays current time and status (In/Out) with smooth animations.
 
 ### 2.4. Messenger & Calendar

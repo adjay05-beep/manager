@@ -1,7 +1,7 @@
 # Project Architecture & Map
 
-**Last Updated:** 2026-02-01
-**Version:** 2.0 (Stabilization Phase)
+**Last Updated:** 2026-02-03
+**Version:** 2.1 (Feature Sync)
 
 This document maps the **The Manager** project's structure, data flow, and infrastructure rules. It serves as the single source of truth for understanding the application's design.
 
@@ -42,10 +42,13 @@ graph TD
 *   **Role**: Renders UI, handles user input, delegates to Services.
 *   **Key Files**:
     *   `main.py`: Entry point. Contains **Infrastructure Patches** (see Section 4).
-    *   `work_view.py`: Complex Schedule/Payroll management.
+    *   `attendance_view.py`: GPS/Wi-Fi verified clock-in/out.
     *   `chat_view.py`: Real-time chat interface.
-    *   `voice_view.py`: Dual-mode voice recording (Web Speech API + AudioRecorder).
-    *   `handover_view.py`: Render-cached operational logs.
+    *   `voice_view.py`: Dual-mode voice recording.
+    *   `handover_view.py`: Operational logs with data hashing.
+    *   `closing_view.py`: Operational checklist for store closing.
+    *   `store_manage_view.py`: Store information and channel management.
+    *   `profile_view.py`: User profile and identity display.
 
 ### 🔵 Business Logic Layer (`services/`)
 *   **Role**: Validates rules, processes data, orchestrates multiple Repositories.

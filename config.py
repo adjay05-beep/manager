@@ -14,6 +14,7 @@ class Config:
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
     SUPABASE_SERVICE_KEY: Optional[str] = os.getenv("SUPABASE_SERVICE_KEY")
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
+    KAKAO_REST_API_KEY: str = os.getenv("KAKAO_REST_API_KEY", "796328a2a88e280800746e534f375a0c") # Default public test key if not set
 
     # === Timeouts (seconds) ===
     AI_TIMEOUT: int = int(os.getenv("AI_TIMEOUT", "45"))

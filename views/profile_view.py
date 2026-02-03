@@ -4,6 +4,7 @@ from services.channel_service import channel_service
 from services.auth_service import auth_service
 from db import service_supabase
 from views.components.app_header import AppHeader
+from views.components.modal_overlay import ModalOverlay
 from views.styles import AppColors, AppLayout
 import os
 
@@ -13,6 +14,9 @@ async def get_profile_controls(page: ft.Page, navigate_to):
     user_id = page.app_session.get("user_id")
     channel_id = page.app_session.get("channel_id")
     user_email = page.app_session.get("user_email") or "unknown@example.com"
+    
+    # [FAUX DIALOG]
+    overlay = ModalOverlay(page)
     
     # Fetch User Profile
     user_profile = None
@@ -118,6 +122,7 @@ async def get_profile_controls(page: ft.Page, navigate_to):
             }).execute())
             page.app_session["display_name"] = profile_name_tf.value
             page.open(ft.SnackBar(ft.Text("프로필이 저장되었습니다."), bgcolor="green"))
+            overlay.close()
             page.update()
         except Exception as ex:
             print(ex)
@@ -141,6 +146,28 @@ async def get_profile_controls(page: ft.Page, navigate_to):
         pass # To be implemented if needed, or link to Onboarding
 
     # 1. Profile Card
+    
+    def open_edit_profile(e):
+        # [FAUX DIALOG]
+        edit_card = ft.Container(
+             width=350,
+             padding=20,
+             bgcolor="white",
+             border_radius=15,
+             on_click=lambda e: e.control.page.update(),
+             content=ft.Column([
+                ft.Text("프로필 수정", size=20, weight="bold"),
+                ft.Container(height=10),
+                profile_name_tf,
+                ft.Container(height=20),
+                ft.Row([
+                    ft.TextButton("취소", on_click=lambda _: overlay.close()),
+                    ft.ElevatedButton("저장", on_click=lambda e: asyncio.create_task(save_profile_changes(e) if hasattr(save_profile_changes, '__await__') else save_profile_changes(e)))
+                ], alignment=ft.MainAxisAlignment.END)
+             ], tight=True)
+        )
+        overlay.open(edit_card)
+
     profile_card = ft.Container(
         padding=20,
         content=ft.Row([
@@ -153,7 +180,7 @@ async def get_profile_controls(page: ft.Page, navigate_to):
             ft.Column([
                  ft.Row([
                      ft.Text(user_profile.get("full_name", "이름 없음"), size=20, weight="bold", color="#1A1A1A"),
-                     ft.IconButton(ft.Icons.EDIT, icon_color="grey", icon_size=18, tooltip="이름 수정", on_click=lambda _: page.open(edit_profile_dialog)) 
+                     ft.IconButton(ft.Icons.EDIT, icon_color="grey", icon_size=18, tooltip="이름 수정", on_click=open_edit_profile) 
                  ], spacing=0, alignment=ft.MainAxisAlignment.START),
                  ft.Container(
                      content=ft.Text(f"{user_profile.get('role', 'staff')}", size=12, color="white"),
@@ -161,14 +188,6 @@ async def get_profile_controls(page: ft.Page, navigate_to):
                  ),
             ], spacing=5),
         ])
-    )
-
-    edit_profile_dialog = ft.AlertDialog(
-        title=ft.Text("프로필 수정"),
-        content=profile_name_tf,
-        actions=[
-            ft.TextButton("저장", on_click=lambda e: asyncio.create_task(save_profile_changes(e) if hasattr(save_profile_changes, '__await__') else save_profile_changes(e)))
-        ]
     )
 
     # 2. Store List
@@ -202,37 +221,40 @@ async def get_profile_controls(page: ft.Page, navigate_to):
         await navigate_to("home")
 
     return [
-        ft.SafeArea(expand=True, content=
-            ft.Container(
-                expand=True,
-                bgcolor="white",
-                content=ft.Column([
-                    # Header
-                    AppHeader("내 프로필", on_back_click=lambda e: asyncio.create_task(navigate_to("home"))),
-                    
-                    profile_card,
-                    
-                    # [NEW] Contract Section
-                    ft.Container(
-                        padding=ft.padding.symmetric(horizontal=20, vertical=10),
-                        content=ft.Column([
-                            ft.Text("나의 계약 정보", size=16, weight="bold", color="#0A1929"),
-                            contract_info_container
-                        ])
-                    ),
+        ft.Stack([
+            ft.SafeArea(expand=True, content=
+                ft.Container(
+                    expand=True,
+                    bgcolor="white",
+                    content=ft.Column([
+                        # Header
+                        AppHeader("내 프로필", on_back_click=lambda e: asyncio.create_task(navigate_to("home"))),
+                        
+                        profile_card,
+                        
+                        # [NEW] Contract Section
+                        ft.Container(
+                            padding=ft.padding.symmetric(horizontal=20, vertical=10),
+                            content=ft.Column([
+                                ft.Text("나의 계약 정보", size=16, weight="bold", color="#0A1929"),
+                                contract_info_container
+                            ])
+                        ),
 
-                    ft.Divider(color="#EEEEEE", thickness=5),
-                    
-                    ft.Container(
-                        padding=20,
-                        content=ft.Column([
-                            ft.Text("내 매장 목록", size=16, weight="bold", color="#0A1929"),
-                            ft.Column(store_list_items, spacing=0),
-                            ft.Container(height=10),
-                            ft.OutlinedButton("새 매장 만들기", icon=ft.Icons.ADD, on_click=lambda _: asyncio.create_task(navigate_to("onboarding")), width=200)
-                        ])
-                    )
-                ], scroll=ft.ScrollMode.AUTO)
-            )
-        )
+                        ft.Divider(color="#EEEEEE", thickness=5),
+                        
+                        ft.Container(
+                            padding=20,
+                            content=ft.Column([
+                                ft.Text("내 매장 목록", size=16, weight="bold", color="#0A1929"),
+                                ft.Column(store_list_items, spacing=0),
+                                ft.Container(height=10),
+                                ft.OutlinedButton("새 매장 만들기", icon=ft.Icons.ADD, on_click=lambda _: asyncio.create_task(navigate_to("onboarding")), width=200)
+                            ])
+                        )
+                    ], scroll=ft.ScrollMode.AUTO)
+                )
+            ),
+            overlay
+        ], expand=True)
     ]

@@ -1,18 +1,20 @@
+import os
+import asyncio
 import flet as ft
 from services.router import Router
 from utils.logger import log_error, log_info
+from utils.sys_logger import sys_log
 
 async def main(page: ft.Page):
-    print("DEBUG: Inside main function!")
     page.title = "The Manager"
 
-    # [Flet 0.80+] Custom session storage since page.session API changed
+    # [Flet 0.80+] Custom session storage
     page.app_session = {}
     
-    # [THEME PERSISTENCE] Load theme from shared_preferences (Flet 0.80+)
+    # [THEME PERSISTENCE]
     try:
-        theme_mode_str = await page.shared_preferences.get("theme_mode")  # Flet 0.80+ uses get()
-    except Exception as e:
+        theme_mode_str = await page.shared_preferences.get("theme_mode")
+    except Exception:
         theme_mode_str = None
     
     if theme_mode_str == "dark":
@@ -23,145 +25,167 @@ async def main(page: ft.Page):
     page.padding = 0
     page.spacing = 0
     
-    # [Flet 0.80+] FilePicker disabled
-    page.file_picker = None
-    page.chat_file_picker = None
-    page.audio_recorder = None
-    
-    # Optimized Route Management via Router Service
-    page.history_stack = [] # Kept for backward compatibility if any view accesses it directly
-    
-    # Initialize Router
+    # [SYSTEM BRIDGE] Global hidden bridge for JS communication per session
+    page._bridge = ft.TextField(
+        opacity=0, width=1, height=1, 
+        hint_text="SYSTEM_JS_BRIDGE"
+    )
+    page.overlay.append(page._bridge)
+
+    # [SYSTEM BRIDGE 2.0] Title-based communication (The most stable method for 0.80+)
+    page._js_result = None
+    page._js_event = asyncio.Event()
+
+    async def on_title_change(e):
+        # We look for a special prefix in the title: "RESULT:{"
+        if page.title.startswith("RESULT:"):
+            res_json = page.title[7:]
+            sys_log(f"TITLE_BRIDGE: Received data: {res_json[:50]}...")
+            page._js_result = res_json
+            page._js_event.set()
+            # Restore title
+            page.title = "Manager"
+            page.update()
+
+    page.on_title_change = on_title_change
+
+    # [POLYFILL 2.0] Enhanced run_javascript
+    async def run_javascript_fixed(self, script: str, return_value: bool = False):
+        import asyncio, re
+        
+        # Minify
+        minified = re.sub(r"\s+", " ", script).strip()
+        
+        # Wrap to write to document.title instead of TextField
+        if return_value:
+            # We use document.title because it triggers an event in Flet immediately
+            wrapped_js = (
+                f"(async()=>{{try{{"
+                f"let r=await({minified});"
+                f"document.title='RESULT:'+(typeof r==='object'?JSON.stringify(r):String(r));"
+                f"}}catch(e){{"
+                f"document.title='RESULT:'+JSON.stringify({{error:e.toString()}});"
+                f"}}}}).call();"
+            )
+        else:
+            wrapped_js = minified
+
+        try:
+            # We call this via a dummy script container or direct launch
+            sys_log(f"run_javascript: Executing via Title Bridge...")
+            await self.launch_url(f"javascript:void({wrapped_js})")
+        except Exception as e:
+            sys_log(f"run_javascript FAILED: {e}")
+            return None
+
+        if return_value:
+            self._js_event.clear()
+            self._js_result = None
+            try:
+                # Wait for title change event
+                await asyncio.wait_for(self._js_event.wait(), timeout=15.0)
+                return self._js_result
+            except asyncio.TimeoutError:
+                sys_log("run_javascript: ERROR - Title Bridge Timeout")
+                return None
+        return None
+
+    ft.Page.run_javascript = run_javascript_fixed
+    sys_log("Applied Title-Bridge Polyfill to ft.Page (v2.0)")
+
+    # [POLYFILL] Add Page.open/close support
+    if not hasattr(ft.Page, "open"):
+        def page_open_polyfill(self, control):
+            if hasattr(control, 'open'):
+                control.open = True
+                control.visible = True
+                if control not in self.overlay:
+                    self.overlay.append(control)
+                self.update()
+            elif control not in self.overlay:
+                self.overlay.append(control)
+                self.update()
+        ft.Page.open = page_open_polyfill
+
+    if not hasattr(ft.Page, "close"):
+        def page_close_polyfill(self, control):
+            if not control: return
+            if hasattr(control, 'open'): control.open = False
+            if hasattr(control, 'visible'): control.visible = False
+            if control in self.overlay: self.overlay.remove(control)
+            self.update()
+        ft.Page.close = page_close_polyfill
+
     router = Router(page)
-    
-    # Start Application
     await router.start()
 
 if __name__ == "__main__":
     import os
     import flet as ft
-    # Ensure upload directory exists for Proxy Uploads
     os.makedirs("uploads", exist_ok=True)
-
-    # [CRITICAL PATCH] Fix KeyError: 'bytes' in Flet/Starlette compatibility
-    # Starlette's receive_bytes strict implementation crashes if 'bytes' key is missing.
+    
+    # [CRITICAL PATCH] Fix 'text' and 'bytes' KeyError in Flet/Starlette WebSocket compatibility
     try:
         import starlette.websockets
         from typing import cast
+        import json
         
+        # Patch receive_bytes
         async def patched_receive_bytes(self) -> bytes:
             while True:
                 message = await self.receive()
                 self._raise_on_disconnect(message)
                 if "bytes" in message:
                     return cast(bytes, message["bytes"])
-                # If non-bytes (e.g. text 'ping'), log and continue waiting
-                # This prevents the KeyError: 'bytes' crash
-                print(f"DEBUG_SOCK: Ignored non-bytes message. Type: {message.get('type')}, Keys: {list(message.keys())}")
-                # Loop continues to receive next message
-            
+                # Skip non-bytes messages silently
+                if message.get("type") == "websocket.disconnect":
+                    return b""
+        
+        # Patch receive_text
+        async def patched_receive_text(self) -> str:
+            while True:
+                message = await self.receive()
+                self._raise_on_disconnect(message)
+                if "text" in message:
+                    return cast(str, message["text"])
+                # Skip non-text messages silently
+                if message.get("type") == "websocket.disconnect":
+                    return ""
+        
+        # Patch receive_json
+        async def patched_receive_json(self):
+            while True:
+                message = await self.receive()
+                self._raise_on_disconnect(message)
+                if "text" in message:
+                    text = cast(str, message["text"])
+                    return json.loads(text)
+                # Skip non-json messages silently
+                if message.get("type") == "websocket.disconnect":
+                    return None
+        
         starlette.websockets.WebSocket.receive_bytes = patched_receive_bytes
-        print("SYSTEM: Applied Monkey-Patch for WebSocket.receive_bytes")
+        starlette.websockets.WebSocket.receive_text = patched_receive_text
+        starlette.websockets.WebSocket.receive_json = patched_receive_json
+        print("SYSTEM: ✓ Applied WebSocket patches (receive_bytes, receive_text, receive_json)")
     except ImportError:
-        print("WARNING: Could not apply WebSocket patch (Starlette not found)")
+        print("WARNING: Could not apply WebSocket patch")
+    except Exception as e:
+        print(f"WARNING: WebSocket patch failed: {e}")
 
-    # [POLYFILL] Add Page.open support for Flet 0.80.5
-    if not hasattr(ft.Page, "open"):
-        print("SYSTEM: Applying Polyfill for Page.open (Overlay-only)")
-        def page_open_polyfill(self, control):
-            print(f"[POLYFILL] page.open called with: {type(control).__name__}")
-            
-            # For AlertDialog and similar controls with 'open' attribute
-            if hasattr(control, 'open'):
-                print(f"[POLYFILL] Using OVERLAY ONLY approach for dialog")
-                control.open = True
-                control.visible = True # Explicitly visible
-                
-                # IMPORTANT: DO NOT set self.dialog in 0.80.5 Web! 
-                if control not in self.overlay:
-                    self.overlay.append(control)
-                    print(f"[POLYFILL] Added to page.overlay")
-                
-                self.update()
-                print(f"[POLYFILL] Dialog should now be visible via overlay")
-            else:
-                # Non-dialog controls - add to overlay
-                print(f"[POLYFILL] Adding non-dialog to overlay")
-                if control not in self.overlay:
-                    self.overlay.append(control)
-                self.update()
-        ft.Page.open = page_open_polyfill
-    else:
-        print("SYSTEM: Page.open already exists, skipping polyfill")
+
+    port = int(os.getenv("PORT", 8888))
+    host = "0.0.0.0" 
     
-    # [POLYFILL] Add Page.close support
-    _original_page_close = getattr(ft.Page, "close", None)
-
-    def page_close_polyfill(self, control):
-        if not control: return
-        print(f"[POLYFILL] page.close called with: {type(control).__name__}")
-
-        # Set open=False for dialog controls
-        if hasattr(control, 'open'):
-            control.open = False
-            print(f"[POLYFILL] Set open=False")
-
-        if hasattr(control, 'visible'):
-            control.visible = False
-            print(f"[POLYFILL] Set visible=False")
-
-        # [FIX] Clear content to force visual removal
-        if hasattr(control, 'content'):
-            control.content = None
-            print(f"[POLYFILL] Cleared content")
-
-        if hasattr(control, 'actions'):
-            control.actions = []
-            print(f"[POLYFILL] Cleared actions")
-
-        # [FIX] Try setting page.dialog = None
-        try:
-            self.dialog = None
-            print(f"[POLYFILL] Set page.dialog = None")
-        except Exception as e:
-            print(f"[POLYFILL] Could not set page.dialog: {e}")
-
-        # Remove from overlay
-        if control in self.overlay:
-            while control in self.overlay:
-                self.overlay.remove(control)
-            print(f"[POLYFILL] Removed from overlay")
-
-        # [FIX] Call original close if exists
-        if _original_page_close:
-            try:
-                _original_page_close(self, control)
-                print(f"[POLYFILL] Called original page.close")
-            except Exception as e:
-                print(f"[POLYFILL] Original close error: {e}")
-
-        # Force UI update
-        self.update()
-        print(f"[POLYFILL] Page updated after close")
-
-    ft.Page.close = page_close_polyfill
-
-    # 클라우드 환경(Render 등)에서 제공하는 PORT 변수를 우선 사용합니다.
-    port = int(os.getenv("PORT", 8555))
-    host = "0.0.0.0"
-    
-    # Secure Uploads require a Secret Key
+    # Secure key setup
     secret_key = os.getenv("FLET_SECRET_KEY")
     if not secret_key:
         import secrets
-        secret_key = secrets.token_hex(32)
-        print("WARNING: FLET_SECRET_KEY not set. Generated temporary key.")
-    os.environ["FLET_SECRET_KEY"] = secret_key
+        os.environ["FLET_SECRET_KEY"] = secrets.token_hex(32)
 
-    # flet 0.80.x 이상
     try:
-        ft.run(
-            main,
+        ft.app(
+            target=main,
             port=port,
             host=host,
             assets_dir="assets",

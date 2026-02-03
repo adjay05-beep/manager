@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JavaScript GPS Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+        }
+
+        button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            margin: 10px 5px;
+        }
+
+        button:hover {
+            background: #1976D2;
+        }
+
+        .result {
+            margin: 20px 0;
+            padding: 20px;
+            background: #2a2a2a;
+            border-radius: 8px;
+            min-height: 100px;
+        }
+
+        .success {
+            color: #4CAF50;
+        }
+
+        .error {
+            color: #f44336;
+        }
+
+        .info {
+            color: #2196F3;
+        }
+
+        #console {
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .log-line {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #2196F3;
+            padding-left: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🔍 GPS JavaScript 디버그 테스트</h1>
+
+    <div>
+        <button onclick="testGPS()">📍 GPS 가져오기</button>
+        <button onclick="testBridge()">🔗 브리지 테스트</button>
+        <button onclick="clearConsole()">🗑️ 콘솔 지우기</button>
+    </div>
+
+    <div class="result">
+        <h3>결과:</h3>
+        <div id="result">대기 중...</div>
+    </div>
+
+    <div class="result">
+        <h3>콘솔 로그:</h3>
+        <div id="console"></div>
+    </div>
+
+    <script>
+        const resultDiv = document.getElementById('result');
+        const consoleDiv = document.getElementById('console');
+
+        function log(message, type = 'info') {
+            const line = document.createElement('div');
+            line.className = `log-line ${type}`;
+            line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            consoleDiv.appendChild(line);
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            console.log(message);
+        }
+
+        function clearConsole() {
+            consoleDiv.innerHTML = '';
+        }
+
+        function testBridge() {
+            log('브리지 테스트 시작...', 'info');
+
+            // Try to find bridge
+            const bridges = [
+                document.querySelector('input[placeholder="SYSTEM_JS_BRIDGE"]'),
+                document.querySelector('input[hint_text="SYSTEM_JS_BRIDGE"]'),
+                document.querySelector('input[type="text"]')
+            ];
+
+            log(`DOM에서 input 요소 검색 중...`, 'info');
+
+            const allInputs = document.querySelectorAll('input');
+            log(`전체 input 개수: ${allInputs.length}`, 'info');
+
+            allInputs.forEach((input, i) => {
+                log(`Input ${i}: placeholder="${input.placeholder}", hint="${input.getAttribute('hint_text')}", type="${input.type}"`, 'info');
+            });
+
+            bridges.forEach((bridge, i) => {
+                if (bridge) {
+                    log(`브리지 ${i} 발견! placeholder="${bridge.placeholder}"`, 'success');
+                    bridge.value = 'TEST_SUCCESS_' + Date.now();
+                    bridge.dispatchEvent(new Event('input', { bubbles: true }));
+                } else {
+                    log(`브리지 ${i} 찾을 수 없음`, 'error');
+                }
+            });
+
+            resultDiv.innerHTML = `<span class="info">브리지 검색 완료. 콘솔을 확인하세요.</span>`;
+        }
+
+        function testGPS() {
+            log('GPS 테스트 시작...', 'info');
+            resultDiv.innerHTML = '<span class="info">위치 확인 중...</span>';
+
+            if (!navigator.geolocation) {
+                const msg = 'GPS가 지원되지 않는 브라우저입니다';
+                log(msg, 'error');
+                resultDiv.innerHTML = `<span class="error">${msg}</span>`;
+                return;
+            }
+
+            log('navigator.geolocation 사용 가능', 'success');
+            log('getCurrentPosition 호출 중...', 'info');
+
+            navigator.geolocation.getCurrentPosition(
+                function (position) {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    const acc = position.coords.accuracy;
+
+                    log(`✓ 위치 수신 성공!`, 'success');
+                    log(`  위도: ${lat}`, 'success');
+                    log(`  경도: ${lng}`, 'success');
+                    log(`  정확도: ${acc}m`, 'success');
+
+                    resultDiv.innerHTML = `
+                        <span class="success">✓ GPS 성공!</span><br>
+                        위도: ${lat.toFixed(6)}<br>
+                        경도: ${lng.toFixed(6)}<br>
+                        정확도: ${acc.toFixed(0)}m
+                    `;
+
+                    // Try to send to bridge
+                    log('브리지로 결과 전송 시도...', 'info');
+                    const bridge = document.querySelector('input[placeholder="SYSTEM_JS_BRIDGE"]');
+                    if (bridge) {
+                        const data = JSON.stringify({ lat, lng });
+                        bridge.value = data;
+                        bridge.dispatchEvent(new Event('input', { bubbles: true }));
+                        log(`브리지로 전송 완료: ${data}`, 'success');
+                    } else {
+                        log('브리지를 찾을 수 없음 - Flet 앱에서만 작동', 'error');
+                    }
+                },
+                function (error) {
+                    let msg = '';
+                    switch (error.code) {
+                        case error.PERMISSION_DENIED:
+                            msg = '위치 권한이 거부되었습니다';
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            msg = '위치 정보를 사용할 수 없습니다';
+                            break;
+                        case error.TIMEOUT:
+                            msg = '위치 요청 시간이 초과되었습니다';
+                            break;
+                        default:
+                            msg = '알 수 없는 오류: ' + error.message;
+                    }
+
+                    log(`✗ GPS 오류: ${msg}`, 'error');
+                    log(`  Code: ${error.code}`, 'error');
+                    log(`  Message: ${error.message}`, 'error');
+
+                    resultDiv.innerHTML = `<span class="error">✗ ${msg}</span>`;
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                }
+            );
+        }
+
+        // Initial log
+        log('페이지 로드 완료', 'success');
+        log('준비 완료. 버튼을 클릭하여 테스트를 시작하세요.', 'info');
+    </script>
+</body>
+
+</html>

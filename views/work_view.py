@@ -4,6 +4,7 @@ from db import service_supabase
 import asyncio
 from views.styles import AppColors, AppLayout, AppButtons
 from views.components.app_header import AppHeader
+from views.components.modal_overlay import ModalOverlay
 import os
 import calendar as cal_mod
 import re
@@ -19,6 +20,9 @@ async def get_work_controls(page: ft.Page, navigate_to):
 
     black_text = "black"
     grey_text = "grey"
+    
+    # [FAUX DIALOG]
+    overlay = ModalOverlay(page)
     
     # 1. Weekly Schedule Summary Widget (Define First)
     weekly_summary_list = ft.Column(spacing=5)
@@ -341,9 +345,9 @@ async def get_work_controls(page: ft.Page, navigate_to):
                          page.update()
                          return
                  
-                     await page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)
-                     page.update()
-                     await load_contracts_async()
+                 overlay.close()
+                 page.update()
+                 await load_contracts_async()
                  # await build_monthly_calendar()
 
              except Exception as ex:
@@ -353,31 +357,41 @@ async def get_work_controls(page: ft.Page, navigate_to):
                  page.open(ft.SnackBar(ft.Text(f"오류 발생: {ex}"), bgcolor="red"))
                  page.update()
         
-        dlg = ft.AlertDialog(
-            title=ft.Text("직원 정보 수정"),
-            content=ft.Container(
-                content=ft.Column([
-                    ft.Text("수정 유형 선택:", size=12, color="grey"),
-                    edit_mode,
-                    effective_date,
-                    e_contract_start_date,
-                    ft.Divider(),
-                    e_name, 
-                    e_type, 
-                    ft.Row([e_wage_type, e_wage]),
-                    ft.Divider(),
-                    ft.Text("근무 일정 (전체 적용)"),
-                    ft.Row(e_day_checks, wrap=True),
-                    ft.Row([e_start, ft.Text("~"), e_end])
-                ], tight=True, scroll=ft.ScrollMode.AUTO),
-                width=400, height=500
-            ),
-            actions=[
-                ft.TextButton("저장", on_click=lambda e: asyncio.create_task(save_edit())),
-                ft.TextButton("취소", on_click=lambda e: asyncio.create_task(page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)))
-            ]
+        # [FAUX DIALOG] Edit Card
+        edit_card = ft.Container(
+            width=400,
+            padding=20,
+            bgcolor=AppColors.SURFACE,
+            border_radius=20,
+            on_click=lambda e: e.control.page.update(),
+            content=ft.Column([
+                ft.Text("직원 정보 수정", size=20, weight="bold", color=AppColors.TEXT_PRIMARY),
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text("수정 유형 선택:", size=12, color="grey"),
+                        edit_mode,
+                        effective_date,
+                        e_contract_start_date,
+                        ft.Divider(),
+                        e_name, 
+                        e_type, 
+                        ft.Row([e_wage_type, e_wage]),
+                        ft.Divider(),
+                        ft.Text("근무 일정 (전체 적용)"),
+                        ft.Row(e_day_checks, wrap=True),
+                        ft.Row([e_start, ft.Text("~"), e_end])
+                    ], tight=True, scroll=ft.ScrollMode.AUTO),
+                    height=400 # Limit height for scroll
+                ),
+                ft.Container(height=10),
+                ft.Row([
+                    ft.TextButton("취소", on_click=lambda _: overlay.close()),
+                    ft.ElevatedButton("저장", on_click=lambda e: asyncio.create_task(save_edit()))
+                ], alignment=ft.MainAxisAlignment.END)
+            ], tight=True)
         )
-        page.open(dlg)
+        overlay.open(edit_card)
 
 
     async def open_resign_dialog(contract, mode="resign"):
@@ -408,7 +422,7 @@ async def get_work_controls(page: ft.Page, navigate_to):
                 new_val = res_date.value if mode == "resign" else None
                 await asyncio.to_thread(lambda: client.from_("labor_contracts").update({"contract_end_date": new_val}).eq("id", contract['id']).execute())
                 
-                await page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)
+                overlay.close()
                 msg = f"{contract.get('employee_name')}님이 퇴사 처리되었습니다." if mode == "resign" else f"{contract.get('employee_name')}님이 복구되었습니다."
                 page.open(ft.SnackBar(ft.Text(msg), bgcolor="orange" if mode=="resign" else "blue"))
                 page.update()
@@ -420,15 +434,25 @@ async def get_work_controls(page: ft.Page, navigate_to):
         content_list = [ft.Text(desc_text, size=12, color="grey")]
         if res_date: content_list.append(res_date)
 
-        dlg = ft.AlertDialog(
-            title=ft.Text(title_text),
-            content=ft.Column(content_list, tight=True),
-            actions=[
-                ft.TextButton(btn_text, on_click=lambda e: asyncio.create_task(save_action())),
-                ft.TextButton("취소", on_click=lambda e: asyncio.create_task(page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)))
-            ]
+        # [FAUX DIALOG] Resign Card
+        resign_card = ft.Container(
+            width=400,
+            padding=20,
+            bgcolor=AppColors.SURFACE,
+            border_radius=20,
+            on_click=lambda e: e.control.page.update(),
+            content=ft.Column([
+                ft.Text(title_text, size=20, weight="bold", color=AppColors.TEXT_PRIMARY),
+                ft.Container(height=10),
+                ft.Column(content_list, tight=True),
+                ft.Container(height=20),
+                ft.Row([
+                    ft.TextButton("취소", on_click=lambda _: overlay.close()),
+                    ft.TextButton(btn_text, on_click=lambda e: asyncio.create_task(save_action()), style=ft.ButtonStyle(color=btn_color))
+                ], alignment=ft.MainAxisAlignment.END)
+            ], tight=True)
         )
-        page.open(dlg)
+        overlay.open(resign_card)
         page.update()
 
     # 4. Async Functions
@@ -1110,12 +1134,18 @@ async def get_work_controls(page: ft.Page, navigate_to):
     asyncio.create_task(load_contracts_async())
 
     return [
-        ft.SafeArea(expand=True, content=
-            ft.Column([
-                ft.Container(header, bgcolor=AppColors.SURFACE),
-                ft.Container(tabs_row, height=50, bgcolor=AppColors.SURFACE),
-                ft.Container(body, expand=True, padding=10)
-            ], spacing=0, expand=True)
+        ft.Stack(
+            [
+                ft.SafeArea(expand=True, content=
+                    ft.Column([
+                        ft.Container(header, bgcolor=AppColors.SURFACE),
+                        ft.Container(tabs_row, height=50, bgcolor=AppColors.SURFACE),
+                        ft.Container(body, expand=True, padding=10)
+                    ], spacing=0, expand=True)
+                ),
+                overlay
+            ],
+            expand=True
         )
     ]
 

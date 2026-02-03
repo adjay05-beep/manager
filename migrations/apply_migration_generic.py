@@ -2,7 +2,7 @@ import os
 import sys
 
 # Add project root to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.getcwd())
 
 try:
     from db import supabase, service_supabase

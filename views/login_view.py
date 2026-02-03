@@ -7,7 +7,9 @@ from utils.logger import log_debug, log_info, log_error
 from views.styles import AppColors, AppTextStyles, AppLayout, AppGradients, AppShadows
 from components.premium_card import PremiumCard
 from views.components.inputs import StandardTextField
+from views.components.inputs import StandardTextField
 from views.components.cards import AuthCard
+from views.components.modal_overlay import ModalOverlay
 
 # Safe shared_preferences wrapper for web mode compatibility (Flet 0.80+)
 async def safe_storage_get(page: ft.Page, key: str, default=None):
@@ -64,7 +66,7 @@ def safe_session_clear(page: ft.Page):
     except Exception as e:
         log_debug(f"session clear failed: {e}")
 
-async def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_token: str = None):
+async def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, access_token: str = None, overlay=None):
     print(f"DEBUG: handle_successful_login called, route={page.route}")
     # [GUARD] If the page has already moved away from login, abort this flow.
     # This prevents auto-login dialogs from popping up on the home screen if user manually navigated.
@@ -107,12 +109,17 @@ async def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, a
                 traceback.print_exc()
             
         elif len(channels) > 1:
-            # Flet 0.80+: Create factory for async handlers with captured variables
-            ch_dialog = None  # Forward declaration
+            if not overlay:
+                 log_error("CRITICAL: Overlay not passed to handle_successful_login during multi-channel selection")
+                 # Fallback code or simply fail safely
+                 page.app_session["user_id"] = user_data['id']
+                 await navigate_to("onboarding")
+                 return
 
+            # Flet 0.80+: Create factory for async handlers with captured variables
+            
             async def pick_channel(ch):
-                if ch_dialog:
-                    await page.close_async(ch_dialog) if hasattr(page, "close_async") else page.close(ch_dialog)
+                await overlay.close()
                 page.app_session["user_id"] = user_data['id']
                 page.app_session["channel_id"] = ch["id"]
                 page.app_session["channel_name"] = ch["name"]
@@ -125,8 +132,7 @@ async def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, a
                 return handler
 
             async def go_to_onboarding(e):
-                if ch_dialog:
-                    await page.close_async(ch_dialog) if hasattr(page, "close_async") else page.close(ch_dialog)
+                await overlay.close()
                 await navigate_to("onboarding")
 
             ch_list = ft.Column(spacing=10, scroll=ft.ScrollMode.AUTO)
@@ -153,11 +159,21 @@ async def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, a
                 )
             )
 
-            ch_dialog = ft.AlertDialog(
-                title=ft.Text("접속할 매장을 선택하세요", size=18, weight="bold"),
-                content=ft.Container(content=ch_list, width=400, height=300),
+            # [FAUX DIALOG] Channel Picker
+            ch_dialog_card = ft.Container(
+                 width=400, height=400,
+                 padding=20,
+                 bgcolor="white",
+                 border_radius=15,
+                 on_click=lambda e: e.control.page.update(),
+                 content=ft.Column([
+                     ft.Text("접속할 매장을 선택하세요", size=18, weight="bold", color=AppColors.TEXT_MAIN),
+                     ft.Container(height=10),
+                     ft.Container(content=ch_list, expand=True)
+                 ], tight=True)
             )
-            page.open(ch_dialog)
+            
+            await overlay.open_async(ch_dialog_card) if hasattr(overlay, "open_async") else overlay.open(ch_dialog_card)
             
         else:
             # No channels or error: go to onboarding
@@ -173,6 +189,9 @@ async def handle_successful_login(page: ft.Page, user_data: dict, navigate_to, a
 
 
 async def get_login_controls(page: ft.Page, navigate_to):
+    # [FAUX DIALOG]
+    overlay = ModalOverlay(page)
+
     # Start auto-login check after a small delay
     async def check_auto_login_task():
         await asyncio.sleep(0.1)
@@ -198,7 +217,7 @@ async def get_login_controls(page: ft.Page, navigate_to):
                     
                 user = auth_service.recover_session(sess_data.get("access_token"), sess_data.get("refresh_token") or "dummy")
                 if user:
-                    await handle_successful_login(page, sess_data["user"], navigate_to, sess_data.get("access_token"))
+                    await handle_successful_login(page, sess_data["user"], navigate_to, sess_data.get("access_token"), overlay=overlay)
             except Exception as e:
                 log_error(f"Auto-login failed: {e}")
                 await safe_storage_remove(page, "supa_session")
@@ -300,7 +319,7 @@ async def get_login_controls(page: ft.Page, navigate_to):
                 await safe_storage_remove(page, "saved_email")
 
             user_data = {"id": res.user.id, "email": res.user.email}
-            await handle_successful_login(page, user_data, navigate_to, res.session.access_token if res.session else None)
+            await handle_successful_login(page, user_data, navigate_to, res.session.access_token if res.session else None, overlay=overlay)
 
         except Exception as ex:
             log_error(f"Login failed: {ex}")
@@ -351,7 +370,8 @@ async def get_login_controls(page: ft.Page, navigate_to):
             expand=True,
             gradient=AppGradients.PRIMARY_LINEAR,
             content=ft.Stack([
-                ft.Container(content=login_card, alignment=ft.Alignment(0, 0))
+                ft.Container(content=login_card, alignment=ft.Alignment(0, 0)),
+                overlay
             ])
         )
     ]

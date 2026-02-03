@@ -10,6 +10,7 @@ import os
 from utils.logger import log_debug, log_error, log_info
 from views.styles import AppColors, AppLayout, AppTextStyles
 from views.components.app_header import AppHeader
+from views.components.modal_overlay import ModalOverlay
 import threading
 from db import supabase
 
@@ -53,6 +54,9 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
     # dialog_manager removed
     
     state["cid"] = channel_id
+    
+    # [FAUX DIALOG]
+    overlay = ModalOverlay(page)
 
     if not channel_id:
         log_error("No Channel ID - returning error UI")
@@ -455,28 +459,10 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
     # [FIX] Hooks to ensure dialogs are closed on navigation
     original_route_handler = page.on_route_change
     def on_route_change_wrapper(e):
-        close_faux_dialog(None)
+        overlay.close()
         if original_route_handler:
             original_route_handler(e)
     page.on_route_change = on_route_change_wrapper
-
-
-    # [FAUX DIALOG STRATEGY]
-    # Replaces broken AlertDialog/Overlay with an absolutely positioned Stack layer.
-    
-    faux_dialog_container = ft.Container(
-        visible=False,
-        bgcolor="#8A000000", # Modal barrier
-        alignment=ft.Alignment(0, 0),
-        expand=True,
-        on_click=lambda e: close_faux_dialog(None), # Click outside to close
-    )
-    
-    def close_faux_dialog(e):
-        print("DEBUG_FAUX: Closing dialog")
-        faux_dialog_container.visible = False
-        faux_dialog_container.content = None
-        update_page()
 
     async def open_day_agenda_dialog(day):
         print(f"DEBUG_FAUX: Opening agenda for {day}")
@@ -524,7 +510,8 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
 
         # Build Internal Card (The actual dialog box)
         dialog_card = ft.Container(
-            width=400, height=500, bgcolor=AppColors.SURFACE, padding=20,
+            width=min(400, (page.window_width or 400) * 0.94),
+            bgcolor=AppColors.SURFACE, padding=20,
             border_radius=20,
             on_click=lambda e: e.control.page.update(), # Eat click event so it doesn't close
             content=ft.Column([
@@ -534,21 +521,19 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
                                   on_click=lambda _: asyncio.create_task(async_close_and_open_editor(None, day))),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Divider(height=10, color="transparent"),
-                ft.Column(agenda_items, spacing=10, scroll=ft.ScrollMode.AUTO, expand=True),
+                ft.Column(agenda_items, spacing=10, scroll=ft.ScrollMode.AUTO, max_height=400),
                 ft.Row([
                     ft.Container(expand=True),
-                    ft.TextButton("닫기 (Faux)", on_click=close_faux_dialog)
+                    ft.TextButton("닫기 (Faux)", on_click=lambda _: overlay.close())
                 ])
-            ])
+            ], tight=True)
         )
         
-        faux_dialog_container.content = dialog_card
-        faux_dialog_container.visible = True
-        update_page()
+        overlay.open(dialog_card)
 
     async def async_close_and_open_editor(dlg, day):
         # Close faux dialog then open editor
-        close_faux_dialog(None)
+        overlay.close()
         open_event_editor_dialog(day)
     
     def open_event_detail_dialog(ev, day):
@@ -567,7 +552,7 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
                 try:
                     await calendar_service.delete_event(ev['id'], current_user_id)
                     page.open(ft.SnackBar(ft.Text("삭제되었습니다."), bgcolor="green"))
-                    close_faux_dialog(None)
+                    overlay.close()
                     load()
                     update_page()
                 except Exception as ex:
@@ -578,7 +563,8 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
         initials = creator_name[0] if creator_name else "?"
         
         detail_card = ft.Container(
-            width=420, height=520, bgcolor=AppColors.SURFACE, padding=20, border_radius=28,
+            width=min(450, (page.window_width or 450) * 0.94),
+            bgcolor=AppColors.SURFACE, padding=20, border_radius=28,
             on_click=lambda e: e.control.page.update(),
             shadow=ft.BoxShadow(blur_radius=20, color="#20000000"),
             content=ft.Column([
@@ -601,7 +587,7 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
                     ft.Text(ev['title'], size=24, weight="bold", color=AppColors.PRIMARY, text_align="center"),
                     ft.Text(f"{format_pretty_date(ev['start_date'])} ~ {format_pretty_date(ev['end_date'])}", 
                             size=14, color=AppColors.TEXT_SECONDARY, text_align="center"),
-                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10, width=400),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
                 
                 ft.Divider(height=30, color=AppColors.BORDER),
                 
@@ -610,10 +596,9 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
                     content=ft.Column([
                         ft.Text("상세 내용", size=12, color=AppColors.TEXT_SECONDARY, weight="bold"),
                         ft.Text(ev.get('description', '상세 내용 없음'), size=16, color=AppColors.TEXT_PRIMARY),
-                    ], spacing=10, horizontal_alignment=ft.CrossAxisAlignment.START),
+                    ], spacing=10, horizontal_alignment=ft.CrossAxisAlignment.START, scroll=ft.ScrollMode.AUTO, max_height=200),
                     padding=ft.padding.symmetric(horizontal=10),
-                    expand=True,
-                    alignment=ft.Alignment(-1, 0) # Force left alignment in the centered Column
+                    alignment=ft.Alignment(-1, 0)
                 ),
                 
                 # Bottom Action Buttons (Centered)
@@ -628,15 +613,13 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
                     ),
                     ft.TextButton(
                         "닫기", 
-                        on_click=close_faux_dialog,
+                        on_click=lambda _: overlay.close(),
                         style=ft.ButtonStyle(color=AppColors.TEXT_SECONDARY)
                     )
-                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5, width=400)
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0)
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5)
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0, tight=True)
         )
-        faux_dialog_container.content = detail_card
-        faux_dialog_container.visible = True
-        update_page()
+        overlay.open(detail_card)
 
 
     async def delete_staff_event(ev_id):
@@ -675,21 +658,20 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
             update_page()
 
         card = ft.Container(
-            width=450, height=500, bgcolor=AppColors.SURFACE, padding=20, border_radius=20,
+            width=min(500, (page.window_width or 500) * 0.94),
+            bgcolor=AppColors.SURFACE, padding=20, border_radius=20,
             on_click=lambda e: e.control.page.update(),
             content=ft.Column([
                 ft.Text(f"{y}/{m}/{day} 근무 장부", size=18, weight="bold"),
                 ft.Text("기록 추가", size=12, weight="bold"),
-                ft.Row([staff_dd, substitute_tf]),
-                ft.Row([type_dd]),
+                ft.Row([staff_dd, substitute_tf], wrap=True),
+                ft.Row([type_dd], wrap=True),
                 ft.ElevatedButton("기록하기", on_click=lambda _: asyncio.create_task(add_record())),
                 ft.Divider(),
-                ft.TextButton("닫기", on_click=close_faux_dialog)
-            ], spacing=10, scroll=ft.ScrollMode.AUTO)
+                ft.TextButton("닫기", on_click=lambda _: overlay.close())
+            ], spacing=10, scroll=ft.ScrollMode.AUTO, tight=True, max_height=page.window_height * 0.8)
         )
-        faux_dialog_container.content = card
-        faux_dialog_container.visible = True
-        update_page()
+        overlay.open(card)
 
 
     
@@ -783,7 +765,7 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
                     if existing_event: await calendar_service.update_event(existing_event["id"], data, current_user_id)
                     else: await calendar_service.create_event(data)
                     page.open(ft.SnackBar(ft.Text("저장 완료!")))
-                    close_faux_dialog(None)
+                    overlay.close()
                     load()
                     update_page()
                 except Exception as ex:
@@ -791,26 +773,25 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
             asyncio.create_task(_save_async())
 
         dialog_card = ft.Container(
-            width=400, height=550, bgcolor=AppColors.SURFACE, padding=20, border_radius=20,
+            width=min(450, (page.window_width or 450) * 0.94),
+            bgcolor=AppColors.SURFACE, padding=20, border_radius=20,
             on_click=lambda e: e.control.page.update(),
             content=ft.Column([
                 ft.Text("일정 수정" if existing_event else "새 일정", size=20, weight="bold"),
                 title_tf,
                 ft.Row([ft.Text("종일"), sw_all_day]),
-                ft.Row([ft.Text("시작"), tf_ds, tf_ts]),
-                ft.Row([ft.Text("종료"), tf_de, tf_te]),
+                ft.Row([ft.Text("시작"), tf_ds, tf_ts], wrap=True),
+                ft.Row([ft.Text("종료"), tf_de, tf_te], wrap=True),
                 ft.Text("색상"), color_row,
                 memo_tf,
                 ft.Row([
                     ft.Container(expand=True),
-                    ft.TextButton("취소", on_click=close_faux_dialog),
+                    ft.TextButton("취소", on_click=lambda _: overlay.close()),
                     ft.ElevatedButton("저장", on_click=save, bgcolor="#00C73C", color="white")
                 ], spacing=10)
-            ], scroll=ft.ScrollMode.AUTO, spacing=15)
+            ], scroll=ft.ScrollMode.AUTO, spacing=15, tight=True, max_height=page.window_height * 0.8)
         )
-        faux_dialog_container.content = dialog_card
-        faux_dialog_container.visible = True
-        update_page()
+        overlay.open(dialog_card)
 
 
     async def change_m(delta, e=None):
@@ -1071,5 +1052,5 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
         )
     ], expand=True, spacing=0)
 
-    final_stack = ft.Stack([ft.SafeArea(expand=True, content=main_layout), faux_dialog_container], expand=True)
+    final_stack = ft.Stack([ft.SafeArea(expand=True, content=main_layout), overlay], expand=True)
     return [final_stack]

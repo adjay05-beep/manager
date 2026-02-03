@@ -4,6 +4,7 @@ import asyncio
 from views.styles import AppColors, AppLayout
 from views.components.inputs import StandardTextField, StandardDropdown
 from views.components.cards import AuthCard
+from views.components.modal_overlay import ModalOverlay
 
 async def get_signup_controls(page: ft.Page, navigate_to):
     
@@ -13,6 +14,9 @@ async def get_signup_controls(page: ft.Page, navigate_to):
         "email": "",
         "loading": False
     }
+
+    # [FAUX DIALOG]
+    overlay = ModalOverlay(page)
 
     # --- Header ---
     header = ft.Text("회원가입", size=30, weight="bold", color=AppColors.TEXT_MAIN)
@@ -164,22 +168,24 @@ async def get_signup_controls(page: ft.Page, navigate_to):
         try:
             res = await asyncio.to_thread(lambda: auth_service.verify_otp(state["email"], code))
             if res:
-                async def close_and_go(e):
-                    await page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)
-                    await navigate_to("login")
-
-                dlg = ft.AlertDialog(
-                    title=ft.Text("회원가입 완료! 🎉", size=20, weight="bold"),
-                    content=ft.Text("회원가입이 성공적으로 완료되었습니다.\n로그인 후 이용해주세요.", size=16),
-                    actions=[
-                        ft.ElevatedButton("확인 (로그인하러 가기)", on_click=lambda e: asyncio.create_task(close_and_go(e)), bgcolor=AppColors.SUCCESS, color=ft.Colors.WHITE)
-                    ],
-                    actions_alignment=ft.MainAxisAlignment.END,
-                    on_dismiss=lambda e: asyncio.create_task(navigate_to("login")),
-                    modal=True,
-                    shape=ft.RoundedRectangleBorder(radius=10)
+                # [FAUX DIALOG] Success Message
+                success_card = ft.Container(
+                    width=300,
+                    padding=20,
+                    bgcolor="white",
+                    border_radius=15,
+                     on_click=lambda e: e.control.page.update(),
+                    content=ft.Column([
+                        ft.Text("회원가입 완료! 🎉", size=20, weight="bold", color=AppColors.TEXT_MAIN),
+                        ft.Container(height=10),
+                        ft.Text("회원가입이 성공적으로 완료되었습니다.\n로그인 후 이용해주세요.", size=14, color=AppColors.TEXT_SECONDARY),
+                        ft.Container(height=20),
+                        ft.Row([
+                            ft.ElevatedButton("확인 (로그인하러 가기)", on_click=lambda e: asyncio.create_task(navigate_to("login")), bgcolor=AppColors.SUCCESS, color=ft.Colors.WHITE)
+                        ], alignment=ft.MainAxisAlignment.END)
+                    ], tight=True)
                 )
-                await page.open_async(dlg) if hasattr(page, "open_async") else page.open(dlg)
+                overlay.open(success_card)
                 page.update()
             else:
                 verify_status.value = "인증 실패: 코드를 확인하세요."
@@ -241,6 +247,7 @@ async def get_signup_controls(page: ft.Page, navigate_to):
                 content=auth_card,
                 alignment=ft.Alignment(0, 0),
                 expand=True
-            )
+            ),
+            overlay # Modal Overlay Layer
         ], expand=True)
     ]

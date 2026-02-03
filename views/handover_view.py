@@ -7,6 +7,7 @@ from services import audio_service
 from utils.logger import log_info, log_error, log_debug
 from views.styles import AppColors, AppTextStyles, AppLayout, AppButtons
 from views.components.app_header import AppHeader
+from views.components.modal_overlay import ModalOverlay
 
 
 async def get_handover_controls(page: ft.Page, navigate_to):
@@ -40,6 +41,9 @@ async def get_handover_controls(page: ft.Page, navigate_to):
 
     # Voice Recording Status
     voice_status = ft.Text("", size=11, color="red", visible=False)
+    
+    # [FAUX DIALOG] Overlay Component
+    overlay = ModalOverlay(page)
 
     # Mic Icon & Button
     mic_icon = ft.Icon(ft.Icons.MIC, color="white", size=20)
@@ -484,7 +488,7 @@ async def get_handover_controls(page: ft.Page, navigate_to):
             try:
                 if await handover_service.update_handover(item.get("id"), edit_tf.value, user_id):
                     print("[VIEW DEBUG] Update success")
-                    await page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)
+                    overlay.close()
                     await fetch_and_update()
                 else:
                     print("[VIEW DEBUG] Update returned False")
@@ -495,15 +499,29 @@ async def get_handover_controls(page: ft.Page, navigate_to):
                 page.open(ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red"))
                 page.update()
 
-        dlg = ft.AlertDialog(
-            title=ft.Text("기록 수정"),
-            content=ft.Container(content=edit_tf, height=100),
-            actions=[
-                ft.TextButton("취소", on_click=lambda _: page.close(dlg)),
-                ft.ElevatedButton("저장", on_click=lambda e: asyncio.create_task(save_edit(e)), style=AppButtons.PRIMARY())
-            ]
+        async def close_with_update(e_ign=None):
+             overlay.close()
+
+        # [FAUX DIALOG] Replace AlertDialog with Card Container
+        card_content = ft.Container(
+            width=400,
+            padding=20,
+            bgcolor=AppColors.SURFACE,
+            border_radius=20,
+            on_click=lambda e: e.control.page.update(), # Prevent click bubbling
+            content=ft.Column([
+                 ft.Text("기록 수정", size=20, weight="bold", color=AppColors.TEXT_PRIMARY),
+                 ft.Container(height=10),
+                 ft.Container(content=edit_tf, height=100),
+                 ft.Container(height=20),
+                 ft.Row([
+                     ft.TextButton("취소", on_click=close_with_update, style=AppButtons.SECONDARY()),
+                     ft.Container(width=10),
+                     ft.ElevatedButton("저장", on_click=lambda e: asyncio.create_task(save_edit(e)), style=AppButtons.PRIMARY())
+                 ], alignment=ft.MainAxisAlignment.END)
+            ], tight=True)
         )
-        page.open(dlg)
+        overlay.open(card_content)
 
     async def delete_entry(item_id):
         await handover_service.delete_handover(item_id, user_id)
@@ -571,7 +589,10 @@ async def get_handover_controls(page: ft.Page, navigate_to):
         page.update()
         # [FIX] Scroll to bottom aka "Latest"
         try:
-            list_view.scroll_to(offset=-1, duration=300)
+            if hasattr(list_view, "scroll_to_async"):
+                await list_view.scroll_to_async(offset=-1, duration=300)
+            else:
+                await list_view.scroll_to(offset=-1, duration=300)
             page.update()
         except Exception:
             pass
@@ -702,9 +723,18 @@ async def get_handover_controls(page: ft.Page, navigate_to):
 
     asyncio.create_task(fetch_and_update())
     asyncio.create_task(poll_updates())
+    
+    main_layout = ft.SafeArea(
+        expand=True,
+        content=ft.Column([header, tabs_row, ft.Container(list_view, expand=True), input_area], expand=True)
+    )
+
     return [
-        ft.SafeArea(
-            expand=True,
-            content=ft.Column([header, tabs_row, ft.Container(list_view, expand=True), input_area], expand=True)
+        ft.Stack(
+            [
+                main_layout,
+                overlay
+            ],
+            expand=True
         )
     ]

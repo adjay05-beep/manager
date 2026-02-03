@@ -175,6 +175,18 @@ class ChannelService:
             log_error(f"Member Removal Failed: {e}")
             raise e
 
+    def update_location(self, channel_id: int, lat: float, lng: float, address: str = None):
+        """Update store GPS position and address."""
+        return ChannelRepository.update_channel_location(channel_id, lat, lng, address)
+
+    def update_wifi(self, channel_id: int, ssid: str, bssid: str = None):
+        """Update store Wi-Fi info."""
+        return ChannelRepository.update_channel_wifi(channel_id, ssid, bssid)
+
+    def get_channel_info(self, channel_id: int):
+        """Get full channel details."""
+        return ChannelRepository.get_channel_info(channel_id)
+
 # Singleton
 channel_service = ChannelService()
 

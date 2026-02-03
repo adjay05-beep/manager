@@ -9,6 +9,10 @@ from datetime import datetime, timezone
 from utils.logger import log_debug, log_error, log_info
 from views.styles import AppColors, AppTextStyles, AppLayout, AppButtons
 from views.components.app_header import AppHeader
+import requests
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 async def get_store_manage_controls(page: ft.Page, navigate_to):
@@ -553,6 +557,285 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
         on_change=lambda e: asyncio.create_task(toggle_theme(e))
     )
 
+    # === ATTENDANCE AUTHENTICATION SETTINGS (Owner/Manager only) ===
+    
+    # Get saved attendance auth data
+    saved_lat, saved_lng, saved_address, saved_wifi, saved_auth_mode = None, None, "", "", "location"
+    try:
+        loc_res = service_supabase.table("channels").select("location_lat, location_lng, location_address, wifi_ssid, auth_mode").eq("id", channel_id).single().execute()
+        if loc_res.data:
+            saved_lat = loc_res.data.get("location_lat")
+            saved_lng = loc_res.data.get("location_lng")
+            saved_address = loc_res.data.get("location_address", "")
+            saved_wifi = loc_res.data.get("wifi_ssid", "")
+            saved_auth_mode = loc_res.data.get("auth_mode", "location")  # default: location
+    except Exception as e:
+        log_error(f"Failed to load attendance auth data: {e}")
+    
+    # Auth mode state
+    auth_mode = ft.RadioGroup(
+        value=saved_auth_mode,
+        content=ft.Row([
+            ft.Radio(value="location", label="📍 위치(GPS) 인증"),
+            ft.Radio(value="wifi", label="📶 Wi-Fi 인증")
+        ])
+    )
+    
+    # UI Controls
+    gps_display = ft.Text(
+        f"저장된 위치: {saved_lat:.5f}, {saved_lng:.5f}" if saved_lat and saved_lng else "위치 설정 필요",
+        color="grey",
+        size=12
+    )
+    
+    tf_address = ft.TextField(
+        label="매장 주소",
+        value=saved_address,
+        hint_text="예: 서울시 강남구 테헤란로 123",
+        expand=True
+    )
+    
+    tf_wifi = ft.TextField(
+        label="매장 Wi-Fi SSID",
+        value=saved_wifi,
+        hint_text="예: Store_WiFi_5G",
+        expand=True
+    )
+    
+    # Map image (Kakao Static Map API)
+    def get_map_url(lat, lng, width=300, height=200):
+        """Generate Kakao Static Map URL
+        Note: Kakao uses lng,lat order (not lat,lng)
+        """
+        api_key = os.getenv("KAKAO_REST_API_KEY")
+        # Kakao Static Map API: https://apis.map.kakao.com/web/documentation/#StaticMap
+        return f"https://dapi.kakao.com/v2/maps/staticmap?center={lng},{lat}&level=3&marker={lng},{lat}&size={width}x{height}&appkey={api_key}"
+    
+    # Map placeholder (web version - show coordinates)
+    # Note: Mobile app will use native map widget
+    map_container = ft.Container(
+        content=ft.Column([
+            ft.Icon(ft.Icons.LOCATION_ON, size=40, color=AppColors.PRIMARY),
+            ft.Text("위치 설정 필요", size=12, color="grey", text_align=ft.TextAlign.CENTER)
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+        width=300,
+        height=150,
+        bgcolor="#F5F5F5",
+        border_radius=10,
+        border=ft.border.all(1, "#DDDDDD"),
+        alignment=ft.alignment.center,
+        padding=20
+    )
+    
+    # Kakao Map link (opens in browser)
+    map_link_btn = ft.TextButton(
+        "🗺️ 카카오맵에서 보기",
+        visible=False,
+        on_click=lambda e: page.launch_url(f"https://map.kakao.com/link/map/{gps_display.data[0]},{gps_display.data[1]}") if hasattr(gps_display, "data") and gps_display.data else None
+    )
+    
+    # === KAKAO ADDRESS SEARCH ===
+    async def search_address_and_get_coords(e):
+        """Search address using Kakao Local API and get coordinates"""
+        log_debug("search_address_and_get_coords CALLED")
+        try:
+            address_query = tf_address.value.strip()
+            if not address_query:
+                page.open(ft.SnackBar(ft.Text("주소를 입력해주세요"), bgcolor="orange"))
+                page.update()
+                return
+            
+            e.control.disabled = True
+            e.control.text = "주소 검색 중..."
+            page.update()
+            
+            # Call Kakao Local API
+            api_key = os.getenv("KAKAO_REST_API_KEY")
+            url = "https://dapi.kakao.com/v2/local/search/address.json"
+            headers = {"Authorization": f"KakaoAK {api_key}"}
+            params = {"query": address_query}
+            
+            log_debug(f"Kakao API request: {url}?query={address_query}")
+            response = await asyncio.to_thread(requests.get, url, headers=headers, params=params)
+            
+            if response.status_code == 200:
+                data = response.json()
+                log_debug(f"Kakao API response: {data}")
+                
+                if data.get("documents") and len(data["documents"]) > 0:
+                    doc = data["documents"][0]
+                    address_info = doc.get("address") or doc.get("road_address")
+                    
+                    if address_info:
+                        lat = float(address_info["y"])
+                        lng = float(address_info["x"])
+                        address_name = address_info.get("address_name", address_query)
+                        
+                        # Update UI
+                        gps_display.value = f"위치: {lat:.5f}, {lng:.5f}"
+                        gps_display.color = AppColors.PRIMARY
+                        gps_display.data = (lat, lng)
+                        tf_address.value = address_name
+                        
+                        # Update map container
+                        map_container.content = ft.Column([
+                            ft.Icon(ft.Icons.LOCATION_ON, size=50, color=AppColors.PRIMARY),
+                            ft.Text(f"위도: {lat:.5f}", size=12, weight="bold"),
+                            ft.Text(f"경도: {lng:.5f}", size=12, weight="bold"),
+                            ft.Text("✓ 위치 설정 완료", size=11, color="green")
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3)
+                        
+                        # Show map link button
+                        map_link_btn.visible = True
+                        
+                        page.open(ft.SnackBar(ft.Text("✅ 위치를 찾았습니다!"), bgcolor="green"))
+                        log_debug(f"Address found: {address_name} ({lat}, {lng})")
+                    else:
+                        page.open(ft.SnackBar(ft.Text("❌ 좌표를 찾을 수 없습니다"), bgcolor="red"))
+                else:
+                    page.open(ft.SnackBar(ft.Text("❌ 주소를 찾을 수 없습니다. 정확한 주소를 입력해주세요."), bgcolor="orange"))
+            else:
+                log_error(f"Kakao API error: {response.status_code} - {response.text}")
+                page.open(ft.SnackBar(ft.Text(f"API 오류: {response.status_code}"), bgcolor="red"))
+                
+        except Exception as ex:
+            log_error(f"Address search error: {ex}")
+            import traceback
+            log_error(traceback.format_exc())
+            page.open(ft.SnackBar(ft.Text(f"오류: {ex}"), bgcolor="red"))
+        finally:
+            e.control.disabled = False
+            e.control.text = "🔍 주소로 위치 찾기"
+            page.update()
+    
+    btn_search_address = ft.ElevatedButton(
+        "🔍 주소로 위치 찾기",
+        on_click=search_address_and_get_coords,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
+        expand=True
+    )
+    
+    # Location auth container (conditional)
+    location_auth_container = ft.Container(
+        content=ft.Column([
+            map_container,
+            gps_display,
+            map_link_btn,
+            ft.Row([tf_address]),
+            ft.Row([btn_search_address]),
+            ft.Text("※ 매장 주소를 입력하고 검색하면 위치가 자동으로 설정됩니다.", size=11, color="grey"),
+        ], spacing=10),
+        visible=(saved_auth_mode == "location")
+    )
+    
+    # WiFi auth container (conditional)
+    wifi_auth_container = ft.Container(
+        content=ft.Column([
+            ft.Row([tf_wifi]),
+            ft.Text("※ 매장 Wi-Fi 이름을 정확히 입력하세요.", size=11, color="grey"),
+        ], spacing=10),
+        visible=(saved_auth_mode == "wifi")
+    )
+    
+    # Radio button change handler
+    def on_auth_mode_change(e):
+        selected_mode = auth_mode.value
+        location_auth_container.visible = (selected_mode == "location")
+        wifi_auth_container.visible = (selected_mode == "wifi")
+        page.update()
+    
+    auth_mode.on_change = on_auth_mode_change
+    
+    async def save_attendance_settings(e):
+        """Save attendance authentication settings"""
+        try:
+            e.control.disabled = True
+            page.update()
+            
+            selected_mode = auth_mode.value
+            update_data = {"auth_mode": selected_mode}
+            
+            if selected_mode == "location":
+                # Validate location data
+                lat, lng = saved_lat, saved_lng
+                if hasattr(gps_display, "data") and gps_display.data:
+                    lat, lng = gps_display.data
+                
+                if not lat or not lng:
+                    page.open(ft.SnackBar(ft.Text("❌ 위치를 먼저 설정해주세요"), bgcolor="orange"))
+                    e.control.disabled = False
+                    page.update()
+                    return
+                
+                update_data["location_lat"] = lat
+                update_data["location_lng"] = lng
+                update_data["location_address"] = tf_address.value.strip()
+                update_data["wifi_ssid"] = None  # Clear WiFi if using location
+                
+            elif selected_mode == "wifi":
+                # Validate WiFi data
+                wifi_ssid = tf_wifi.value.strip()
+                if not wifi_ssid:
+                    page.open(ft.SnackBar(ft.Text("❌ Wi-Fi SSID를 입력해주세요"), bgcolor="orange"))
+                    e.control.disabled = False
+                    page.update()
+                    return
+                
+                update_data["wifi_ssid"] = wifi_ssid
+                update_data["location_lat"] = None  # Clear location if using WiFi
+                update_data["location_lng"] = None
+                update_data["location_address"] = None
+            
+            # Update database
+            service_supabase.table("channels").update(update_data).eq("id", channel_id).execute()
+            
+            mode_text = "위치 인증" if selected_mode == "location" else "Wi-Fi 인증"
+            page.open(ft.SnackBar(ft.Text(f"✅ 출퇴근 인증 정보가 저장되었습니다. ({mode_text})"), bgcolor="green"))
+            log_debug(f"Attendance settings saved: mode={selected_mode}, data={update_data}")
+            
+        except Exception as ex:
+            log_error(f"Save attendance settings error: {ex}")
+            import traceback
+            log_error(traceback.format_exc())
+            page.open(ft.SnackBar(ft.Text(f"저장 실패: {ex}"), bgcolor="red"))
+        finally:
+            e.control.disabled = False
+            page.update()
+    
+    attendance_settings_section = ft.Container(
+        content=ft.Column([
+            ft.Text("출퇴근 인증 설정", style=AppTextStyles.BODY_SMALL),
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("인증 방식 선택", weight="bold", size=14),
+                    auth_mode,
+                    ft.Divider(height=10, color="#EEEEEE"),
+                    
+                    # Location auth (conditional)
+                    location_auth_container,
+                    
+                    # WiFi auth (conditional)
+                    wifi_auth_container,
+                    
+                    ft.Container(height=10),
+                    ft.ElevatedButton(
+                        "인증 정보 저장",
+                        on_click=save_attendance_settings,
+                        bgcolor=AppColors.PRIMARY,
+                        color="white",
+                        expand=True,
+                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8))
+                    )
+                ], spacing=10),
+                padding=15,
+                bgcolor="white",
+                border_radius=10,
+                border=ft.border.all(1, "#EEEEEE")
+            )
+        ]),
+        visible=(role == "owner")  # Only owner can configure attendance auth
+    )
+    
     # Load members if owner
     if role == "owner":
         await load_members()
@@ -561,7 +844,7 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
 
     header = AppHeader(
         title_text="설정",
-        on_back_click=lambda e: asyncio.create_task(navigate_to("home"))
+        on_back_click=lambda e: page.run_task(navigate_to, "home")
     )
 
     current_store_settings = ft.Container(
@@ -587,6 +870,11 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
                 ]),
                 visible=(role in ["owner", "manager"])
             ),
+
+            ft.Container(height=30),
+
+            # Attendance Settings Section
+            attendance_settings_section,
 
             ft.Container(height=30),
 

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>GPS Bridge</title>
+    <meta charset="UTF-8">
+</head>
+
+<body>
+    <div id="status" style="font-family: sans-serif; padding: 20px; text-align: center;">
+        위치 정보를 가져오는 중입니다...
+    </div>
+    <script>
+        async function getGPS() {
+            const status = document.getElementById('status');
+            if (!navigator.geolocation) {
+                sendToParent({ error: 'GPS를 지원하지 않는 브라우저입니다.' });
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                (p) => {
+                    const data = {
+                        lat: p.coords.latitude,
+                        lng: p.coords.longitude,
+                        timestamp: Date.now()
+                    };
+                    status.innerText = "성공! 데이터를 전송하고 닫습니다.";
+                    sendToParent(data);
+                },
+                (e) => {
+                    status.innerText = "오류: " + e.message;
+                    sendToParent({ error: e.message });
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        }
+
+        function sendToParent(data) {
+            const result = JSON.stringify(data);
+            const status = document.getElementById('status');
+            status.innerHTML = "<b>데이터 획득 완료!</b><br>본체로 전송 중...";
+
+            try {
+                if (window.opener) {
+                    let sent = false;
+
+                    // 1. Try multiple selectors to find the bridge
+                    const selectors = [
+                        'input[placeholder="SYSTEM_JS_BRIDGE"]',
+                        'input[aria-placeholder="SYSTEM_JS_BRIDGE"]',
+                        'input' // Last resort: find any input
+                    ];
+
+                    for (let sel of selectors) {
+                        const bridges = window.opener.document.querySelectorAll(sel);
+                        for (let b of bridges) {
+                            if (b.placeholder === "SYSTEM_JS_BRIDGE" || b.getAttribute('aria-placeholder') === "SYSTEM_JS_BRIDGE" || bridges.length === 1) {
+                                b.value = result;
+                                b.dispatchEvent(new Event('input', { bubbles: true }));
+                                b.dispatchEvent(new Event('change', { bubbles: true }));
+                                sent = true;
+                                console.log("Sent via selector:", sel);
+                                break;
+                            }
+                        }
+                        if (sent) break;
+                    }
+
+                    // 2. BACKUP: Always update title too (Very reliable in Flet)
+                    window.opener.document.title = "RESULT:" + result;
+                    status.innerHTML += "<br>✅ 전송 성공 (Title Bridge)";
+                } else {
+                    status.innerHTML = "<b style='color:red'>오류: 부모 창을 찾을 수 없습니다.</b><br>팝업 차단이나 브라우저 설정을 확인하세요.";
+                }
+            } catch (e) {
+                status.innerHTML = "<b style='color:red'>전송 실패:</b> " + e.toString();
+            }
+
+            // Wait 2 seconds so user can see what happened
+            setTimeout(() => {
+                window.close();
+            }, 2000);
+        }
+
+        // Start immediately
+        getGPS();
+    </script>
+</body>
+
+</html>

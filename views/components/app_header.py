@@ -6,6 +6,7 @@ def AppHeader(
     title_text: Union[str, ft.Control], 
     on_back_click=None, 
     action_button: ft.Control = None, 
+    right_controls: List[ft.Control] = None,
     back_button_visible: bool = True,
     left_button: ft.Control = None # For custom left side (e.g. Menu + Back)
 ):
@@ -39,7 +40,12 @@ def AppHeader(
         title_ctrl = title_text
 
     # Right Content
-    right_side = action_button if action_button else ft.Container(width=48)
+    if right_controls:
+        right_side = ft.Row(right_controls, spacing=5, tight=True)
+    elif action_button:
+        right_side = action_button
+    else:
+        right_side = ft.Container(width=48)
 
     # Use Stack for perfect mathematical centering of the title
     header_content = ft.Stack([

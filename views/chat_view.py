@@ -11,6 +11,7 @@ from views.components.app_header import AppHeader
 
 
 from utils.logger import log_info as file_log_info
+from views.components.modal_overlay import ModalOverlay
 
 class ThreadSafeState:
     """[SECURITY] Thread-safe state management to prevent race conditions."""
@@ -88,6 +89,9 @@ async def get_chat_controls(page: ft.Page, navigate_to):
     state["uid"] = current_user_id
     state["cid"] = current_channel_id
     
+    # [FAUX DIALOG]
+    overlay = ModalOverlay(page)
+    
     # [CRITICAL FIX] If no user session, show error UI instead of silently failing
     if not current_user_id:
         log_info("CRITICAL: No User Session in Chat View - Showing Error UI")
@@ -107,6 +111,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
             alignment=ft.Alignment(0, 0),
             padding=40
         )
+
         return [error_view]
     
     log_info(f"Chat View initialized for user: {current_user_id}")
@@ -560,16 +565,30 @@ async def get_chat_controls(page: ft.Page, navigate_to):
             asyncio.create_task(load_topics_async(True))
 
         asyncio.create_task(refresh_cats())
-        dlg = ft.AlertDialog(
-            title=ft.Text("주제(그룹) 관리"),
+        asyncio.create_task(refresh_cats())
+        
+        # [FAUX DIALOG] Manage Categories
+        manage_cat_card = ft.Container(
+            width=min(400, (page.window_width or 400) * 0.94),
+            padding=20,
+            bgcolor=AppColors.SURFACE,
+            border_radius=20,
+            on_click=lambda e: e.control.page.update(),
             content=ft.Column([
+                ft.Text("주제(그룹) 관리", size=20, weight="bold", color=AppColors.TEXT_PRIMARY),
+                ft.Container(height=10),
                 ft.Row([new_cat_input, ft.IconButton(ft.Icons.ADD, on_click=lambda e: asyncio.create_task(add_cat(e)))]),
                 ft.Divider(),
-                cat_list
-            ], tight=True, scroll=ft.ScrollMode.AUTO, width=300),
-            actions=[ft.TextButton("닫기", on_click=lambda _: asyncio.create_task(page.close_async(dlg) if hasattr(page, "close_async") else page.close(dlg)))]
+                ft.Column([cat_list], scroll=ft.ScrollMode.AUTO, height=200) 
+            ], tight=True)
         )
-        page.open(dlg)
+        # Add close button explicitly to content if needed or rely on overlay close
+        # Here we add a close button at bottom
+        manage_cat_card.content.controls.append(
+             ft.Row([ft.TextButton("닫기", on_click=lambda _: overlay.close())], alignment=ft.MainAxisAlignment.END)
+        )
+        
+        overlay.open(manage_cat_card)
         page.update()
 
     async def open_topic_member_management_dialog(e):
@@ -784,16 +803,21 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                 ft.Container(content=invite_col, height=300)
             ]
 
-            dlg = ft.AlertDialog(
-                title=ft.Text("채팅방 멤버 관리"),
-                content=ft.Container(
-                    width=400,
-                    height=500, # Fixed height for stability across devices
-                    content=ft.Column([members_view, invite_view], tight=True, scroll=ft.ScrollMode.AUTO)
-                ),
-                actions=[ft.TextButton("닫기", on_click=lambda e: setattr(dlg, 'open', False) or page.update())]
+            # [FAUX DIALOG] Member Management
+            member_card = ft.Container(
+                width=min(450, (page.window_width or 450) * 0.94),
+                padding=20,
+                bgcolor=AppColors.SURFACE,
+                border_radius=20,
+                on_click=lambda e: e.control.page.update(),
+                content=ft.Column([
+                    ft.Text("채팅방 멤버 관리", size=20, weight="bold", color=AppColors.TEXT_PRIMARY),
+                    ft.Container(height=10),
+                    ft.Column([members_view, invite_view], tight=True, scroll=ft.ScrollMode.AUTO),
+                    ft.Row([ft.TextButton("닫기", on_click=lambda _: overlay.close())], alignment=ft.MainAxisAlignment.END)
+                ], tight=True)
             )
-            page.open(dlg)
+            overlay.open(member_card)
 
             # Call load_members safely
             try:
@@ -1278,33 +1302,59 @@ async def get_chat_controls(page: ft.Page, navigate_to):
             page.update()
 
         def close_dlg(_):
-            dlg.open = False
-            page.update()
+            overlay.close()
 
-        dlg = ft.AlertDialog(
-            title=ft.Text("스레드 삭제"),
-            content=ft.Text("이 스레드와 모든 메시지가 삭제됩니다.\n(삭제 후 복구할 수 없습니다)"),
-            actions=[
-                ft.TextButton("취소", on_click=close_dlg),
-                ft.TextButton(content=ft.Text("삭제", color="red"), on_click=delete_it)
-            ]
+        # [FAUX DIALOG] Delete Confirmation
+        delete_card = ft.Container(
+            width=min(400, (page.window_width or 400) * 0.94),
+            padding=20,
+            bgcolor=AppColors.SURFACE,
+            border_radius=20,
+            on_click=lambda e: e.control.page.update(),
+            content=ft.Column([
+                ft.Text("스레드 삭제", size=20, weight="bold", color=AppColors.TEXT_PRIMARY),
+                ft.Container(height=10),
+                ft.Text("이 스레드와 모든 메시지가 삭제됩니다.\n(삭제 후 복구할 수 없습니다)"),
+                ft.Container(height=20),
+                ft.Row([
+                    ft.TextButton("취소", on_click=close_dlg),
+                    ft.TextButton(content=ft.Text("삭제", color="red"), on_click=delete_it)
+                ], alignment=ft.MainAxisAlignment.END)
+            ], tight=True)
         )
-        page.open(dlg)
-        page.update()
+        overlay.open(delete_card)
 
-    # Custom modal overlay (instead of AlertDialog/BottomSheet which don't work on mobile)
-    modal_container = ft.Container()  # Will be defined below
-    
     async def show_create_modal(e):
-        log_info("Showing custom modal overlay")
-        modal_container.visible = True
+        log_info("Showing create modal (Faux)")
         modal_name_field.value = ""
+        
+        # [FAUX DIALOG] Create Topic
+        create_card = ft.Container(
+             width=min(400, (page.window_width or 400) * 0.94),
+             bgcolor="white",
+             border_radius=15,
+             padding=30,
+             on_click=lambda e: e.control.page.update(),
+             content=ft.Column([
+                ft.Row([
+                    ft.Text("새 스레드 만들기", size=20, weight="bold", color="#212121"),
+                    ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#757575", on_click=lambda e: overlay.close())
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ft.Divider(),
+                modal_name_field,
+                ft.Container(height=20),
+                ft.Row([
+                    ft.OutlinedButton(content=ft.Text("취소"), on_click=lambda e: overlay.close(), expand=1),
+                    ft.ElevatedButton(content=ft.Text("만들기"), on_click=lambda e: asyncio.create_task(create_from_modal(e)), bgcolor="#2E7D32", color="white", expand=1)
+                ], spacing=10)
+            ], tight=True, spacing=15)
+        )
+        overlay.open(create_card)
         page.update()
     
     async def hide_create_modal(e):
-        log_info("Hiding custom modal overlay")
-        modal_container.visible = False
-        page.update()
+        log_info("Hiding create modal")
+        overlay.close()
     
     modal_name_field = ft.TextField(label="새 스레드 이름", autofocus=True, width=300)
     
@@ -1335,7 +1385,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                 log_info(f"Topic creation success: {modal_name_field.value}")
                 
                 # Hide modal and show success
-                modal_container.visible = False
+                overlay.close()
                 modal_name_field.value = ""  # Clear input for next time
                 page.open(ft.SnackBar(
                     ft.Text("스레드가 생성되었습니다!", color="white"),
@@ -1394,22 +1444,34 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                     if new_cat == "none_val": new_cat = None
                     
                     await asyncio.to_thread(chat_service.update_topic, topic_id, name_input.value, new_cat)
-                    dlg.open = False
+                    overlay.close()
                     page.update()
                     load_topics(True)
                 except Exception as ex:
                     log_info(f"Update Topic Error: {ex}")
                     page.open(ft.SnackBar(ft.Text(f"수정 실패: {ex}"), bgcolor="red")); page.update()
         
-        dlg = ft.AlertDialog(
-            title=ft.Text("스레드 이름 수정"),
-            content=name_input,
-            actions=[
-                ft.TextButton("취소", on_click=lambda _: (setattr(dlg, 'open', False), page.update())),
-                ft.ElevatedButton("저장", on_click=lambda e: asyncio.create_task(do_update(e)), bgcolor="#2E7D32", color="white")
-            ]
+        # [FAUX DIALOG] Rename Topic
+        rename_topic_card = ft.Container(
+            width=min(400, (page.window_width or 400) * 0.94),
+            padding=20,
+            bgcolor=AppColors.SURFACE,
+            border_radius=20,
+            on_click=lambda e: e.control.page.update(),
+            content=ft.Column([
+                ft.Text("스레드 이름 수정", size=20, weight="bold", color=AppColors.TEXT_PRIMARY),
+                ft.Container(height=10),
+                name_input,
+                ft.Container(height=10),
+                cat_dropdown,
+                ft.Container(height=20),
+                ft.Row([
+                    ft.TextButton("취소", on_click=lambda _: overlay.close()),
+                    ft.ElevatedButton("저장", on_click=lambda e: asyncio.create_task(do_update(e)), bgcolor="#2E7D32", color="white")
+                ], alignment=ft.MainAxisAlignment.END)
+            ], tight=True)
         )
-        page.open(dlg)
+        overlay.open(rename_topic_card)
 
     def open_rename_cat_dialog(cat_id, old_name):
         if not cat_id: return # Cannot rename system default if missing ID
@@ -1419,21 +1481,32 @@ async def get_chat_controls(page: ft.Page, navigate_to):
             if name_input.value:
                 try:
                     await asyncio.to_thread(chat_service.update_category, cat_id, old_name, name_input.value)
-                    dlg.open = False
+                    overlay.close()
                     page.update()
                     load_topics(True)
                 except Exception as ex:
                     log_info(f"Rename Category Error: {ex}")
 
-        dlg = ft.AlertDialog(
-            title=ft.Text("주제 그룹 이름 수정"),
-            content=name_input,
-            actions=[
-                ft.TextButton("취소", on_click=lambda _: (setattr(dlg, 'open', False), page.update())),
-                ft.ElevatedButton("저장", on_click=lambda e: asyncio.create_task(do_rename(e)), bgcolor="#2E7D32", color="white")
-            ]
+        # [FAUX DIALOG] Rename Category
+        rename_cat_card = ft.Container(
+            width=350,
+            padding=20,
+            bgcolor=AppColors.SURFACE,
+            border_radius=20,
+            on_click=lambda e: e.control.page.update(),
+            content=ft.Column([
+                ft.Text("주제 그룹 이름 수정", size=20, weight="bold", color=AppColors.TEXT_PRIMARY),
+                ft.Container(height=10),
+                name_input,
+                ft.Container(height=20),
+                ft.Row([
+                    ft.TextButton("취소", on_click=lambda _: overlay.close()),
+                    ft.ElevatedButton("저장", on_click=lambda e: asyncio.create_task(do_rename(e)), bgcolor="#2E7D32", color="white")
+                ], alignment=ft.MainAxisAlignment.END)
+            ], tight=True),
+            alignment=ft.Alignment(0, 0)
         )
-        page.open(dlg)
+        overlay.open(rename_cat_card)
 
     edit_btn_ref = ft.Ref[ft.OutlinedButton]()
     async def toggle_edit_mode(e=None):
@@ -1518,7 +1591,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                                 padding=12,
                                 border=ft.border.only(bottom=ft.border.BorderSide(1, "#EEEEEE")),
                                 on_click=lambda e, t={'id': r['topic_id'], 'name': topic_name}: (
-                                    setattr(search_dlg, 'open', False),
+                                    overlay.close(),
                                     page.update(),
                                     asyncio.create_task(select_topic(t))
                                 ),
@@ -1538,23 +1611,30 @@ async def get_chat_controls(page: ft.Page, navigate_to):
     # Assign handler after definition
     search_input.on_submit = do_search
 
-    search_dlg = ft.AlertDialog(
-        title=ft.Text("전체 대화 검색"),
-        content=ft.Container(
-            content=ft.Column([
-                ft.Row([search_input, ft.IconButton(ft.Icons.SEARCH, on_click=do_search)]),
-                ft.Divider(),
-                search_results_col
-            ], tight=True,  width=400),
-            height=400
-        ),
-        actions=[ft.TextButton("닫기", on_click=lambda e: setattr(search_dlg, 'open', False) or page.update())]
-    )
-    
     async def open_search_dialog(e):
         search_input.value = ""
         search_results_col.controls = [ft.Text("검색어를 입력하고 엔터를 누르세요.", color="grey", size=12)]
-        page.open(search_dlg)
+        
+        # [FAUX DIALOG] Search Dialog
+        search_card = ft.Container(
+            width=400,
+            height=400,
+            padding=20,
+            bgcolor=AppColors.SURFACE,
+            border_radius=20,
+            on_click=lambda e: e.control.page.update(),
+            content=ft.Column([
+                ft.Text("전체 대화 검색", size=20, weight="bold", color=AppColors.TEXT_PRIMARY),
+                ft.Container(height=10),
+                ft.Row([search_input, ft.IconButton(ft.Icons.SEARCH, on_click=do_search)]),
+                ft.Divider(),
+                search_results_col,
+                ft.Container(height=10),
+                ft.Row([ft.TextButton("닫기", on_click=lambda _: overlay.close())], alignment=ft.MainAxisAlignment.END)
+            ], tight=True)
+        )
+        overlay.open(search_card)
+        
         page.update()
 
 
@@ -1637,11 +1717,6 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                                 icon=ft.Icons.CATEGORY_OUTLINED,
                                 on_click=lambda e: asyncio.create_task(open_manage_categories_dialog(e))
                             ),
-                            ft.PopupMenuItem(
-                                content=ft.Text("멤버 관리"),
-                                icon=ft.Icons.PEOPLE_OUTLINE,
-                                on_click=lambda e: asyncio.create_task(open_topic_member_management_dialog(e))
-                            ),
                         ]
                     ),
                     ft.OutlinedButton(
@@ -1662,46 +1737,9 @@ async def get_chat_controls(page: ft.Page, navigate_to):
         ], spacing=0)
     )
     
-    # Custom modal overlay (replaces AlertDialog/BottomSheet)
-    modal_container = ft.Container(
-        visible=False,
-        expand=True,
-        content=ft.Stack([
-            # Background overlay - click to close
-            ft.Container(
-                expand=True,
-                bgcolor="rgba(0,0,0,0.5)",
-                on_click=hide_create_modal  # Only background closes modal
-            ),
-            # Modal content - positioned center
-            ft.Container(
-                alignment=ft.Alignment(0, 0),
-                content=ft.Container(
-                    width=350,
-                    bgcolor="white",
-                    border_radius=15,
-                    padding=30,
-                    content=ft.Column([
-                        ft.Row([
-                            ft.Text("새 스레드 만들기", size=20, weight="bold", color="#212121"),
-                            ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#757575", on_click=lambda e: asyncio.create_task(hide_create_modal(e)))
-                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                        ft.Divider(),
-                        modal_name_field,
-                        ft.Container(height=20),
-                        ft.Row([
-                            ft.OutlinedButton(content=ft.Text("취소"), on_click=lambda e: asyncio.create_task(hide_create_modal(e)), expand=1),
-                            ft.ElevatedButton(content=ft.Text("만들기"), on_click=lambda e: asyncio.create_task(create_from_modal(e)), bgcolor="#2E7D32", color="white", expand=1)
-                        ], spacing=10)
-                    ], tight=True, spacing=15)
-                )
-            )
-        ])
-    )
-    
     list_page = ft.Stack([
-        list_page_content,
-        modal_container
+        list_page_content
+        # modal_container removed (replaced by overlay)
     ], expand=True)
 
     # [AI Calendar Feature]
@@ -1732,12 +1770,12 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                     ft.Container(
                         alignment=ft.Alignment(0, 0),
                         content=ft.Container(
-                            width=300,
+                            width=min(300, (page.window_width or 300) * 0.94),
                             bgcolor="white",
                             border_radius=15,
                             padding=30,
                             content=ft.Column([
-                                ft.Row([ft.ProgressRing(), ft.Text("AI 분석 중...", size=16)], alignment=ft.MainAxisAlignment.CENTER, spacing=20),
+                                ft.Row([ft.ProgressRing(), ft.Text("AI 분석 중...", size=16)], alignment=ft.MainAxisAlignment.CENTER, spacing=20, wrap=True),
                                 ft.Container(height=20),
                                 ft.OutlinedButton(
                                     "취소",
@@ -1875,7 +1913,7 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                     ft.Container(
                         alignment=ft.Alignment(0, 0),
                         content=ft.Container(
-                            width=400,
+                            width=min(450, (page.window_width or 450) * 0.94),
                             bgcolor="white",
                             border_radius=15,
                             padding=30,
@@ -1886,15 +1924,15 @@ async def get_chat_controls(page: ft.Page, navigate_to):
                                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                                 ft.Divider(),
                                 tf_summary, tf_description,
-                                ft.Row([ft.IconButton(ft.Icons.CALENDAR_MONTH, on_click=lambda _: page.open(dp_start)), tf_start_date]),
-                                ft.Row([ft.IconButton(ft.Icons.EVENT_REPEAT, on_click=lambda _: page.open(dp_end)), tf_end_date]),
-                                ft.Row([ft.IconButton(ft.Icons.ACCESS_TIME, on_click=lambda _: page.open(tp)), tf_time]),
+                                ft.Row([ft.IconButton(ft.Icons.CALENDAR_MONTH, on_click=lambda _: page.open(dp_start)), tf_start_date], wrap=True),
+                                ft.Row([ft.IconButton(ft.Icons.EVENT_REPEAT, on_click=lambda _: page.open(dp_end)), tf_end_date], wrap=True),
+                                ft.Row([ft.IconButton(ft.Icons.ACCESS_TIME, on_click=lambda _: page.open(tp)), tf_time], wrap=True),
                                 ft.Container(height=10),
                                 ft.Row([
                                     ft.OutlinedButton("취소", on_click=handle_cancel_editor, expand=1),
                                     ft.ElevatedButton("등록", on_click=handle_register, bgcolor=AppColors.PRIMARY, color="white", expand=1)
                                 ], spacing=10)
-                            ], tight=True, spacing=10)
+                            ], tight=True, spacing=10, scroll=ft.ScrollMode.AUTO, max_height=page.window_height * 0.8)
                         )
                     )
                 ])
@@ -2103,4 +2141,9 @@ async def get_chat_controls(page: ft.Page, navigate_to):
 
     init_chat()
     
-    return [ft.SafeArea(root_view, expand=True)]
+    return [
+        ft.Stack([
+            ft.SafeArea(root_view, expand=True),
+            overlay
+        ], expand=True)
+    ]

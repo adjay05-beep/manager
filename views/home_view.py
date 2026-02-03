@@ -86,8 +86,8 @@ async def get_home_controls(page: ft.Page, navigate_to):
 
     def menu_item(label, image_path=None, icon=None, handler=None, color=AppColors.PRIMARY):
         icon_content = ft.Image(src=image_path, width=64, height=64) if image_path else ft.Icon(icon, size=48, color=color)
-        # Wrap async handler with lambda + asyncio.create_task for Flet 0.80+
-        wrapped_handler = (lambda e, h=handler: asyncio.create_task(h(e))) if handler else None
+        # Wrap async handler with page.run_task for Flet 0.80+
+        wrapped_handler = (lambda e, h=handler: page.run_task(h, e)) if handler else None
         return PremiumCard(
             content=ft.Column([
                 icon_content,
@@ -143,7 +143,7 @@ async def get_home_controls(page: ft.Page, navigate_to):
                                     ft.Container(
                                         content=ft.Icon(ft.Icons.PERSON_ROUNDED, color=AppColors.PRIMARY, size=24),
                                         width=48, height=48, bgcolor=ft.Colors.WHITE, border_radius=24,
-                                        on_click=lambda e: asyncio.create_task(go_to_profile(e)),
+                                        on_click=lambda e: page.run_task(go_to_profile, e),
                                     ),
                                     ft.Column([
                                         ft.Text(page.app_session.get("channel_name") or "매장", style=ft.TextStyle(size=20, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)),
@@ -158,7 +158,7 @@ async def get_home_controls(page: ft.Page, navigate_to):
                                             ft.Icon(ft.Icons.LOGOUT_ROUNDED, color=ft.Colors.WHITE, size=20),
                                             ft.Text("로그아웃", size=10, color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD)
                                         ], spacing=0, alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                                        on_click=lambda e: asyncio.create_task(perform_logout(e)),
+                                        on_click=lambda e: page.run_task(perform_logout, e),
                                         padding=5
                                     ),
                                 ], spacing=AppLayout.XS)

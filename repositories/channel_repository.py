@@ -10,7 +10,7 @@ class ChannelRepository:
         """Fetch all channels the user is a member of."""
         try:
             res = service_supabase.table("channel_members")\
-                .select("role, channels(id, name, channel_code)")\
+                .select("role, channels(id, name, channel_code, latitude, longitude, wifi_ssid, wifi_bssid, address)")\
                 .eq("user_id", user_id)\
                 .execute()
 
@@ -152,3 +152,26 @@ class ChannelRepository:
             "user_id": user_id,
             "role": role
         }).execute()
+
+    @staticmethod
+    def update_channel_location(channel_id, lat, lng, address=None):
+        """Update GPS coordinates and address for a channel."""
+        data = {"latitude": lat, "longitude": lng}
+        if address:
+            data["address"] = address
+        return service_supabase.table("channels")\
+            .update(data)\
+            .eq("id", channel_id).execute()
+
+    @staticmethod
+    def update_channel_wifi(channel_id, ssid, bssid):
+        """Update Wi-Fi info for a channel."""
+        return service_supabase.table("channels")\
+            .update({"wifi_ssid": ssid, "wifi_bssid": bssid})\
+            .eq("id", channel_id).execute()
+
+    @staticmethod
+    def get_channel_info(channel_id):
+        """Fetch full channel info including location."""
+        res = service_supabase.table("channels").select("*").eq("id", channel_id).single().execute()
+        return res.data
