@@ -118,22 +118,7 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
             
     asyncio.create_task(update_time())
 
-    # [BRIDGE] 
-    gps_event = asyncio.Event()
-    gps_result = {"data": None}
-
-    async def on_gps_bridge_change(e):
-        val = e.control.value
-        if not val or val == "ATTENDANCE_GPS_BRIDGE_INIT": return
-        gps_result["data"] = val
-        gps_event.set()
-
-    gps_bridge = ft.TextField(
-        value="ATTENDANCE_GPS_BRIDGE_INIT",
-        hint_text="ATTENDANCE_GPS_HINT", # Unique selector for JS
-        width=1, height=1, opacity=0.01, # Minimal presence to ensure DOM rendering
-        on_change=on_gps_bridge_change
-    )
+    # [Bridge Removal] Removed gps_bridge TextField as we now use Title-Bridge via run_javascript(return_value=True)
 
     async def toggle_attendance(e):
         print("[DEBUG] toggle_attendance called")
@@ -142,110 +127,91 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
         page.update()
         
         try:
+            # Check for missing session data
+            if not user_id or not channel_id:
+                print(f"[DEBUG] Session missing: user={user_id}, channel={channel_id}")
+                page.open(ft.SnackBar(ft.Text("❌ 세션 정보가 없습니다. 다시 로그인해주세요."), bgcolor="red"))
+                return
+
             print(f"[DEBUG] Status: {state['status']}, Auth Mode: {channel_auth_mode}")
             if state["status"] == "OFF":
                 # Check auth mode
                 if channel_auth_mode == "wifi":
-                    print("[DEBUG] WiFi mode - showing error")
                     page.open(ft.SnackBar(ft.Text("❌ Wi-Fi 인증은 모바일 앱에서만 사용 가능합니다."), bgcolor="orange"))
                     return
                 
                 # GPS Authentication
                 if channel_auth_mode == "location":
-                    # Validate channel location is set
                     if not channel_lat or not channel_lng:
-                        page.open(ft.SnackBar(ft.Text("❌ 매장 위치가 설정되지 않았습니다. 관리자에게 문의하세요."), bgcolor="red"))
+                        page.open(ft.SnackBar(ft.Text("❌ 매장 위치가 설정되지 않았습니다."), bgcolor="red"))
                         return
                     
-                    # Get user's current location
-                    gps_event.clear()
-                    gps_result["data"] = None
-                    gps_bridge.value = "ATTENDANCE_GPS_BRIDGE_INIT"
-                    gps_bridge.update()
+                    # Modern Geolocation JS Script for Title-Bridge
+                    # Using the polyfill's return_value mechanism
+                    gps_script = """
+                    (async function() {
+                        return new Promise((resolve, reject) => {
+                            if (!navigator.geolocation) {
+                                resolve({error: 'GPS_NOT_SUPPORTED'});
+                                return;
+                            }
+                            console.log('Requesting GPS...');
+                            navigator.geolocation.getCurrentPosition(
+                                (pos) => {
+                                    console.log('GPS success:', pos.coords.latitude, pos.coords.longitude);
+                                    resolve({lat: pos.coords.latitude, lng: pos.coords.longitude});
+                                },
+                                (err) => {
+                                    console.error('GPS error:', err.message);
+                                    resolve({error: err.message});
+                                },
+                                { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+                            );
+                        });
+                    })()
+                    """
 
-                    # JS Bridge Trigger
-                    print("[DEBUG] Requesting GPS location...")
-                    await page.run_javascript(
-                        "(function(){"
-                        "  try {"
-                        "    const bridge = document.querySelector('input[placeholder=\"ATTENDANCE_GPS_HINT\"]');"
-                        "    if (!navigator.geolocation) {"
-                        "      if(bridge) { bridge.value = JSON.stringify({error: 'GPS를 지원하지 않는 브라우저입니다'}); bridge.dispatchEvent(new Event('input', {bubbles:true})); }"
-                        "      return;"
-                        "    }"
-                        "    console.log('Requesting geolocation...');"
-                        "    navigator.geolocation.getCurrentPosition("
-                        "      (pos) => {"
-                        "        console.log('GPS success:', pos.coords.latitude, pos.coords.longitude);"
-                        "        if(bridge) {"
-                        "          bridge.value = JSON.stringify({lat: pos.coords.latitude, lng: pos.coords.longitude});"
-                        "          bridge.dispatchEvent(new Event('input', {bubbles:true}));"
-                        "        }"
-                        "      },"
-                        "      (err) => {"
-                        "        console.error('GPS error:', err.message);"
-                        "        if(bridge) {"
-                        "          bridge.value = JSON.stringify({error: err.message});"
-                        "          bridge.dispatchEvent(new Event('input', {bubbles:true}));"
-                        "        }"
-                        "      },"
-                        "      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 }"
-                        "    );"
-                        "  } catch(e) { console.error('Attendance GPS JS Error:', e); }"
-                        "})()"
-                    )
+                    print("[DEBUG] Triggering GPS via Title-Bridge...")
+                    page.open(ft.SnackBar(ft.Text("📍 위치 정보를 가져오는 중..."), duration=3000))
                     
-                    # Wait for bridge event (increased timeout)
                     try:
-                        print("[DEBUG] Waiting for GPS response (35s timeout)...")
-                        await asyncio.wait_for(gps_event.wait(), timeout=35.0)
-                        print("[DEBUG] GPS response received")
-                    except asyncio.TimeoutError:
-                        print("[DEBUG] GPS timeout")
-                        page.open(ft.SnackBar(ft.Text("⏱️ 위치 정보를 가져오는데 시간이 너무 오래 걸립니다. 브라우저 위치 권한을 확인하거나 모바일에서 테스트해주세요."), bgcolor="orange"))
-                        return
-
-                    # Parse GPS result
-                    user_lat, user_lng = None, None
-                    if gps_result["data"]:
-                        try:
-                            gps_data = json.loads(gps_result["data"])
-                            if "error" in gps_data:
-                                page.open(ft.SnackBar(ft.Text(f"❌ GPS 오류: {gps_data['error']}"), bgcolor="red"))
-                                return
-                            user_lat, user_lng = gps_data["lat"], gps_data["lng"]
-                        except Exception as parse_err:
-                            page.open(ft.SnackBar(ft.Text(f"❌ 위치 데이터 파싱 오류"), bgcolor="red"))
+                        # Call polyfilled run_javascript with return_value=True
+                        res_str = await page.run_javascript(gps_script, return_value=True)
+                        print(f"[DEBUG] GPS result received: {res_str}")
+                        
+                        if not res_str:
+                            page.open(ft.SnackBar(ft.Text("⏱️ 위치 요청 타임아웃 또는 차단됨"), bgcolor="orange"))
                             return
+                            
+                        gps_data = json.loads(res_str)
+                        if "error" in gps_data:
+                            page.open(ft.SnackBar(ft.Text(f"❌ GPS 오류: {gps_data['error']}"), bgcolor="red"))
+                            return
+                        
+                        user_lat = gps_data.get("lat")
+                        user_lng = gps_data.get("lng")
+                    except Exception as bridge_err:
+                        print(f"[DEBUG] Bridge Error: {bridge_err}")
+                        page.open(ft.SnackBar(ft.Text(f"❌ 브릿지 통신 오류: {bridge_err}"), bgcolor="red"))
+                        return
                     
                     if not user_lat or not user_lng:
                         page.open(ft.SnackBar(ft.Text("❌ 위치를 가져올 수 없습니다"), bgcolor="red"))
                         return
                     
-                    # Calculate distance (Haversine formula)
+                    # Calculate distance
                     def calculate_distance(lat1, lon1, lat2, lon2):
-                        R = 6371000  # Earth radius in meters
-                        phi1 = math.radians(lat1)
-                        phi2 = math.radians(lat2)
-                        delta_phi = math.radians(lat2 - lat1)
-                        delta_lambda = math.radians(lon2 - lon1)
-                        
-                        a = math.sin(delta_phi/2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda/2)**2
-                        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-                        
-                        return R * c
+                        R = 6371000
+                        phi1, phi2 = math.radians(lat1), math.radians(lat2)
+                        d_phi, d_lam = math.radians(lat2-lat1), math.radians(lon2-lon1)
+                        a = math.sin(d_phi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(d_lam/2)**2
+                        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
                     
                     distance = calculate_distance(user_lat, user_lng, channel_lat, channel_lng)
-                    
-                    # Check distance (100m threshold)
                     if distance > 100:
-                        page.open(ft.SnackBar(
-                            ft.Text(f"❌ 매장에서 너무 멀리 떨어져 있습니다. (약 {int(distance)}m)"), 
-                            bgcolor="red"
-                        ))
+                        page.open(ft.SnackBar(ft.Text(f"❌ 매장에서 너무 멉니다. (약 {int(distance)}m)"), bgcolor="red"))
                         return
                     
-                    # Success - proceed with clock in
                     lat, lng = user_lat, user_lng
                 
                 # 2. Call Service
@@ -286,6 +252,11 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
             
             status_card.update()
             btn.update()
+        except Exception as ex:
+            import traceback
+            print(f"[FATAL] toggle_attendance error: {ex}")
+            traceback.print_exc()
+            page.open(ft.SnackBar(ft.Text(f"🚨 시스템 오류: {ex}"), bgcolor="red"))
         finally:
             btn.disabled = False
             page.update()
@@ -337,6 +308,7 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
             padding=20,
             expand=True,
             content=ft.Column([
+                # Removed gps_bridge from UI column
                 status_card,
                 ft.Container(height=30),
                 ft.Container(
