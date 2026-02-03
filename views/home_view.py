@@ -101,7 +101,7 @@ async def get_home_controls(page: ft.Page, navigate_to):
         menu_item("캘린더", image_path="images/icon_calendar_3d.png", handler=go_to_calendar),
         menu_item("업무 일지", image_path="images/icon_handover_3d_v5.png", handler=go_to_handover),
         menu_item("체크리스트", image_path="images/icon_closing_3d.png", handler=go_to_closing),
-        # menu_item("음성 메모", image_path="images/icon_voice_3d.png", handler=go_to_voice),
+        menu_item("음성 메모", image_path="images/icon_voice_3d.png", handler=go_to_voice),
         menu_item("출퇴근", icon=ft.Icons.TIMER_OUTLINED, handler=go_to_attendance),
         menu_item("설정", image_path="images/icon_settings_3d.png", handler=go_to_store_info),
     ]

@@ -10,18 +10,30 @@ async def get_voice_controls(page: ft.Page, navigate_to):
     import warnings
     warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-    # Singleton Recorder Safety
+    # [HYBRID] AudioRecorder Initialization (Ensure it's in overlay)
     audio_recorder = getattr(page, "audio_recorder", None)
     if not audio_recorder:
+        # Check if already in overlay
         for ctrl in page.overlay:
              if "AudioRecorder" in str(type(ctrl)):
                  audio_recorder = ctrl
                  break
-
+        
+        # If still not found, create new
+        if not audio_recorder:
+            print("[DEBUG] Initializing new AudioRecorder for session")
+            audio_recorder = ft.AudioRecorder(
+                audio_encoder=ft.AudioEncoder.WAV,
+                on_error=lambda e: print(f"AudioRecorder Error: {e.data}")
+            )
+            page.overlay.append(audio_recorder)
+            page.audio_recorder = audio_recorder # Pin to page for reuse
+    
     # [RBAC] Get Context
     current_user_id = page.app_session.get("user_id")
     channel_id = page.app_session.get("channel_id")
     is_web_mode = page.web
+    is_native_app = page.platform in [ft.PagePlatform.ANDROID, ft.PagePlatform.IOS]
 
     if not current_user_id:
         return [ft.Text("Please login first.", color="red")]
@@ -317,6 +329,7 @@ async def get_voice_controls(page: ft.Page, navigate_to):
 
             if res:
                 # [FIX] blob URL 감지 - 웹 브라우저에서 AudioRecorder 사용 시 발생
+                # 네이티브 모바일 경로는 blob:으로 시작하지 않으므로 안전하게 구분됨
                 if res.startswith("blob:"):
                     print(f"DEBUG: Blob URL detected: {res}")
                     # blob URL은 서버에서 접근 불가 → Web Speech API 사용 안내
@@ -329,6 +342,7 @@ async def get_voice_controls(page: ft.Page, navigate_to):
                     await start_web_speech()
                     return
 
+                print(f"DEBUG: Recording stopped. Result path: {res}")
                 await process_recording(res)
         except Exception as e:
             status_text.value = f"Stop Error: {e}"
@@ -384,15 +398,21 @@ async def get_voice_controls(page: ft.Page, navigate_to):
             asyncio.create_task(start_voice_input())
 
     async def start_voice_input():
-        """음성 입력 시작 - Web Speech API 우선, 실패 시 AudioRecorder"""
-        print(f"DEBUG: start_voice_input called, page.web={page.web}")
+        """음성 입력 시작 - 플랫폼별 최적의 방식 선택"""
+        print(f"DEBUG: start_voice_input called. Mobile={is_native_app}, Web={page.web}")
 
-        # 항상 Web Speech API를 먼저 시도
+        # 1. 네이티브 앱(Android/iOS) 환경: AudioRecorder 우선
+        if is_native_app:
+            print("[DEBUG] Native platform detected. Using AudioRecorder...")
+            await start_desktop_recording()
+            return
+
+        # 2. 웹 브라우저 환경: Web Speech API 우선
         try:
             await start_web_speech()
         except Exception as e:
             print(f"DEBUG: Web Speech failed: {e}")
-            # Web Speech 실패 시 AudioRecorder 시도 (데스크톱 환경)
+            # Web Speech 실패 시 AudioRecorder 시도 (데스크톱 설치 앱 등)
             if audio_recorder and not page.web:
                 await start_desktop_recording()
             else:

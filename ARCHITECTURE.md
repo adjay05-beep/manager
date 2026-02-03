@@ -79,8 +79,8 @@ graph TD
 ### Voice Recording Strategy (Hybrid)
 *   **Web (Browser)**: Uses **Web Speech API** (JavaScript injection).
     *   *Why?* Browsers block direct mic access for Python threads.
-*   **Desktop (Windows)**: Uses **AudioRecorder** (Flet component).
-    *   *Why?* Native quality is better and supports file saving.
+*   **Desktop/Mobile (App)**: Uses **AudioRecorder** (Flet component) + **OpenAI Whisper**.
+    *   *Why?* Native quality is better, handles files directly, and bypassing "blob URL" limitations of browsers.
 
 ### Performance Optimization
 1.  **Handover View**: Implements **Data Hashing (MD5)**.
