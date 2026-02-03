@@ -205,37 +205,69 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                     user_lng = None
 
                     try:
-                        # localStorage 초기화
-                        await page.client_storage.remove_async("gps_result")
+                        import uuid
+                        import time
+
+                        # 고유 요청 ID 생성
+                        request_id = str(uuid.uuid4())[:8]
+                        print(f"[DEBUG] GPS request ID: {request_id}")
+
+                        # Supabase에 GPS 요청 레코드 생성
+                        try:
+                            service_supabase.table("gps_requests").insert({
+                                "id": request_id,
+                                "user_id": user_id,
+                                "status": "pending"
+                            }).execute()
+                        except Exception as db_err:
+                            print(f"[DEBUG] DB insert error (table might not exist): {db_err}")
+                            # 테이블이 없으면 localStorage 방식으로 폴백
+                            pass
 
                         # GPS 페이지 열기 안내
                         page.open(ft.SnackBar(
-                            ft.Text("📍 위치 확인 페이지가 열립니다. 위치 허용 후 자동으로 닫힙니다."),
-                            duration=4000
+                            ft.Text("📍 위치 확인 페이지가 열립니다. 위치 허용 후 이 탭으로 돌아와주세요."),
+                            duration=5000
                         ))
                         await asyncio.sleep(0.5)
 
-                        # GPS 전용 페이지 열기 (새 탭에서)
-                        page.launch_url("/assets/gps_page.html")
+                        # GPS 전용 페이지 열기 (요청 ID 포함)
+                        page.launch_url(f"/assets/gps_page.html?rid={request_id}")
                         print("[DEBUG] GPS page opened, polling for result...")
 
-                        # localStorage에서 결과 폴링 (최대 30초)
+                        # Supabase에서 결과 폴링 (최대 60초)
                         gps_data = None
-                        for i in range(60):  # 0.5초 * 60 = 30초
+                        for i in range(120):  # 0.5초 * 120 = 60초
                             await asyncio.sleep(0.5)
                             try:
-                                res_str = await page.client_storage.get_async("gps_result")
-                                if res_str:
-                                    print(f"[DEBUG] Got GPS result: {res_str}")
-                                    gps_data = json.loads(res_str) if isinstance(res_str, str) else res_str
+                                result = service_supabase.table("gps_requests").select("*").eq("id", request_id).single().execute()
+                                if result.data and result.data.get("status") == "completed":
+                                    gps_data = {
+                                        "lat": result.data.get("lat"),
+                                        "lng": result.data.get("lng")
+                                    }
+                                    print(f"[DEBUG] Got GPS from DB: {gps_data}")
+                                    # 사용한 레코드 삭제
+                                    service_supabase.table("gps_requests").delete().eq("id", request_id).execute()
+                                    break
+                                elif result.data and result.data.get("status") == "error":
+                                    gps_data = {"error": result.data.get("error_message", "Unknown error")}
+                                    service_supabase.table("gps_requests").delete().eq("id", request_id).execute()
                                     break
                             except Exception as poll_err:
-                                print(f"[DEBUG] Poll error: {poll_err}")
+                                # 테이블이 없거나 다른 에러
+                                if i == 0:
+                                    print(f"[DEBUG] DB poll error: {poll_err}")
                                 continue
 
                         if not gps_data:
+                            # 타임아웃 시 레코드 정리
+                            try:
+                                service_supabase.table("gps_requests").delete().eq("id", request_id).execute()
+                            except:
+                                pass
                             page.open(ft.SnackBar(
-                                ft.Text("⏱️ GPS 응답 시간 초과. 다시 시도해주세요."),
+                                ft.Text("⏱️ GPS 응답 시간 초과. GPS 페이지에서 위치를 허용했는지 확인해주세요."),
                                 bgcolor="orange"
                             ))
                             return
@@ -244,8 +276,7 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
 
                         if "error" in gps_data:
                             error_msg = gps_data['error']
-                            error_code = gps_data.get('code', 0)
-                            if error_code == 1 or 'denied' in str(error_msg).lower():
+                            if 'denied' in str(error_msg).lower():
                                 page.open(ft.SnackBar(
                                     ft.Text("❌ 위치 권한이 거부되었습니다. 설정에서 허용해주세요."),
                                     bgcolor="red"
