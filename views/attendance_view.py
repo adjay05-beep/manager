@@ -87,25 +87,6 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
     except Exception as e:
         print(f"Failed to load channel settings: {e}")
 
-    # GPS Bridge - TextField 기반 브릿지 (Safari 호환)
-    gps_event = asyncio.Event()
-    gps_result_data = {"value": None}
-
-    def on_gps_bridge_change(e):
-        val = e.control.value
-        if val and val != "ATTENDANCE_GPS_BRIDGE_INIT":
-            print(f"[GPS_BRIDGE] Received: {val[:100]}...")
-            gps_result_data["value"] = val
-            gps_event.set()
-
-    gps_bridge = ft.TextField(
-        value="ATTENDANCE_GPS_BRIDGE_INIT",
-        hint_text="ATTENDANCE_GPS_BRIDGE",
-        width=1,
-        height=1,
-        opacity=0,
-        on_change=on_gps_bridge_change
-    )
 
     # Local State
     state = await attendance_service.get_status(user_id, channel_id)
@@ -218,76 +199,52 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                         page.open(ft.SnackBar(ft.Text("❌ 매장 위치가 설정되지 않았습니다."), bgcolor="red"))
                         return
                     
-                    print("[DEBUG] Triggering GPS request via TextField bridge...")
-                    page.open(ft.SnackBar(
-                        ft.Text("📍 위치 정보를 요청합니다. 허용 창이 뜨면 '허용'을 눌러주세요."),
-                        duration=5000
-                    ))
+                    print("[DEBUG] Triggering GPS request via GPS page...")
 
                     user_lat = None
                     user_lng = None
 
                     try:
-                        # Reset bridge state
-                        gps_event.clear()
-                        gps_result_data["value"] = None
-                        gps_bridge.value = "ATTENDANCE_GPS_BRIDGE_INIT"
-                        gps_bridge.update()
+                        # localStorage 초기화
+                        await page.client_storage.remove_async("gps_result")
 
-                        # TextField 브릿지 방식 - Flet 네이티브 run_javascript 사용
-                        gps_script = (
-                            "(function(){"
-                            "  try {"
-                            "    var bridge = document.querySelector('input[placeholder=\"ATTENDANCE_GPS_BRIDGE\"]');"
-                            "    if (!bridge) { console.error('GPS Bridge not found'); return; }"
-                            "    if (!navigator.geolocation) {"
-                            "      bridge.value = JSON.stringify({error: 'GPS_NOT_SUPPORTED'});"
-                            "      bridge.dispatchEvent(new Event('input', {bubbles:true}));"
-                            "      return;"
-                            "    }"
-                            "    navigator.geolocation.getCurrentPosition("
-                            "      function(pos) {"
-                            "        bridge.value = JSON.stringify({lat: pos.coords.latitude, lng: pos.coords.longitude});"
-                            "        bridge.dispatchEvent(new Event('input', {bubbles:true}));"
-                            "      },"
-                            "      function(err) {"
-                            "        bridge.value = JSON.stringify({error: err.message || 'PERMISSION_DENIED', code: err.code});"
-                            "        bridge.dispatchEvent(new Event('input', {bubbles:true}));"
-                            "      },"
-                            "      {enableHighAccuracy: true, timeout: 20000, maximumAge: 0}"
-                            "    );"
-                            "  } catch(e) { console.error('GPS Error:', e); }"
-                            "})()"
-                        )
+                        # GPS 페이지 열기 안내
+                        page.open(ft.SnackBar(
+                            ft.Text("📍 위치 확인 페이지가 열립니다. 위치 허용 후 자동으로 닫힙니다."),
+                            duration=4000
+                        ))
+                        await asyncio.sleep(0.5)
 
-                        # Execute JavaScript (Flet 네이티브 - return_value 없이)
-                        await page.run_javascript(gps_script)
-                        print("[DEBUG] GPS script sent, waiting for bridge response...")
+                        # GPS 전용 페이지 열기 (새 탭에서)
+                        page.launch_url("/assets/gps_page.html")
+                        print("[DEBUG] GPS page opened, polling for result...")
 
-                        # Wait for TextField bridge response
-                        try:
-                            await asyncio.wait_for(gps_event.wait(), timeout=25.0)
-                            print("[DEBUG] Bridge responded!")
-                        except asyncio.TimeoutError:
-                            print("[DEBUG] Bridge timeout!")
+                        # localStorage에서 결과 폴링 (최대 30초)
+                        gps_data = None
+                        for i in range(60):  # 0.5초 * 60 = 30초
+                            await asyncio.sleep(0.5)
+                            try:
+                                res_str = await page.client_storage.get_async("gps_result")
+                                if res_str:
+                                    print(f"[DEBUG] Got GPS result: {res_str}")
+                                    gps_data = json.loads(res_str) if isinstance(res_str, str) else res_str
+                                    break
+                            except Exception as poll_err:
+                                print(f"[DEBUG] Poll error: {poll_err}")
+                                continue
+
+                        if not gps_data:
                             page.open(ft.SnackBar(
-                                ft.Text("⏱️ GPS 응답 시간 초과. 위치 권한을 확인하고 다시 시도해주세요."),
+                                ft.Text("⏱️ GPS 응답 시간 초과. 다시 시도해주세요."),
                                 bgcolor="orange"
                             ))
                             return
 
-                        # Parse result
-                        res_str = gps_result_data["value"]
-                        if not res_str:
-                            page.open(ft.SnackBar(ft.Text("❌ GPS 데이터를 받지 못했습니다."), bgcolor="red"))
-                            return
-
-                        gps_data = json.loads(res_str)
                         print(f"[DEBUG] GPS data: {gps_data}")
 
                         if "error" in gps_data:
                             error_msg = gps_data['error']
-                            error_code = gps_data.get('code', '')
+                            error_code = gps_data.get('code', 0)
                             if error_code == 1 or 'denied' in str(error_msg).lower():
                                 page.open(ft.SnackBar(
                                     ft.Text("❌ 위치 권한이 거부되었습니다. 설정에서 허용해주세요."),
@@ -301,15 +258,11 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                         user_lng = gps_data.get("lng")
                         print(f"[DEBUG] Got GPS: lat={user_lat}, lng={user_lng}")
 
-                    except json.JSONDecodeError as je:
-                        print(f"[DEBUG] JSON parse error: {je}")
-                        page.open(ft.SnackBar(ft.Text("❌ GPS 데이터 형식 오류"), bgcolor="red"))
-                        return
-                    except Exception as bridge_err:
+                    except Exception as gps_err:
                         import traceback
-                        print(f"[DEBUG] GPS Error: {bridge_err}")
+                        print(f"[DEBUG] GPS Error: {gps_err}")
                         traceback.print_exc()
-                        page.open(ft.SnackBar(ft.Text(f"❌ GPS 오류: {bridge_err}"), bgcolor="red"))
+                        page.open(ft.SnackBar(ft.Text(f"❌ GPS 오류: {gps_err}"), bgcolor="red"))
                         return
                     
                     if not user_lat or not user_lng:
@@ -427,8 +380,6 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
             padding=20,
             expand=True,
             content=ft.Column([
-                # Hidden GPS Bridge TextField
-                gps_bridge,
                 status_card,
                 ft.Container(height=30),
                 ft.Container(
