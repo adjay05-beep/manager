@@ -198,61 +198,128 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                         page.open(ft.SnackBar(ft.Text("❌ 매장 위치가 설정되지 않았습니다."), bgcolor="red"))
                         return
                     
-                    # Ultra-Simplified GPS Script for Safari compatibility
-                    # Directly calls and resolves to avoid complex async wrapping that Safari might block
-                    gps_script = """
-                    new Promise((resolve) => {
-                        if (!navigator.geolocation) {
-                            resolve({error: 'GPS_NOT_SUPPORTED'});
-                        } else {
-                            navigator.geolocation.getCurrentPosition(
-                                (p) => resolve({lat: p.coords.latitude, lng: p.coords.longitude}),
-                                (e) => resolve({error: e.message}),
-                                { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
-                            );
-                        }
-                    })
-                    """
-
-                    print("[DEBUG] Triggering Simplified GPS...")
+                    print("[DEBUG] Triggering GPS request...")
                     page.open(ft.SnackBar(
-                        ft.Text("📍 위치 정보를 요청합니다. 허용 창이 뜨지 않으면 주소창의 '가' 버튼을 눌러보세요."), 
+                        ft.Text("📍 위치 정보를 요청합니다. 허용 창이 뜨면 '허용'을 눌러주세요."),
                         duration=5000
                     ))
-                    
+
+                    user_lat = None
+                    user_lng = None
+
                     try:
-                        # Call polyfilled run_javascript with return_value=True
-                        res_str = await page.run_javascript(gps_script, return_value=True)
-                        print(f"[DEBUG] Raw result: {res_str}")
-                        
-                        if not res_str:
-                            # Re-try with low accuracy if high fails silently
-                            print("[DEBUG] Retrying with low accuracy...")
-                            gps_script_low = """
-                            new Promise((resolve) => {
+                        # Safari-compatible GPS script using localStorage bridge
+                        # This works by: 1) Execute GPS, 2) Store in localStorage, 3) Read via client_storage
+                        gps_script = """
+                        (async () => {
+                            return new Promise((resolve) => {
+                                localStorage.removeItem('flet_gps_result');
+                                if (!navigator.geolocation) {
+                                    const result = {error: 'GPS_NOT_SUPPORTED'};
+                                    localStorage.setItem('flet_gps_result', JSON.stringify(result));
+                                    resolve(result);
+                                    return;
+                                }
                                 navigator.geolocation.getCurrentPosition(
-                                    (p) => resolve({lat: p.coords.latitude, lng: p.coords.longitude}),
-                                    (e) => resolve({error: e.message}),
-                                    { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+                                    (p) => {
+                                        const result = {lat: p.coords.latitude, lng: p.coords.longitude};
+                                        localStorage.setItem('flet_gps_result', JSON.stringify(result));
+                                        resolve(result);
+                                    },
+                                    (e) => {
+                                        const result = {error: e.message || 'PERMISSION_DENIED'};
+                                        localStorage.setItem('flet_gps_result', JSON.stringify(result));
+                                        resolve(result);
+                                    },
+                                    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
                                 );
-                            })
-                            """
-                            res_str = await page.run_javascript(gps_script_low, return_value=True)
-                        
+                            });
+                        })()
+                        """
+
+                        # Method 1: Try direct run_javascript (works on most browsers)
+                        res_str = None
+                        try:
+                            res_str = await page.run_javascript(gps_script, return_value=True)
+                            print(f"[DEBUG] Direct JS result: {res_str}")
+                        except Exception as js_err:
+                            print(f"[DEBUG] Direct JS failed: {js_err}")
+
+                        # Method 2: If direct method failed, try reading from localStorage via JavaScript
                         if not res_str:
-                            page.open(ft.SnackBar(ft.Text("⏱️ 응답 없음: 브라우저 설정에서 위치 권한을 확인해주세요."), bgcolor="orange"))
+                            print("[DEBUG] Trying localStorage read via JS...")
+                            await asyncio.sleep(2)
+                            try:
+                                read_script = "localStorage.getItem('flet_gps_result')"
+                                res_str = await page.run_javascript(read_script, return_value=True)
+                                print(f"[DEBUG] localStorage JS result: {res_str}")
+                            except Exception as js_read_err:
+                                print(f"[DEBUG] localStorage JS read error: {js_read_err}")
+
+                        # Method 2b: Try client_storage as additional fallback
+                        if not res_str:
+                            print("[DEBUG] Trying client_storage fallback...")
+                            try:
+                                res_str = await page.client_storage.get_async("flet_gps_result")
+                                print(f"[DEBUG] client_storage result: {res_str}")
+                            except Exception as storage_err:
+                                print(f"[DEBUG] client_storage error: {storage_err}")
+
+                        # Method 3: Open GPS bridge page as last resort
+                        if not res_str:
+                            print("[DEBUG] Opening GPS bridge page...")
+                            page.open(ft.SnackBar(
+                                ft.Text("📍 위치 정보를 가져오는 중... 팝업이 뜨면 잠시 기다려주세요."),
+                                duration=3000
+                            ))
+
+                            # Clear previous data
+                            try:
+                                await page.client_storage.remove_async("flet_gps_data")
+                            except:
+                                pass
+
+                            # Open GPS bridge page
+                            await page.launch_url("/assets/gps_bridge.html")
+
+                            # Poll for result from localStorage (gps_bridge.html saves to 'flet_gps_data')
+                            for i in range(15):  # Wait up to 15 seconds
+                                await asyncio.sleep(1)
+                                try:
+                                    res_str = await page.client_storage.get_async("flet_gps_data")
+                                    if res_str:
+                                        print(f"[DEBUG] GPS Bridge result: {res_str}")
+                                        break
+                                except:
+                                    pass
+
+                        if not res_str:
+                            page.open(ft.SnackBar(
+                                ft.Text("⏱️ GPS 응답 없음. Safari 설정 > 개인정보 보호 > 위치 서비스를 확인해주세요."),
+                                bgcolor="orange"
+                            ))
                             return
-                            
-                        gps_data = json.loads(res_str)
+
+                        gps_data = json.loads(res_str) if isinstance(res_str, str) else res_str
                         if "error" in gps_data:
-                            page.open(ft.SnackBar(ft.Text(f"❌ GPS 오류: {gps_data['error']}"), bgcolor="red"))
+                            error_msg = gps_data['error']
+                            if 'denied' in error_msg.lower() or 'permission' in error_msg.lower():
+                                page.open(ft.SnackBar(
+                                    ft.Text("❌ 위치 권한이 거부되었습니다. 설정에서 위치 접근을 허용해주세요."),
+                                    bgcolor="red"
+                                ))
+                            else:
+                                page.open(ft.SnackBar(ft.Text(f"❌ GPS 오류: {error_msg}"), bgcolor="red"))
                             return
-                        
+
                         user_lat = gps_data.get("lat")
                         user_lng = gps_data.get("lng")
+
                     except Exception as bridge_err:
-                        print(f"[DEBUG] Bridge Error: {bridge_err}")
-                        page.open(ft.SnackBar(ft.Text(f"❌ 브릿지 통신 오류: {bridge_err}"), bgcolor="red"))
+                        import traceback
+                        print(f"[DEBUG] GPS Error: {bridge_err}")
+                        traceback.print_exc()
+                        page.open(ft.SnackBar(ft.Text(f"❌ GPS 통신 오류: {bridge_err}"), bgcolor="red"))
                         return
                     
                     if not user_lat or not user_lng:

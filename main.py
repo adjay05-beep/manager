@@ -49,58 +49,101 @@ async def main(page: ft.Page):
 
     page.on_title_change = on_title_change
 
-    # [POLYFILL 2.0] Enhanced run_javascript
+    # [POLYFILL 2.0] Enhanced run_javascript - Safari Compatible
+    # Save the original method before we override it
+    _original_run_js = ft.Page.run_javascript if hasattr(ft.Page, 'run_javascript') else None
+
     async def run_javascript_fixed(self, script: str, return_value: bool = False):
-        import asyncio, re
-        
-        # Minify
+        import asyncio, re, urllib.parse
+
+        # Minify script
         minified = re.sub(r"\s+", " ", script).strip()
-        
-        # Wrap to write to document.title instead of TextField
+
+        sys_log(f"run_javascript: Starting execution (return_value={return_value})...")
+
+        # If return_value is True, wrap script to store result
         if return_value:
-            # We use document.title because it triggers an event in Flet immediately
+            # Store result in both document.title (for callback) and localStorage (for polling)
             wrapped_js = (
                 f"(async()=>{{try{{"
                 f"let r=await({minified});"
-                f"document.title='RESULT:'+(typeof r==='object'?JSON.stringify(r):String(r));"
+                f"let json=typeof r==='object'?JSON.stringify(r):String(r);"
+                f"localStorage.setItem('flet_js_result',json);"
+                f"document.title='RESULT:'+json;"
                 f"}}catch(e){{"
-                f"document.title='RESULT:'+JSON.stringify({{error:e.toString()}});"
-                f"}}}}).call();"
+                f"let err=JSON.stringify({{error:e.toString()}});"
+                f"localStorage.setItem('flet_js_result',err);"
+                f"document.title='RESULT:'+err;"
+                f"}}}})();"
             )
+            # Clear previous results
+            self._js_event.clear()
+            self._js_result = None
         else:
             wrapped_js = minified
 
-        try:
-            # First trial: Native Flet run_javascript (Flet 0.80+)
-            # Note: The original 'self.run_javascript' is now 'run_javascript_fixed'
-            # We call the base version if it exists or use the page object's method
-            # In Flet 0.80+, ft.Page has run_javascript but it's often unreliable in web
-            # So we use a more direct approach by calling the underlying client command if possible
-            # But the most compatible way is actually launch_url for some, but Safari blocks it.
-            # Let's try native run_javascript if it's available and not our fixed version
-            
-            sys_log(f"run_javascript: Executing via Title Bridge...")
-            # We must use self.run_javascript but not recursively.
-            # However, Flet's internal run_javascript is what we really want here.
-            # Since we replaced ft.Page.run_javascript, we use the original logic but without launch_url
-            
-            # Use original launch_url as fallback, but try to avoid it if possible
-            # For Safari, let's try to inject a script tag or use the native client
-            await self.launch_url(f"javascript:void({wrapped_js})")
-        except Exception as e:
-            sys_log(f"run_javascript FAILED: {e}")
-            return None
+        executed = False
+
+        # Method 1: Try Flet's native run_javascript (Flet 0.80+)
+        if _original_run_js and not executed:
+            try:
+                # Call the original method directly on the instance
+                result = await _original_run_js(self, wrapped_js)
+                sys_log("run_javascript: Native Flet method succeeded")
+                executed = True
+                if not return_value:
+                    return result
+            except Exception as e:
+                sys_log(f"run_javascript: Native method failed: {e}")
+
+        # Method 2: Try using Flet's internal _send_command if available
+        if hasattr(self, '_send_command') and not executed:
+            try:
+                await self._send_command("runScript", {"script": wrapped_js})
+                sys_log("run_javascript: _send_command succeeded")
+                executed = True
+            except Exception as e:
+                sys_log(f"run_javascript: _send_command failed: {e}")
+
+        # Method 3: Inject script via page overlay (more Safari-compatible)
+        if not executed:
+            try:
+                # Use data URI approach which is more reliable than javascript: URLs
+                # Encode the script for safe transmission
+                encoded_script = urllib.parse.quote(wrapped_js, safe='')
+                data_url = f"data:text/html,<script>{urllib.parse.unquote(encoded_script)}</script>"
+
+                # Try iframe injection approach
+                iframe_js = f"(function(){{var s=document.createElement('script');s.textContent={repr(wrapped_js)};document.body.appendChild(s);s.remove();}})();"
+
+                # For Safari, try direct script injection via eval workaround
+                await self.launch_url(f"javascript:{urllib.parse.quote(iframe_js)}")
+                sys_log("run_javascript: launch_url with script injection")
+                executed = True
+            except Exception as e:
+                sys_log(f"run_javascript: Script injection failed: {e}")
 
         if return_value:
-            self._js_event.clear()
-            self._js_result = None
             try:
-                # Wait for title change event
-                await asyncio.wait_for(self._js_event.wait(), timeout=45.0)
-                return self._js_result
+                # Wait for title change event with timeout
+                await asyncio.wait_for(self._js_event.wait(), timeout=30.0)
+                if self._js_result:
+                    return self._js_result
             except asyncio.TimeoutError:
-                sys_log("run_javascript: ERROR - Title Bridge Timeout")
-                return None
+                sys_log("run_javascript: Title bridge timeout, trying localStorage fallback...")
+
+            # Fallback: Try to read result from localStorage
+            try:
+                read_result_js = "localStorage.getItem('flet_js_result')"
+                if _original_run_js:
+                    result = await _original_run_js(self, read_result_js)
+                    if result:
+                        sys_log(f"run_javascript: Got result from localStorage: {result[:50]}...")
+                        return result
+            except Exception as e:
+                sys_log(f"run_javascript: localStorage fallback failed: {e}")
+
+            return None
         return None
 
     ft.Page.run_javascript = run_javascript_fixed
