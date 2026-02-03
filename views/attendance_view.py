@@ -76,7 +76,7 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
     channel_auth_mode = "location"  # default
     channel_lat, channel_lng = None, None
     channel_wifi_ssid = None
-    
+
     try:
         channel_res = service_supabase.table("channels").select("auth_mode, location_lat, location_lng, wifi_ssid").eq("id", channel_id).single().execute()
         if channel_res.data:
@@ -86,6 +86,26 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
             channel_wifi_ssid = channel_res.data.get("wifi_ssid")
     except Exception as e:
         print(f"Failed to load channel settings: {e}")
+
+    # GPS Bridge - TextField 기반 브릿지 (Safari 호환)
+    gps_event = asyncio.Event()
+    gps_result_data = {"value": None}
+
+    def on_gps_bridge_change(e):
+        val = e.control.value
+        if val and val != "ATTENDANCE_GPS_BRIDGE_INIT":
+            print(f"[GPS_BRIDGE] Received: {val[:100]}...")
+            gps_result_data["value"] = val
+            gps_event.set()
+
+    gps_bridge = ft.TextField(
+        value="ATTENDANCE_GPS_BRIDGE_INIT",
+        hint_text="ATTENDANCE_GPS_BRIDGE",
+        width=1,
+        height=1,
+        opacity=0,
+        on_change=on_gps_bridge_change
+    )
 
     # Local State
     state = await attendance_service.get_status(user_id, channel_id)
@@ -198,7 +218,7 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                         page.open(ft.SnackBar(ft.Text("❌ 매장 위치가 설정되지 않았습니다."), bgcolor="red"))
                         return
                     
-                    print("[DEBUG] Triggering GPS request...")
+                    print("[DEBUG] Triggering GPS request via TextField bridge...")
                     page.open(ft.SnackBar(
                         ft.Text("📍 위치 정보를 요청합니다. 허용 창이 뜨면 '허용'을 눌러주세요."),
                         duration=5000
@@ -208,105 +228,86 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                     user_lng = None
 
                     try:
-                        # Safari-compatible GPS script using localStorage bridge
-                        # This works by: 1) Execute GPS, 2) Store in localStorage, 3) Read via client_storage
-                        gps_script = """
-                        (async () => {
-                            return new Promise((resolve) => {
-                                localStorage.removeItem('flet_gps_result');
-                                if (!navigator.geolocation) {
-                                    const result = {error: 'GPS_NOT_SUPPORTED'};
-                                    localStorage.setItem('flet_gps_result', JSON.stringify(result));
-                                    resolve(result);
-                                    return;
-                                }
-                                navigator.geolocation.getCurrentPosition(
-                                    (p) => {
-                                        const result = {lat: p.coords.latitude, lng: p.coords.longitude};
-                                        localStorage.setItem('flet_gps_result', JSON.stringify(result));
-                                        resolve(result);
-                                    },
-                                    (e) => {
-                                        const result = {error: e.message || 'PERMISSION_DENIED'};
-                                        localStorage.setItem('flet_gps_result', JSON.stringify(result));
-                                        resolve(result);
-                                    },
-                                    { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-                                );
-                            });
-                        })()
-                        """
+                        # Reset bridge state
+                        gps_event.clear()
+                        gps_result_data["value"] = None
+                        gps_bridge.value = "ATTENDANCE_GPS_BRIDGE_INIT"
+                        gps_bridge.update()
 
-                        # Method 1: Try direct run_javascript (works on most browsers)
-                        res_str = None
+                        # TextField 브릿지 방식 - Safari 호환
+                        # JavaScript가 DOM에서 TextField를 찾아 값을 설정하면 on_change가 트리거됨
+                        gps_script = (
+                            "(function(){"
+                            "  try {"
+                            "    const bridge = document.querySelector('input[placeholder=\"ATTENDANCE_GPS_BRIDGE\"]');"
+                            "    if (!bridge) { console.error('GPS Bridge not found'); return; }"
+                            "    if (!navigator.geolocation) {"
+                            "      bridge.value = JSON.stringify({error: 'GPS_NOT_SUPPORTED'});"
+                            "      bridge.dispatchEvent(new Event('input', {bubbles:true}));"
+                            "      return;"
+                            "    }"
+                            "    navigator.geolocation.getCurrentPosition("
+                            "      (pos) => {"
+                            "        bridge.value = JSON.stringify({lat: pos.coords.latitude, lng: pos.coords.longitude, acc: pos.coords.accuracy});"
+                            "        bridge.dispatchEvent(new Event('input', {bubbles:true}));"
+                            "      },"
+                            "      (err) => {"
+                            "        bridge.value = JSON.stringify({error: err.message || 'PERMISSION_DENIED', code: err.code});"
+                            "        bridge.dispatchEvent(new Event('input', {bubbles:true}));"
+                            "      },"
+                            "      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }"
+                            "    );"
+                            "  } catch(e) { console.error('GPS JS Error:', e); }"
+                            "})()"
+                        )
+
+                        # Execute JavaScript (no return value needed - result comes via TextField)
+                        await page.run_javascript(gps_script)
+                        print("[DEBUG] GPS script executed, waiting for bridge response...")
+
+                        # Wait for TextField bridge response
                         try:
-                            res_str = await page.run_javascript(gps_script, return_value=True)
-                            print(f"[DEBUG] Direct JS result: {res_str}")
-                        except Exception as js_err:
-                            print(f"[DEBUG] Direct JS failed: {js_err}")
-
-                        # Method 2: If direct method failed, try reading from localStorage via JavaScript
-                        if not res_str:
-                            print("[DEBUG] Trying localStorage read via JS...")
-                            await asyncio.sleep(2)
-                            try:
-                                read_script = "localStorage.getItem('flet_gps_result')"
-                                res_str = await page.run_javascript(read_script, return_value=True)
-                                print(f"[DEBUG] localStorage JS result: {res_str}")
-                            except Exception as js_read_err:
-                                print(f"[DEBUG] localStorage JS read error: {js_read_err}")
-
-                        # Method 2b: Try client_storage as additional fallback
-                        if not res_str:
-                            print("[DEBUG] Trying client_storage fallback...")
-                            try:
-                                res_str = await page.client_storage.get_async("flet_gps_result")
-                                print(f"[DEBUG] client_storage result: {res_str}")
-                            except Exception as storage_err:
-                                print(f"[DEBUG] client_storage error: {storage_err}")
-
-                        # Method 3: Open GPS bridge page as last resort
-                        if not res_str:
-                            print("[DEBUG] Opening GPS bridge page...")
+                            await asyncio.wait_for(gps_event.wait(), timeout=25.0)
+                            print("[DEBUG] Bridge responded!")
+                        except asyncio.TimeoutError:
+                            print("[DEBUG] Bridge timeout!")
                             page.open(ft.SnackBar(
-                                ft.Text("📍 위치 정보를 가져오는 중... 팝업이 뜨면 잠시 기다려주세요."),
-                                duration=3000
-                            ))
-
-                            # Clear previous data
-                            try:
-                                await page.client_storage.remove_async("flet_gps_data")
-                            except:
-                                pass
-
-                            # Open GPS bridge page
-                            await page.launch_url("/assets/gps_bridge.html")
-
-                            # Poll for result from localStorage (gps_bridge.html saves to 'flet_gps_data')
-                            for i in range(15):  # Wait up to 15 seconds
-                                await asyncio.sleep(1)
-                                try:
-                                    res_str = await page.client_storage.get_async("flet_gps_data")
-                                    if res_str:
-                                        print(f"[DEBUG] GPS Bridge result: {res_str}")
-                                        break
-                                except:
-                                    pass
-
-                        if not res_str:
-                            page.open(ft.SnackBar(
-                                ft.Text("⏱️ GPS 응답 없음. Safari 설정 > 개인정보 보호 > 위치 서비스를 확인해주세요."),
+                                ft.Text("⏱️ GPS 응답 시간 초과. 위치 권한을 확인하고 다시 시도해주세요."),
                                 bgcolor="orange"
                             ))
                             return
 
-                        gps_data = json.loads(res_str) if isinstance(res_str, str) else res_str
+                        # Parse result
+                        res_str = gps_result_data["value"]
+                        if not res_str:
+                            page.open(ft.SnackBar(
+                                ft.Text("❌ GPS 데이터를 받지 못했습니다."),
+                                bgcolor="red"
+                            ))
+                            return
+
+                        gps_data = json.loads(res_str)
+                        print(f"[DEBUG] GPS data: {gps_data}")
+
                         if "error" in gps_data:
                             error_msg = gps_data['error']
-                            if 'denied' in error_msg.lower() or 'permission' in error_msg.lower():
+                            error_code = gps_data.get('code', '')
+
+                            # 에러 코드별 안내 메시지
+                            if error_code == 1 or 'denied' in error_msg.lower() or 'permission' in error_msg.lower():
                                 page.open(ft.SnackBar(
                                     ft.Text("❌ 위치 권한이 거부되었습니다. 설정에서 위치 접근을 허용해주세요."),
                                     bgcolor="red"
+                                ))
+                            elif error_code == 2:
+                                page.open(ft.SnackBar(
+                                    ft.Text("❌ 위치를 확인할 수 없습니다. GPS 신호가 약합니다."),
+                                    bgcolor="red"
+                                ))
+                            elif error_code == 3:
+                                page.open(ft.SnackBar(
+                                    ft.Text("❌ 위치 확인 시간 초과. 다시 시도해주세요."),
+                                    bgcolor="orange"
                                 ))
                             else:
                                 page.open(ft.SnackBar(ft.Text(f"❌ GPS 오류: {error_msg}"), bgcolor="red"))
@@ -314,7 +315,12 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
 
                         user_lat = gps_data.get("lat")
                         user_lng = gps_data.get("lng")
+                        print(f"[DEBUG] Got GPS: lat={user_lat}, lng={user_lng}")
 
+                    except json.JSONDecodeError as je:
+                        print(f"[DEBUG] JSON parse error: {je}")
+                        page.open(ft.SnackBar(ft.Text("❌ GPS 데이터 형식 오류"), bgcolor="red"))
+                        return
                     except Exception as bridge_err:
                         import traceback
                         print(f"[DEBUG] GPS Error: {bridge_err}")
@@ -437,7 +443,8 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
             padding=20,
             expand=True,
             content=ft.Column([
-                # Removed gps_bridge from UI column
+                # GPS Bridge (hidden TextField for Safari-compatible GPS communication)
+                gps_bridge,
                 status_card,
                 ft.Container(height=30),
                 ft.Container(
