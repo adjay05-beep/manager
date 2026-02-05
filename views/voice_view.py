@@ -1,4 +1,5 @@
 import flet as ft
+from flet_audio_recorder import AudioRecorder, AudioRecorderConfiguration, AudioEncoder
 from services import voice_service, audio_service
 import asyncio
 from datetime import datetime
@@ -10,30 +11,30 @@ async def get_voice_controls(page: ft.Page, navigate_to):
     import warnings
     warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-    # [HYBRID] AudioRecorder Initialization (Ensure it's in overlay)
+    # [HYBRID] AudioRecorder Initialization (Extremely Safe)
     audio_recorder = getattr(page, "audio_recorder", None)
-    if not audio_recorder:
-        # Check if already in overlay
-        for ctrl in page.overlay:
-             if "AudioRecorder" in str(type(ctrl)):
-                 audio_recorder = ctrl
-                 break
-        
-        # If still not found, create new
-        if not audio_recorder:
-            print("[DEBUG] Initializing new AudioRecorder for session")
-            audio_recorder = ft.AudioRecorder(
-                audio_encoder=ft.AudioEncoder.WAV,
-                on_error=lambda e: print(f"AudioRecorder Error: {e.data}")
+    
+    # Official Flet Viewer doesn't support custom packages
+    is_flet_viewer = "flet" in (page.client_user_agent or "").lower()
+    is_custom_native = (not page.web and page.platform in [ft.PagePlatform.ANDROID, ft.PagePlatform.IOS] and not is_flet_viewer)
+
+    if not audio_recorder and is_custom_native:
+        try:
+            print("[DEBUG] Initializing new AudioRecorder for CUSTOM native session")
+            audio_recorder = AudioRecorder(
+                configuration=AudioRecorderConfiguration(encoder=AudioEncoder.WAV)
             )
             page.overlay.append(audio_recorder)
-            page.audio_recorder = audio_recorder # Pin to page for reuse
+            page.audio_recorder = audio_recorder
+        except Exception as e:
+            print(f"[DEBUG] AudioRecorder init failed: {e}")
+            audio_recorder = None
     
     # [RBAC] Get Context
     current_user_id = page.app_session.get("user_id")
     channel_id = page.app_session.get("channel_id")
     is_web_mode = page.web
-    is_native_app = page.platform in [ft.PagePlatform.ANDROID, ft.PagePlatform.IOS]
+    is_native_app = not page.web and page.platform in [ft.PagePlatform.ANDROID, ft.PagePlatform.IOS]
 
     if not current_user_id:
         return [ft.Text("Please login first.", color="red")]
@@ -427,7 +428,7 @@ async def get_voice_controls(page: ft.Page, navigate_to):
         if page.chat_file_picker:
             page.chat_file_picker.pick_files(allow_multiple=False, allowed_extensions=["mp3", "wav", "m4a"])
         else:
-            page.open(ft.SnackBar(ft.Text("파일 업로드 기능을 일시적으로 사용할 수 없습니다."), bgcolor="orange"))
+            page.open(ft.SnackBar(ft.Text("⚠️ 이 환경(앱 뷰어)에서는 파일 선택이 지원되지 않습니다. 웹 브라우저를 이용해 주세요."), bgcolor="orange"))
             page.update()
 
     async def on_picker_result(e: ft.ControlEvent):

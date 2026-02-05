@@ -31,7 +31,7 @@ def AppHeader(
     # Center Content (Title)
     if isinstance(title_text, str):
         title_ctrl = ft.Text(
-            title_text, 
+            f"{title_text} (v1.0.5)", 
             style=AppTextStyles.HEADER_TITLE, 
             color=AppColors.TEXT_PRIMARY,
             text_align=ft.TextAlign.CENTER

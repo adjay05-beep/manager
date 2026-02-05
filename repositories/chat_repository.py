@@ -41,6 +41,11 @@ class ChatRepository:
         return [m['topic_id'] for m in res.data] if res.data else []
 
     @staticmethod
+    def get_topic_member_count(topic_id: str) -> int:
+        res = service_supabase.table("chat_topic_members").select("user_id", count="exact").eq("topic_id", topic_id).execute()
+        return res.count if res.count is not None else 0
+
+    @staticmethod
     def get_topics_by_ids(topic_ids: List[str], channel_id: int) -> List[Dict[str, Any]]:
         if not topic_ids: return []
         res = service_supabase.table("chat_topics").select("*")\
@@ -71,6 +76,10 @@ class ChatRepository:
     @staticmethod
     def delete_topic(topic_id: str):
         service_supabase.table("chat_topics").delete().eq("id", topic_id).execute()
+
+    @staticmethod
+    def delete_topics_batch(topic_ids: List[str]):
+        service_supabase.table("chat_topics").delete().in_("id", topic_ids).execute()
 
     @staticmethod
     def update_topics_category(old_category_name: str, new_category_name: str):
@@ -137,10 +146,33 @@ class ChatRepository:
         service_supabase.table("chat_messages").delete().eq("topic_id", topic_id).execute()
 
     @staticmethod
-    def search_messages(query: str, channel_id: int, limit: int = 30) -> List[Dict[str, Any]]:
+    def search_rooms_and_members(query: str, channel_id: int) -> Dict[str, List[Dict[str, Any]]]:
+        """Search for chat rooms (topics) and members matching the query."""
+        # 1. Search Topics
+        topics_res = service_supabase.table("chat_topics")\
+            .select("id, name")\
+            .eq("channel_id", channel_id)\
+            .ilike("name", f"%{query}%")\
+            .execute()
+        
+        # 2. Search Members (via channel_members join)
+        members_res = service_supabase.table("channel_members")\
+            .select("user_id, profiles(full_name)")\
+            .eq("channel_id", channel_id)\
+            .ilike("profiles.full_name", f"%{query}%")\
+            .execute()
+            
+        return {
+            "topics": topics_res.data or [],
+            "members": members_res.data or []
+        }
+
+    @staticmethod
+    def search_messages_in_topic(query: str, topic_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Search for messages within a specific topic."""
         res = service_supabase.table("chat_messages")\
-            .select("*, chat_topics!inner(id, name, channel_id), profiles(full_name)")\
-            .eq("chat_topics.channel_id", channel_id)\
+            .select("*, profiles(full_name)")\
+            .eq("topic_id", topic_id)\
             .ilike("content", f"%{query}%")\
             .order("created_at", desc=True)\
             .limit(limit)\
@@ -202,3 +234,10 @@ class ChatRepository:
         res = service_supabase.table("channel_members").select("user_id, profiles(full_name, username)")\
             .eq("channel_id", channel_id).execute()
         return res.data or []
+
+    @staticmethod
+    def delete_empty_topics(older_than: str):
+        """Delete topics where empty_since < older_than."""
+        service_supabase.table("chat_topics").delete()\
+            .lt("empty_since", older_than)\
+            .execute()

@@ -623,7 +623,7 @@ async def get_store_manage_controls(page: ft.Page, navigate_to):
         bgcolor="#F5F5F5",
         border_radius=10,
         border=ft.border.all(1, "#DDDDDD"),
-        alignment=ft.alignment.center,
+        alignment=ft.Alignment(0, 0),
         padding=20
     )
     

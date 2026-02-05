@@ -16,4 +16,4 @@ class AuthCard(ft.Container):
         self.bgcolor = ft.Colors.WHITE
         self.border_radius = AppLayout.BORDER_RADIUS_LG
         self.shadow = AppShadows.MEDIUM
-        self.alignment = ft.alignment.center if hasattr(ft.alignment, "center") else ft.Alignment(0, 0)
+        self.alignment = ft.Alignment(0, 0)

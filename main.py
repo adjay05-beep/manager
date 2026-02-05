@@ -5,6 +5,27 @@ from services.router import Router
 from utils.logger import log_error, log_info
 from utils.sys_logger import sys_log
 
+# [SYSTEM] Safe run_javascript polyfill for Flet 0.80.5
+async def run_javascript_polyfill(self, script):
+    try:
+        # 1. Try internal Flet method
+        if hasattr(self, "_Page__run_javascript"):
+            return await self._Page__run_javascript(script)
+        # 2. Try legacy eval
+        if hasattr(self, "eval"):
+            return await self.eval(script)
+        # 3. Last resort: launch_url
+        return await self.launch_url(f"javascript:{script}")
+    except Exception:
+        return await self.launch_url(f"javascript:{script}")
+
+# Apply to class immediately
+if not hasattr(ft.Page, "run_javascript"):
+    ft.Page.run_javascript = run_javascript_polyfill
+    print("SYSTEM: ✓ Injected global run_javascript polyfill")
+else:
+    print("SYSTEM: ✓ Native run_javascript detected")
+
 async def main(page: ft.Page):
     page.title = "The Manager"
 
@@ -24,18 +45,8 @@ async def main(page: ft.Page):
     
     page.padding = 0
     page.spacing = 0
-    
-    # [SYSTEM BRIDGE] Global hidden bridge for JS communication per session
-    page._bridge = ft.TextField(
-        opacity=0, width=1, height=1, 
-        hint_text="SYSTEM_JS_BRIDGE"
-    )
-    page.overlay.append(page._bridge)
 
-
-    # [NOTE] run_javascript polyfill removed - using Flet native implementation
-    # Flet 0.80+ has native run_javascript that should work via WebSocket
-    sys_log("Using Flet native run_javascript (no polyfill)")
+    sys_log("✓ Main page initialization complete")
 
     # [POLYFILL] Add Page.open/close support
     if not hasattr(ft.Page, "open"):
@@ -59,6 +70,13 @@ async def main(page: ft.Page):
             if control in self.overlay: self.overlay.remove(control)
             self.update()
         ft.Page.close = page_close_polyfill
+
+    # [Flet 0.80+] Global FilePicker (TEMPORARILY DISABLED AS IT CRASHES SAFARI)
+    page.chat_file_picker = None
+    # if page.web:
+    #     file_picker = ft.FilePicker()
+    #     page.overlay.append(file_picker)
+    #     page.chat_file_picker = file_picker
 
     router = Router(page)
     await router.start()
@@ -127,6 +145,15 @@ if __name__ == "__main__":
         import secrets
         os.environ["FLET_SECRET_KEY"] = secrets.token_hex(32)
 
+    # [RETENTION] Run cleanup task in background on startup
+    try:
+        from services.chat_service import cleanup_empty_topics
+        import threading
+        print("SYSTEM: Starting background cleanup task for empty topics...")
+        threading.Thread(target=cleanup_empty_topics, kwargs={'days': 3}, daemon=True).start()
+    except Exception as e:
+        print(f"WARNING: Cleanup task failed to start: {e}")
+
     try:
         ft.app(
             target=main,
@@ -140,3 +167,4 @@ if __name__ == "__main__":
         print(f"CRITICAL ERROR: {e}")
         import traceback
         traceback.print_exc()
+    # Force Reload Trigger: 2026-02-05 10:25:00

@@ -842,3 +842,121 @@ AttributeError: 'Page' object has no attribute 'run_javascript_async'. Did you m
 [2026-02-03T09:17:24.975877] run_javascript: Executing via Title Bridge...
 [2026-02-03T09:17:24.976406] run_javascript FAILED: object NoneType can't be used in 'await' expression
 [2026-02-03T09:17:57.044602] Applied Title-Bridge Polyfill to ft.Page (v2.0)
+[2026-02-03T10:48:35.820748] Using Flet native run_javascript (no polyfill)
+[2026-02-03T10:48:35.826999] Using Flet native run_javascript (no polyfill)
+[2026-02-03T10:59:27.845511] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:03:53.512270] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:11:59.702659] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:16:29.186247] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:17:25.657951] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:19:26.636094] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:19:58.386942] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:20:37.038118] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:21:01.090025] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:21:11.388120] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:23:18.570190] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:24:52.068481] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:25:32.004029] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:27:08.100901] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:27:44.913185] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:29:22.048154] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:30:01.399793] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:31:05.581698] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:31:06.143835] Using Flet native run_javascript (no polyfill)
+[2026-02-03T11:32:58.585950] ✓ Injected run_javascript polyfill
+[2026-02-03T11:32:58.683936] ✓ Native run_javascript detected
+[2026-02-03T11:33:18.566705] ✓ Injected run_javascript polyfill
+[2026-02-03T11:33:19.044160] ✓ Native run_javascript detected
+[2026-02-03T11:33:34.061101] ✓ Injected run_javascript polyfill
+[2026-02-03T11:33:59.480428] ✓ Native run_javascript detected
+[2026-02-03T11:35:06.560878] ✓ Main page initialization complete
+[2026-02-03T11:35:06.575563] ✓ Main page initialization complete
+[2026-02-03T11:35:27.579900] ✓ Main page initialization complete
+[2026-02-03T11:35:49.193265] ✓ Main page initialization complete
+[2026-02-03T11:38:02.050760] ✓ Main page initialization complete
+[2026-02-03T11:38:47.532981] ✓ Main page initialization complete
+[2026-02-03T11:41:11.093482] ✓ Main page initialization complete
+[2026-02-03T11:41:40.181522] ✓ Main page initialization complete
+[2026-02-03T11:53:12.221811] ✓ Main page initialization complete
+[2026-02-03T11:53:31.471824] ✓ Main page initialization complete
+[2026-02-03T11:53:31.474473] ✓ Main page initialization complete
+[2026-02-03T11:54:58.582019] ✓ Main page initialization complete
+[2026-02-03T11:55:00.310431] ✓ Main page initialization complete
+[2026-02-03T11:59:36.689424] ✓ Main page initialization complete
+[2026-02-03T13:14:38.569691] ✓ Main page initialization complete
+[2026-02-03T14:10:30.519237] ✓ Main page initialization complete
+[2026-02-03T14:12:20.387310] ✓ Main page initialization complete
+[2026-02-03T14:15:59.911756] ✓ Main page initialization complete
+[2026-02-03T14:22:35.619608] ✓ Main page initialization complete
+[2026-02-03T17:00:47.824088] ✓ Main page initialization complete
+[2026-02-03T19:22:53.611945] ✓ Main page initialization complete
+[2026-02-03T19:40:28.933981] ✓ Main page initialization complete
+[2026-02-03T19:55:35.298987] ✓ Main page initialization complete
+[2026-02-03T20:00:02.067589] ✓ Main page initialization complete
+[2026-02-04T06:21:32.531388] ✓ Main page initialization complete
+[2026-02-04T11:52:51.403523] ✓ Main page initialization complete
+[2026-02-04T12:23:53.502096] ✓ Main page initialization complete
+[2026-02-04T12:32:56.536246] ✓ Main page initialization complete
+[2026-02-04T12:35:23.327036] ✓ Main page initialization complete
+[2026-02-04T12:37:52.340628] ✓ Main page initialization complete
+[2026-02-04T12:39:02.470590] ✓ Main page initialization complete
+[2026-02-04T12:40:41.259957] ✓ Main page initialization complete
+[2026-02-04T12:44:21.263841] ✓ Main page initialization complete
+[2026-02-04T15:37:29.272319] ✓ Main page initialization complete
+[2026-02-04T15:51:48.339895] ✓ Main page initialization complete
+[2026-02-04T16:00:01.176507] ✓ Main page initialization complete
+[2026-02-04T16:03:29.964343] ✓ Main page initialization complete
+[2026-02-04T16:06:36.655315] ✓ Main page initialization complete
+[2026-02-04T16:09:57.767395] ✓ Main page initialization complete
+[2026-02-04T16:12:51.377906] ✓ Main page initialization complete
+[2026-02-04T16:14:01.018029] ✓ Main page initialization complete
+[2026-02-04T16:18:46.637939] ✓ Main page initialization complete
+[2026-02-04T16:21:49.588761] ✓ Main page initialization complete
+[2026-02-04T16:23:32.372677] ✓ Main page initialization complete
+[2026-02-04T16:26:33.744088] ✓ Main page initialization complete
+[2026-02-04T16:29:08.919565] ✓ Main page initialization complete
+[2026-02-04T16:32:49.067738] ✓ Main page initialization complete
+[2026-02-04T16:35:46.041566] ✓ Main page initialization complete
+[2026-02-04T16:38:00.878044] ✓ Main page initialization complete
+[2026-02-04T16:39:07.722292] ✓ Main page initialization complete
+[2026-02-04T16:40:48.163614] ✓ Main page initialization complete
+[2026-02-04T16:42:15.240433] ✓ Main page initialization complete
+[2026-02-04T17:45:01.362850] ✓ Main page initialization complete
+[2026-02-04T17:48:59.614164] ✓ Main page initialization complete
+[2026-02-04T17:57:25.286972] ✓ Main page initialization complete
+[2026-02-04T18:16:31.910052] ✓ Main page initialization complete
+[2026-02-04T18:28:45.930013] ✓ Main page initialization complete
+[2026-02-04T19:29:27.388061] ✓ Main page initialization complete
+[2026-02-04T19:34:11.456633] ✓ Main page initialization complete
+[2026-02-04T19:38:30.418545] ✓ Main page initialization complete
+[2026-02-04T19:45:22.441332] ✓ Main page initialization complete
+[2026-02-04T19:59:23.457485] ✓ Main page initialization complete
+[2026-02-04T20:02:11.096340] ✓ Main page initialization complete
+[2026-02-04T20:02:36.197933] ✓ Main page initialization complete
+[2026-02-04T20:12:19.377600] ✓ Main page initialization complete
+[2026-02-04T20:12:19.694923] ✓ Main page initialization complete
+[2026-02-04T20:12:40.306297] ✓ Main page initialization complete
+[2026-02-04T20:20:52.020406] ✓ Main page initialization complete
+[2026-02-04T20:20:52.335287] ✓ Main page initialization complete
+[2026-02-04T20:24:16.020767] ✓ Main page initialization complete
+[2026-02-04T20:24:16.094248] ✓ Main page initialization complete
+[2026-02-04T20:27:11.038511] ✓ Main page initialization complete
+[2026-02-04T20:27:11.508577] ✓ Main page initialization complete
+[2026-02-05T09:15:04.918309] ✓ Main page initialization complete
+[2026-02-05T09:21:39.952551] ✓ Main page initialization complete
+[2026-02-05T09:46:32.944470] ✓ Main page initialization complete
+[2026-02-05T09:46:38.773924] ✓ Main page initialization complete
+[2026-02-05T09:49:57.964143] ✓ Main page initialization complete
+[2026-02-05T09:49:57.995411] ✓ Main page initialization complete
+[2026-02-05T09:53:58.945563] ✓ Main page initialization complete
+[2026-02-05T09:54:06.355604] ✓ Main page initialization complete
+[2026-02-05T09:55:53.111193] ✓ Main page initialization complete
+[2026-02-05T09:55:53.443598] ✓ Main page initialization complete
+[2026-02-05T09:57:50.444219] ✓ Main page initialization complete
+[2026-02-05T09:57:50.673358] ✓ Main page initialization complete
+[2026-02-05T09:59:56.947650] ✓ Main page initialization complete
+[2026-02-05T09:59:56.954821] ✓ Main page initialization complete
+[2026-02-05T10:01:59.790324] ✓ Main page initialization complete
+[2026-02-05T10:01:59.984840] ✓ Main page initialization complete
+[2026-02-05T10:04:17.660501] ✓ Main page initialization complete
+[2026-02-05T10:04:17.944026] ✓ Main page initialization complete

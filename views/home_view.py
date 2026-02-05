@@ -20,25 +20,36 @@ async def get_home_controls(page: ft.Page, navigate_to):
     if page.theme_mode is None:
         page.theme_mode = ft.ThemeMode.LIGHT
 
-    # Fetch user's role
-    role = await asyncio.to_thread(lambda: channel_service.get_channel_role(channel_id, user_id))
+    # [OPTIMIZATION] Parallel Data Fetching
+    # 1. Fetch Role, Profile (if missing), and Channels concurrently
+    tasks = [
+        asyncio.to_thread(channel_service.get_channel_role, channel_id, user_id),
+        asyncio.to_thread(channel_service.get_user_channels, user_id, auth_service.get_access_token())
+    ]
+    
+    # Only fetch profile if display_name is missing
+    p_task_idx = -1
     display_name = page.app_session.get("display_name")
-    
     if not display_name:
-        try:
-            p_res = await asyncio.to_thread(lambda: service_supabase.table("profiles").select("full_name").eq("id", user_id).single().execute())
-            if p_res.data:
-                display_name = p_res.data.get("full_name")
-                page.app_session["display_name"] = display_name
-        except Exception as e:
-            log_error(f"Failed to fetch profile name: {e}")
-            display_name = "User"
+        tasks.append(asyncio.to_thread(lambda: service_supabase.table("profiles").select("full_name").eq("id", user_id).single().execute()))
+        p_task_idx = len(tasks) - 1
 
-    display_name = display_name or "User"
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # 2. Extract Results
+    role = results[0] if not isinstance(results[0], Exception) else "staff"
+    user_channels = results[1] if not isinstance(results[1], Exception) else []
     
-    # Store Switcher Data
-    token = auth_service.get_access_token()
-    user_channels = await asyncio.to_thread(lambda: channel_service.get_user_channels(user_id, token))
+    if p_task_idx != -1:
+        p_res = results[p_task_idx]
+        if not isinstance(p_res, Exception) and hasattr(p_res, "data"):
+            display_name = p_res.data.get("full_name")
+            page.app_session["display_name"] = display_name
+        else:
+            log_error(f"Failed to fetch profile name: {p_res}")
+            display_name = "User"
+    
+    display_name = display_name or "User"
     
     store_options = [ft.dropdown.Option(key=str(ch["id"]), text=ch["name"]) for ch in user_channels]
     
@@ -101,8 +112,8 @@ async def get_home_controls(page: ft.Page, navigate_to):
         menu_item("캘린더", image_path="images/icon_calendar_3d.png", handler=go_to_calendar),
         menu_item("업무 일지", image_path="images/icon_handover_3d_v5.png", handler=go_to_handover),
         menu_item("체크리스트", image_path="images/icon_closing_3d.png", handler=go_to_closing),
-        menu_item("음성 메모", image_path="images/icon_voice_3d.png", handler=go_to_voice),
-        menu_item("출퇴근", icon=ft.Icons.TIMER_OUTLINED, handler=go_to_attendance),
+        # menu_item("음성 메모", image_path="images/icon_voice_3d.png", handler=go_to_voice),
+        menu_item("출퇴근", image_path="images/icon_attendance_3d.png", handler=go_to_attendance),
         menu_item("설정", image_path="images/icon_settings_3d.png", handler=go_to_store_info),
     ]
 

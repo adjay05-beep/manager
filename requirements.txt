@@ -1,4 +1,6 @@
 flet==0.80.5
+flet-geolocator==0.80.5
+flet-audio-recorder==0.80.5
 supabase==2.11.0
 requests==2.32.3
 python-dotenv==1.2.1

@@ -11,3 +11,7 @@ venv312/
 nul
 backup_*/
 *.zip
+
+# Build Artifacts
+build/
+*.apk

@@ -10,6 +10,12 @@ from repositories.chat_repository import ChatRepository
 from db import supabase
 from utils.network import retry_operation
 from utils.logger import log_error, log_info
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone, timedelta
+
+# [OPTIMIZATION] Global ThreadPoolExecutor for lightweight DB tasks
+# Avoids overhead of creating new threads for every unread count check
+_executor = ThreadPoolExecutor(max_workers=10)
 
 def get_categories(channel_id: int) -> List[Dict[str, Any]]:
     """Fetch all chat categories for a specific channel."""
@@ -92,20 +98,40 @@ def update_topic_order(topic_id: str, new_order: int, user_id: str = None):
     ChatRepository.update_topic(topic_id, {"display_order": new_order})
 
 def delete_topic(topic_id: str, user_id: str = None):
-    """Delete a topic and its messages (Application-side Cascade)."""
-    # [SECURITY] 권한 검증
+    """Delete a topic and its messages (Optimized via SQL Cascade)."""
     if user_id and not _verify_topic_permission(topic_id, user_id):
         raise PermissionError("토픽 삭제 권한이 없습니다.")
 
-    # 1. Delete Messages first (Constraint Fix)
-    ChatRepository.delete_messages_by_topic(topic_id)
-    # 2. Delete Topic Members
-    ChatRepository.delete_topic_members_by_topic(topic_id)
-    # 3. Delete Reading Status
-    ChatRepository.delete_read_status_by_topic(topic_id)
-    # 4. Delete Topic
-    ChatRepository.delete_topic(topic_id)
-    log_info(f"Topic deleted: {topic_id} by user {user_id}")
+    try:
+        # [OPTIMIZATION] Database now handles cascading deletes via ON DELETE CASCADE
+        ChatRepository.delete_topic(topic_id)
+        log_info(f"Topic {topic_id} deleted successfully (Cascade).")
+    except Exception as e:
+        log_error(f"Delete Topic error for {topic_id}: {e}")
+        raise e
+
+def delete_topics_batch(topic_ids: List[str], user_id: str = None):
+    """Delete multiple topics (Optimized)."""
+    if not topic_ids: return
+    
+    # [SECURITY] Permission Check for each (Can be optimized to single query if needed)
+    valid_ids = []
+    for tid in topic_ids:
+        try:
+            if not user_id or _verify_topic_permission(tid, user_id):
+                valid_ids.append(tid)
+        except:
+            continue
+            
+    if not valid_ids:
+        raise PermissionError("삭제할 수 있는 토픽이 없거나 권한이 없습니다.")
+
+    try:
+        ChatRepository.delete_topics_batch(valid_ids)
+        log_info(f"Batch deleted {len(valid_ids)} topics.")
+    except Exception as e:
+        log_error(f"Batch delete error: {e}")
+        raise e
 
 def toggle_topic_priority(topic_id: str, current_val: bool, user_id: str = None):
     """Toggle priority status."""
@@ -154,7 +180,7 @@ def create_topic(name: str, category: str, creator_id: str, channel_id: int):
         ChatRepository.add_topic_member(tid, creator_id, "owner")
         return t_data
 
-def get_messages(topic_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+def get_messages(topic_id: str, limit: int = 30) -> List[Dict[str, Any]]:
     """Fetch messages for a topic."""
     try:
         messages = ChatRepository.get_messages(topic_id, limit)
@@ -240,19 +266,24 @@ def get_unread_counts(user_id: str, topics: List[Dict[str, Any]]) -> Dict[str, i
     try:
         # 1. Fetch unread counts from View
         view_data = ChatRepository.get_unread_counts_from_view(user_id)
-        # [FIX] Do NOT filter out 0 counts. If we filter them, they fall into 'missing_topic_ids'
-        # and get recounted as "Never Read" (Total Messages), causing the bug.
+        # Record which topics HAVE unread messages (>0)
         counts = {str(item['topic_id']): int(item['unread_count']) for item in view_data}
 
-        # 2. Handle 'Never Read' topics (Fallback for topics not in chat_user_reading)
+        # [FIX] Check which topics have ANY read status history
+        # If a topic is in chat_user_reading but NOT in view_data, it means 0 unread.
+        read_history = ChatRepository.get_user_read_status(user_id)
+        has_read_topic_ids = set(str(r['topic_id']) for r in read_history)
+
+        # 2. Handle 'Never Read' topics (Fallback for topics with NO entry in chat_user_reading)
         topic_ids = [str(t['id']) for t in topics]
         read_topic_ids = set(counts.keys())
-        missing_topic_ids = [tid for tid in topic_ids if tid not in read_topic_ids]
+        
+        # A topic needs fallback counting ONLY if: 
+        # NOT in unread_counts_view AND NOT in chat_user_reading (truly never opened)
+        missing_topic_ids = [tid for tid in topic_ids if tid not in read_topic_ids and tid not in has_read_topic_ids]
 
         if missing_topic_ids:
-            # [OPTIMIZATION] Parallel Execution for "Never Read" topics
-            # Instead of sequential N+1 blocking calls, we parallelize the count queries.
-            # This significantly reduces latency when a user has many new topics.
+            # [OPTIMIZATION] Parallel Execution for truly "Never Read" topics
             from concurrent.futures import ThreadPoolExecutor, as_completed
             
             def fetch_count(tid):
@@ -262,10 +293,8 @@ def get_unread_counts(user_id: str, topics: List[Dict[str, Any]]) -> Dict[str, i
                 except Exception:
                     return tid, 0
 
-            # Use a limited number of workers to avoid overwhelming the DB connection pool
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                future_to_tid = {executor.submit(fetch_count, tid): tid for tid in missing_topic_ids}
-                for future in as_completed(future_to_tid):
+            future_to_tid = {_executor.submit(fetch_count, tid): tid for tid in missing_topic_ids}
+            for future in as_completed(future_to_tid):
                     tid, count = future.result()
                     if count > 0:
                         counts[tid] = count
@@ -276,23 +305,49 @@ def get_unread_counts(user_id: str, topics: List[Dict[str, Any]]) -> Dict[str, i
         return {}
 
 
-def search_messages_global(query: str, channel_id: int) -> List[Dict[str, Any]]:
+def search_messages_global(query: str, channel_id: int) -> Dict[str, List[Dict[str, Any]]]:
     """
-    Search messages across all topics in a channel.
+    Search for rooms and members in a channel.
     """
     try:
-        return ChatRepository.search_messages(query, channel_id)
+        return ChatRepository.search_rooms_and_members(query, channel_id)
     except Exception as e:
         print(f"Service Error (search_messages_global): {e}")
+        return {"topics": [], "members": []}
+
+def search_messages_in_topic(query: str, topic_id: str) -> List[Dict[str, Any]]:
+    """
+    Search messages within a specific topic.
+    """
+    try:
+        return ChatRepository.search_messages_in_topic(query, topic_id)
+    except Exception as e:
+        print(f"Service Error (search_messages_in_topic): {e}")
         return []
 
 def add_topic_member(topic_id: str, user_id: str, permission_level: str = "member"):
     """Add a user to a chat topic."""
     ChatRepository.add_topic_member(topic_id, user_id, permission_level)
+    # [RETENTION] Reset empty_since because it now has a member
+    try:
+        ChatRepository.update_topic(topic_id, {"empty_since": None})
+    except Exception as e:
+        # Ignore error if column missing (migration pending)
+        pass
 
 def remove_topic_member(topic_id: str, user_id: str):
     """Remove a user from a chat topic."""
     ChatRepository.remove_topic_member(topic_id, user_id)
+    
+    # [RETENTION] Check if topic is now empty
+    try:
+        count = ChatRepository.get_topic_member_count(topic_id)
+        if count == 0:
+            now_utc = datetime.now(timezone.utc).isoformat()
+            ChatRepository.update_topic(topic_id, {"empty_since": now_utc})
+    except Exception as e:
+        # Ignore error if column missing
+        print(f"Retention Update Error: {e}")
 
 def get_topic_members(topic_id: str) -> List[Dict[str, Any]]:
     """Get all members of a topic with profile info."""
@@ -350,3 +405,13 @@ def check_new_messages(topic_id, last_msg_id=None):
     except Exception as e:
         print(f"Check Update Error: {e}")
         return False
+
+def cleanup_empty_topics(days: int = 3):
+    """Delete topics that have been empty for more than X days."""
+    try:
+        limit = datetime.now(timezone.utc) - timedelta(days=days)
+        threshold = limit.isoformat()
+        ChatRepository.delete_empty_topics(threshold)
+        log_info(f"Cleanup: Removed topics empty since {threshold}")
+    except Exception as e:
+        log_error(f"Cleanup Error: {e}")

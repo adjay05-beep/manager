@@ -1,4 +1,5 @@
 import flet as ft
+from flet_geolocator import Geolocator, GeolocatorConfiguration, GeolocatorPositionAccuracy
 import asyncio
 from datetime import datetime
 from views.styles import AppColors, AppLayout, AppTextStyles, AppButtons, AppGradients, AppShadows
@@ -72,43 +73,86 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
     channel_id = page.app_session.get("channel_id")
     user_role = page.app_session.get("role") or "staff"
 
-    # Get Channel Settings (auth_mode, location)
+    # Task tracking for cleanup
+    _running_tasks = []
+
+    # Get Channel Settings (auth_mode, location) - Non-blocking
     channel_auth_mode = "location"  # default
     channel_lat, channel_lng = None, None
     channel_wifi_ssid = None
 
-    try:
-        channel_res = service_supabase.table("channels").select("auth_mode, location_lat, location_lng, wifi_ssid").eq("id", channel_id).single().execute()
-        if channel_res.data:
-            channel_auth_mode = channel_res.data.get("auth_mode", "location")
-            channel_lat = channel_res.data.get("location_lat")
-            channel_lng = channel_res.data.get("location_lng")
-            channel_wifi_ssid = channel_res.data.get("wifi_ssid")
-    except Exception as e:
-        print(f"Failed to load channel settings: {e}")
+    # [OPTIMIZATION] Parallel Initial Data Fetching
+    # We combine channel settings, attendance status, and logs into a single parallel operation
+    channel_res_task = asyncio.to_thread(
+        lambda: service_supabase.table("channels").select("auth_mode, location_lat, location_lng, wifi_ssid").eq("id", channel_id).single().execute()
+    )
+    status_task = attendance_service.get_status(user_id, channel_id)
+    logs_task = attendance_service.get_recent_logs(user_id, channel_id, limit=7)
 
-    # [HYBRID] Flet Geolocator (Use native in App, Bridge in Web)
+    results = await asyncio.gather(
+        asyncio.wait_for(channel_res_task, timeout=10),
+        asyncio.wait_for(status_task, timeout=10),
+        asyncio.wait_for(logs_task, timeout=10),
+        return_exceptions=True
+    )
+
+    # 1. Handle Channel Settings
+    channel_res = results[0]
+    if not isinstance(channel_res, Exception) and hasattr(channel_res, "data"):
+        channel_auth_mode = channel_res.data.get("auth_mode", "location")
+        channel_lat = channel_res.data.get("location_lat")
+        channel_lng = channel_res.data.get("location_lng")
+        channel_wifi_ssid = channel_res.data.get("wifi_ssid")
+    else:
+        print(f"Failed to load channel settings: {channel_res}")
+
+    # 2. Handle State (Status)
+    state = results[1]
+    if isinstance(state, Exception):
+        print(f"Failed to load status: {state}")
+        state = {"status": "OFF", "setting": "GPS", "last_log": None}
+
+    # 3. Handle Initial Logs Pre-parsing
+    initial_logs = results[2]
+    if isinstance(initial_logs, Exception):
+        print(f"Failed to load logs: {initial_logs}")
+        initial_logs = []
+
+    # [HYBRID] Flet Geolocator (Extremely Safe Initialization)
     geolocator = None
-    if page.platform in [ft.PagePlatform.ANDROID, ft.PagePlatform.IOS]:
-        geolocator = ft.Geolocator(
-            location_settings=ft.GeolocatorSettings(accuracy=ft.GeolocatorPositionAccuracy.HIGH),
-            on_error=lambda e: print(f"[GEOLOCATOR] Error: {e.data}")
-        )
-        page.overlay.append(geolocator)
-        print("[DEBUG] Native Geolocator added for mobile platform")
+    # Only initialize if this is NOT a web browser AND we are NOT in the official Flet Viewer app
+    # (The official Flet Viewer doesn't bundle custom packages, causing 'Unknown Control' crash)
+    is_custom_native_app = (
+        not page.web and 
+        page.platform in [ft.PagePlatform.ANDROID, ft.PagePlatform.IOS] and
+        "flet" not in (page.client_user_agent or "").lower() # Official viewer usually has flet in UA
+    )
+    
+    if is_custom_native_app:
+        try:
+            print("[DEBUG] Attempting to initialize native Geolocator...")
+            geolocator = Geolocator(
+                configuration=GeolocatorConfiguration(accuracy=GeolocatorPositionAccuracy.HIGH)
+            )
+            page.overlay.append(geolocator)
+            print("[DEBUG] Native Geolocator added")
+        except Exception as e:
+            print(f"[DEBUG] Native Geolocator init failed: {e}")
+            geolocator = None
 
-    # Local State
-    state = await attendance_service.get_status(user_id, channel_id)
+    # Local State (using prefetched)
     
     # UI Refs
     status_text = ft.Text(
         "출근 전" if state["status"] == "OFF" else "근무 중",
-        style=ft.TextStyle(size=32, weight="bold", color="white" if state["status"] == "ON" else AppColors.TEXT_PRIMARY)
+        style=ft.TextStyle(size=32, weight="bold", color="white" if state["status"] == "ON" else AppColors.TEXT_PRIMARY),
+        visible=(state["status"] == "ON")
     )
     
     time_text = ft.Text(
         datetime.now().strftime("%H:%M:%S"),
-        style=ft.TextStyle(size=48, weight="bold", font_family="monospace", color="white" if state["status"] == "ON" else AppColors.TEXT_PRIMARY)
+        style=ft.TextStyle(size=48, weight="bold", font_family="monospace", color="white" if state["status"] == "ON" else AppColors.TEXT_PRIMARY),
+        visible=(state["status"] == "ON")
     )
     
     date_text = ft.Text(
@@ -119,15 +163,15 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
     # Attendance Log UI
     log_column = ft.Column(spacing=10)
     
-    async def update_logs():
+    async def update_logs(prefetched_logs=None):
         log_column.controls.clear()
         try:
-            logs = await attendance_service.get_recent_logs(user_id, channel_id, limit=7)
+            logs = prefetched_logs if prefetched_logs is not None else await attendance_service.get_recent_logs(user_id, channel_id, limit=7)
             if not logs:
                 log_column.controls.append(
                     ft.Container(
                         content=ft.Text("최근 기록이 없습니다.", size=13, color=AppColors.TEXT_SECONDARY),
-                        padding=20, alignment=ft.alignment.center
+                        padding=20, alignment=ft.Alignment(0, 0)
                     )
                 )
             else:
@@ -167,18 +211,26 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
         except Exception as log_err:
             print(f"Log Update Error: {log_err}")
 
+    # Cancellation flag for background tasks
+    _view_active = {"active": True}
+
     async def update_time():
-        while True:
-            now = datetime.now()
-            time_text.value = now.strftime("%H:%M:%S")
+        """Update time display - with proper cancellation"""
+        while _view_active["active"]:
             try:
+                now = datetime.now()
+                time_text.value = now.strftime("%H:%M:%S")
                 time_text.update()
-            except:
-                break
+            except Exception:
+                break  # Control destroyed, exit gracefully
             await asyncio.sleep(1)
-            
-    asyncio.create_task(update_time())
-    asyncio.create_task(update_logs())
+
+    # Store task references for potential cleanup
+    time_task = asyncio.create_task(update_time())
+    _running_tasks.append(time_task)
+
+    # Load logs using prefetched data
+    await update_logs(prefetched_logs=initial_logs)
 
     # [Bridge Removal] Removed gps_bridge TextField as we now use Title-Bridge via run_javascript(return_value=True)
 
@@ -230,73 +282,87 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                                 page.open(ft.SnackBar(ft.Text("❌ 위치 정보를 가져올 수 없습니다 (Device Error)"), bgcolor="red"))
                                 return
                         else:
-                            # Use Web Bridge (Current Supabase-UUID method)
-                            print("[DEBUG] Using WEB Bridge (Supabase) for Browser environment...")
+                            # [FINAL ROBUST METHOD] Modal Dialog with Direct URL Button
+                            # This bypasses Safari's automatic popup/JS blockers completely.
                             import uuid
-                            import time
-
-                            # 고유 요청 ID 생성
                             request_id = str(uuid.uuid4())[:8]
-                            print(f"[DEBUG] GPS request ID: {request_id}")
-
-                            # Supabase에 GPS 요청 레코드 생성
+                            
+                            # 1. Create pending record (non-blocking)
                             try:
-                                service_supabase.table("gps_requests").insert({
-                                    "id": request_id,
-                                    "user_id": user_id,
-                                    "status": "pending"
-                                }).execute()
-                            except Exception as db_err:
-                                print(f"[DEBUG] DB insert error (table might not exist): {db_err}")
-                                # 테이블이 없으면 localStorage 방식으로 폴백
-                                pass
+                                await asyncio.to_thread(
+                                    lambda: service_supabase.table("gps_requests").insert({
+                                        "id": request_id,
+                                        "user_id": user_id,
+                                        "status": "pending"
+                                    }).execute()
+                                )
+                            except Exception as insert_err:
+                                print(f"[DEBUG] GPS request insert error: {insert_err}")
 
-                            # GPS 페이지 열기 안내
-                            page.open(ft.SnackBar(
-                                ft.Text("📍 위치 확인 페이지가 열립니다. 위치 허용 후 이 탭으로 돌아와주세요."),
-                                duration=5000
-                            ))
-                            await asyncio.sleep(0.5)
+                            # 2. Define and Show Dialog
+                            gps_url = f"/assets/gps_page.html?rid={request_id}"
+                            
+                            gps_dialog = ft.AlertDialog(
+                                modal=True,
+                                title=ft.Text("📍 위치 인증 안내"),
+                                content=ft.Text(
+                                    "모바일 브라우저의 보안 정책으로 인해 직접 버튼을 눌러 위치를 인증해야 합니다.\n\n"
+                                    "아래 [인증하기] 버튼을 눌러 위치를 허용해 주세요."
+                                ),
+                                actions=[
+                                    ft.ElevatedButton(
+                                        "인증하기", 
+                                        url=gps_url,
+                                        on_click=lambda _: page.close(gps_dialog)
+                                    ),
+                                    ft.TextButton("취소", on_click=lambda _: page.close(gps_dialog))
+                                ],
+                                actions_alignment=ft.MainAxisAlignment.END,
+                            )
+                            
+                            page.open(gps_dialog)
 
-                            # GPS 전용 페이지 열기 (요청 ID 포함)
-                            page.launch_url(f"/assets/gps_page.html?rid={request_id}")
-                            print("[DEBUG] GPS page opened, polling for result...")
+                            print(f"[DEBUG] Waiting for Supabase poll (RID: {request_id})...")
 
-                            # Supabase에서 결과 폴링 (최대 60초)
+                            # 3. Poll Supabase with exponential backoff (Max 45 seconds, ~20 queries instead of 120)
                             gps_data = None
-                            for i in range(120):  # 0.5초 * 120 = 60초
-                                await asyncio.sleep(0.5)
+                            wait_time = 0.5  # Start with 0.5s
+                            total_waited = 0
+                            max_wait = 45  # 45 seconds max
+
+                            while total_waited < max_wait:
+                                await asyncio.sleep(wait_time)
+                                total_waited += wait_time
+
                                 try:
-                                    result = service_supabase.table("gps_requests").select("*").eq("id", request_id).single().execute()
-                                    if result.data and result.data.get("status") == "completed":
-                                        gps_data = {
-                                            "lat": result.data.get("lat"),
-                                            "lng": result.data.get("lng")
-                                        }
-                                        print(f"[DEBUG] Got GPS from DB: {gps_data}")
-                                        # 사용한 레코드 삭제
-                                        service_supabase.table("gps_requests").delete().eq("id", request_id).execute()
-                                        break
-                                    elif result.data and result.data.get("status") == "error":
-                                        gps_data = {"error": result.data.get("error_message", "Unknown error")}
-                                        service_supabase.table("gps_requests").delete().eq("id", request_id).execute()
-                                        break
+                                    # Non-blocking DB call
+                                    result = await asyncio.to_thread(
+                                        lambda: service_supabase.table("gps_requests").select("status,lat,lng,error_message").eq("id", request_id).single().execute()
+                                    )
+                                    if result.data:
+                                        status = result.data.get("status")
+                                        if status == "completed":
+                                            gps_data = {
+                                                "lat": result.data.get("lat"),
+                                                "lng": result.data.get("lng")
+                                            }
+                                            break
+                                        elif status == "error":
+                                            gps_data = {"error": result.data.get("error_message")}
+                                            break
                                 except Exception as poll_err:
-                                    # 테이블이 없거나 다른 에러
-                                    if i == 0:
-                                        print(f"[DEBUG] DB poll error: {poll_err}")
-                                    continue
+                                    print(f"[DEBUG] Poll error: {poll_err}")
+
+                                # Exponential backoff: 0.5 -> 1 -> 1.5 -> 2 (cap at 2s)
+                                wait_time = min(wait_time + 0.5, 2.0)
+
+                            # Cleanup record (fire and forget)
+                            asyncio.create_task(asyncio.to_thread(
+                                lambda: service_supabase.table("gps_requests").delete().eq("id", request_id).execute()
+                            ))
 
                             if not gps_data:
-                                # 타임아웃 시 레코드 정리
-                                try:
-                                    service_supabase.table("gps_requests").delete().eq("id", request_id).execute()
-                                except:
-                                    pass
-                                page.open(ft.SnackBar(
-                                    ft.Text("⏱️ GPS 응답 시간 초과. GPS 페이지에서 위치를 허용했는지 확인해주세요."),
-                                    bgcolor="orange"
-                                ))
+                                page.open(ft.SnackBar(ft.Text("⏱️ 인증 시간이 초과되었습니다. 다시 시도해 주세요."), bgcolor="orange"))
                                 return
 
                             print(f"[DEBUG] GPS data: {gps_data}")
@@ -360,8 +426,11 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                 status_card.gradient = AppGradients.PRIMARY_LINEAR
                 status_card.shadow = AppShadows.GLOW
                 status_text.color = "white"
+                status_text.visible = True
                 time_text.color = "white"
+                time_text.visible = True
                 date_text.color = ft.Colors.with_opacity(0.8, "white")
+                status_card.visible = True
                 page.open(ft.SnackBar(ft.Text(f"✅ {message}"), bgcolor="green"))
             else:
                 # Clock out
@@ -374,8 +443,11 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                 status_card.bgcolor = AppColors.SURFACE_LIGHT if page.theme_mode == ft.ThemeMode.LIGHT else AppColors.SURFACE_DARK
                 status_card.shadow = AppShadows.MEDIUM
                 status_text.color = AppColors.TEXT_PRIMARY
+                status_text.visible = False
                 time_text.color = AppColors.TEXT_PRIMARY
+                time_text.visible = False
                 date_text.color = AppColors.TEXT_SECONDARY
+                status_card.visible = False
                 page.open(ft.SnackBar(ft.Text("✅ 퇴근 처리되었습니다"), bgcolor="green"))
             
             # Refresh logs
@@ -420,7 +492,8 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
         gradient=AppGradients.PRIMARY_LINEAR if state["status"] == "ON" else None,
         bgcolor=AppColors.SURFACE_LIGHT if page.theme_mode == ft.ThemeMode.LIGHT else AppColors.SURFACE_DARK if state["status"] == "OFF" else None,
         shadow=AppShadows.GLOW if state["status"] == "ON" else AppShadows.MEDIUM,
-        animate=ft.Animation(600, ft.AnimationCurve.EASE_OUT)
+        animate=ft.Animation(600, ft.AnimationCurve.EASE_OUT),
+        visible=(state["status"] == "ON")
     )
 
     header = AppHeader(
@@ -467,7 +540,13 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                     bgcolor=ft.Colors.with_opacity(0.03, ft.Colors.GREY_400)
                 ),
                 ft.Container(height=30),
-                # Recent Logs Section
+                ft.Container(
+                    content=action_button,
+                    width=float("inf"),
+                    padding=ft.padding.only(bottom=10)
+                ),
+                ft.Container(height=30),
+                # Recent Logs Section moved below button
                 ft.Row([
                     ft.Text("최근 7회 기록", size=16, weight="bold", color=AppColors.TEXT_PRIMARY),
                     ft.Container(expand=True),
@@ -475,12 +554,6 @@ async def get_attendance_controls(page: ft.Page, navigate_to):
                 ], alignment=ft.MainAxisAlignment.CENTER),
                 ft.Container(height=10),
                 log_column,
-                ft.Container(height=30),
-                ft.Container(
-                    content=action_button,
-                    width=float("inf"),
-                    padding=ft.padding.only(bottom=10)
-                ),
             ], scroll=ft.ScrollMode.HIDDEN)
         )
     ], spacing=0, expand=True)

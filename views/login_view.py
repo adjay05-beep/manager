@@ -331,8 +331,17 @@ async def get_login_controls(page: ft.Page, navigate_to):
     # Set on_submit after perform_login is defined
     pw_tf.on_submit = perform_login
 
+    # Debounce lock to prevent multiple concurrent login attempts
+    _login_in_progress = {"lock": False}
+
     async def on_login_click(e):
-        await perform_login(e)
+        if _login_in_progress["lock"]:
+            return  # Already processing
+        _login_in_progress["lock"] = True
+        try:
+            await perform_login(e)
+        finally:
+            _login_in_progress["lock"] = False
 
     async def on_signup_click(e):
         await navigate_to("signup")

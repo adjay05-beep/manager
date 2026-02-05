@@ -8,7 +8,7 @@ class ErrorBoundary(ft.Container):
     def __init__(self, message: str, retry_callback=None):
         super().__init__()
         self.expand = True
-        self.alignment = ft.alignment.center
+        self.alignment = ft.Alignment(0, 0)
         self.padding = AppLayout.XL
         
         self.content = ft.Column(

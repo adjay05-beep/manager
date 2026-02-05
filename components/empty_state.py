@@ -8,7 +8,7 @@ class EmptyState(ft.Container):
     def __init__(self, title: str, subtitle: str, icon=ft.Icons.INBOX_ROUNDED):
         super().__init__()
         self.expand = True
-        self.alignment = ft.alignment.center
+        self.alignment = ft.Alignment(0, 0)
         self.padding = AppLayout.XL
         
         self.content = ft.Column(

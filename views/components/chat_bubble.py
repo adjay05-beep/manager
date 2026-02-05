@@ -1,10 +1,12 @@
 import flet as ft
-from datetime import datetime
+from datetime import datetime, timedelta
+import asyncio
 from views.styles import AppColors
+from views.components.custom_checkbox import CustomCheckbox
 
 class ChatBubble(ft.Container):
-    def __init__(self, message, current_user_id, selection_mode=False, on_select=None, on_image_click=None):
-        super().__init__()
+    def __init__(self, message, current_user_id, selection_mode=False, on_select=None, on_image_click=None, **kwargs):
+        super().__init__(**kwargs)
         self.message = message
         self.current_user_id = current_user_id
         self.selection_mode = bool(selection_mode)
@@ -37,7 +39,6 @@ class ChatBubble(ft.Container):
                 dt = datetime.fromisoformat(created_at)
                 if dt.tzinfo: dt = dt.astimezone()
                 else:
-                   from datetime import timedelta
                    dt = dt + timedelta(hours=9)
                 ampm = "오전" if dt.hour < 12 else "오후"
                 hour = dt.hour if dt.hour <= 12 else dt.hour - 12
@@ -72,9 +73,9 @@ class ChatBubble(ft.Container):
             clean_url = img_url.split("?")[0]
             ext = clean_url.split(".")[-1].lower() if "." in clean_url else ""
             if ext in ["jpg", "jpeg", "png", "gif", "webp", "ico", "bmp"]:
-                img_widget = ft.Image(src=img_url, width=200, height=200, fit=ft.ImageFit.COVER, border_radius=8)
+                img_widget = ft.Image(src=img_url, width=200, height=200, fit=ft.BoxFit.COVER, border_radius=8)
                 if self.on_image_click:
-                    bubble_items.append(ft.Container(content=img_widget, on_click=lambda e: __import__("asyncio").create_task(self.on_image_click(img_url))))
+                    bubble_items.append(ft.Container(content=img_widget, on_click=lambda e: asyncio.create_task(self.on_image_click(img_url))))
                 else: bubble_items.append(img_widget)
             elif ext in ["mp4", "mov", "avi", "wmv", "mkv", "webm"]:
                 def play_video(e):
@@ -86,7 +87,7 @@ class ChatBubble(ft.Container):
                     except: e.page.launch_url(img_url)
                 bubble_items.append(ft.Container(content=ft.Row([ft.Icon(ft.Icons.PLAY_CIRCLE_FILL, color="red"), ft.Text("비디오")], spacing=10), padding=10, border=ft.border.all(1, "grey"), on_click=play_video))
             else:
-                 bubble_items.append(ft.Container(content=ft.Row([ft.Icon(ft.Icons.ATTACH_FILE), ft.Text("파일")], spacing=10), padding=10, border=ft.border.all(1, "grey"), on_click=lambda e: e.page.launch_url(img_url)))
+                bubble_items.append(ft.Container(content=ft.Row([ft.Icon(ft.Icons.ATTACH_FILE), ft.Text("파일")], spacing=10), padding=10, border=ft.border.all(1, "grey"), on_click=lambda e: e.page.launch_url(img_url)))
         
         if content:
             bubble_items.append(ft.Text(content, color=text_color, size=14, selectable=not self.selection_mode))
@@ -100,14 +101,13 @@ class ChatBubble(ft.Container):
             border=border_side
         )
 
-        from views.components.custom_checkbox import CustomCheckbox
         selection_ctrl = ft.Container(visible=False)
         if self.selection_mode:
             def handle_checkbox_change(cb):
                 if self.on_select and callable(self.on_select):
                     result = self.on_select(self.message.get('id'), cb.value)
                     if hasattr(result, '__await__'):
-                        __import__("asyncio").create_task(result)
+                        asyncio.create_task(result)
             
             self.custom_checkbox = CustomCheckbox(
                 value=False,
@@ -165,7 +165,7 @@ class ChatBubble(ft.Container):
             original_content = self.content
             self.content = ft.GestureDetector(
                 content=original_content,
-                on_tap=lambda e: __import__("asyncio").create_task(toggle_bubble(e)),
+                on_tap=lambda e: asyncio.create_task(toggle_bubble(e)),
                 mouse_cursor=ft.MouseCursor.CLICK
             )
             print(f"DEBUG_BUBBLE: GestureDetector created successfully")

@@ -585,17 +585,24 @@ async def get_handover_controls(page: ft.Page, navigate_to):
                 )
                 list_view.controls.append(card)
 
-        list_view.controls.append(ft.Container(height=20))
+            # Assign key to the last item for reliable scrolling
+            # if list_view.controls and isinstance(list_view.controls[-1], ft.Container):
+            #     list_view.controls[-1].key = "latest_entry"
+        
         page.update()
-        # [FIX] Scroll to bottom aka "Latest"
+        
         try:
-            if hasattr(list_view, "scroll_to_async"):
-                await list_view.scroll_to_async(offset=-1, duration=300)
-            else:
-                await list_view.scroll_to(offset=-1, duration=300)
-            page.update()
-        except Exception:
-            pass
+             # [FIX] Wait for layout to settle before scrolling
+             import asyncio
+             await asyncio.sleep(0.1)
+             
+             # Simple reliable scroll to end
+             if hasattr(list_view, "scroll_to_async"):
+                 await list_view.scroll_to_async(offset=-1, duration=300)
+             else:
+                 list_view.scroll_to(offset=-1, duration=300)
+        except Exception as e:
+            log_error(f"[Handover] Scroll Error: {e}")
 
     async def fetch_and_update():
         raw = await handover_service.get_handovers(channel_id)
@@ -629,15 +636,10 @@ async def get_handover_controls(page: ft.Page, navigate_to):
         except Exception:
             current_hash = str(datetime.now()) # Fallback
 
-        # Check against last known hash (using a closure or simple attr logic if possible, 
-        # but here we use a mutable container from outer scope or simple attribute on function if it were a class)
-        # Since this is a nested function, we can use a nonlocal or a dict in the outer scope.
-        # Let's assume 'render_state' dict exists in outer scope for this purpose.
-        
+        # Check against last known hash
         nonlocal render_state
-        if render_state.get("last_hash") == current_hash:
-            # log_debug("[Handover] Skipping render (No Change)")
-            return
+        # if render_state.get("last_hash") == current_hash:
+        #    return
 
         render_state["last_hash"] = current_hash
         log_debug(f"[Handover] Data changed (Hash: {current_hash[:8]}). Re-rendering.")
@@ -721,20 +723,23 @@ async def get_handover_controls(page: ft.Page, navigate_to):
             except Exception:
                 break
 
-    asyncio.create_task(fetch_and_update())
-    asyncio.create_task(poll_updates())
-    
+    async def on_mount(e=None):
+        print("[Handover] View mounted. Starting initial fetch.")
+        await fetch_and_update()
+        asyncio.create_task(poll_updates())
+
     main_layout = ft.SafeArea(
         expand=True,
         content=ft.Column([header, tabs_row, ft.Container(list_view, expand=True), input_area], expand=True)
     )
 
-    return [
-        ft.Stack(
-            [
-                main_layout,
-                overlay
-            ],
-            expand=True
-        )
-    ]
+    root_stack = ft.Stack(
+        [
+            main_layout,
+            overlay
+        ],
+        expand=True
+    )
+    root_stack.did_mount = on_mount
+
+    return [root_stack]

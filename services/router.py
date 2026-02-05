@@ -97,6 +97,10 @@ class Router:
             # Reset splash
             if getattr(page, "splash", None):
                 page.splash = None
+
+            # [FIX] Clear Drawer to prevent ghost references
+            if getattr(page, "drawer", None):
+                page.drawer = None
             
             page.update()
         except Exception as e:

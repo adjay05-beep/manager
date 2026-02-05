@@ -1,4 +1,5 @@
 import flet as ft
+import re # [ADDED] For email validation
 from services.auth_service import auth_service
 import asyncio
 from views.styles import AppColors, AppLayout
@@ -93,7 +94,15 @@ async def get_signup_controls(page: ft.Page, navigate_to):
                 otp_tf, verify_status,
                 ft.Container(height=20),
                 verify_btn,
-                ft.TextButton("코드 재전송", on_click=lambda e: asyncio.create_task(do_resend(e)))
+                ft.Container(height=10),
+                # Ensure the entire button row is centered and doesn't spill out
+                ft.Container(
+                    content=ft.Row([
+                        ft.TextButton("수정하기", on_click=lambda _: asyncio.create_task(set_step_form()), style=ft.ButtonStyle(color=AppColors.TEXT_MUTE)),
+                        ft.TextButton("코드 재전송", on_click=lambda e: asyncio.create_task(do_resend(e)), style=ft.ButtonStyle(color=AppColors.TEXT_MUTE))
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=20),
+                    width=300
+                )
             ]
             
             if state["loading"]:
@@ -119,30 +128,31 @@ async def get_signup_controls(page: ft.Page, navigate_to):
             if res.user and res.user.identities and len(res.user.identities) > 0:
                 state["step"] = "verify"
             elif res.user and not res.user.identities:
-                error_txt.value = "이미 가입된 계정일 수 있습니다."
+                # This often happens when user already exists in Supabase
+                raise Exception("이미 가입된 계정입니다.")
             else:
-                 if not res.session:
+                 if res.session:
+                     # [ADDED] Email Confirmation is OFF flow
+                     from views.login_view import safe_storage_set, handle_successful_login
+                     user_data = {"id": res.user.id, "email": res.user.email}
+                     await handle_successful_login(page, user_data, navigate_to, res.session.access_token, overlay=overlay)
+                     return
+                 else:
                      state["step"] = "verify"
         except Exception as ex:
-             msg = str(ex)
-             if "이미 가입된" in msg:
+             msg = str(ex).lower()
+             # Recovery logic for existing but unconfirmed users
+             if "already registered" in msg or "이미 가입된" in msg:
                  try:
-                     user = await asyncio.to_thread(lambda: auth_service.sign_in(state["email"], pw_tf.value))
-                     if user:
-                         pass
-                 except Exception as login_ex:
-                     l_msg = str(login_ex)
-                     if "Email not confirmed" in l_msg or "confirmed" in l_msg:
-                         try:
-                            await asyncio.to_thread(lambda: auth_service.resend_otp(state["email"]))
-                         except Exception:
-                            pass
-                         state["step"] = "verify"
-                         verify_status.value = "⚠️ 가입이 중단되었던 계정입니다. 인증 코드를 재전송했습니다."
-                         verify_status.color = AppColors.WARNING
-                         error_txt.value = ""
-                     else:
-                         error_txt.value = "이미 가입된 이메일입니다."
+                     # Attempt to resend OTP to see if it's unconfirmed
+                     await asyncio.to_thread(lambda: auth_service.resend_otp(state["email"]))
+                     state["step"] = "verify"
+                     verify_status.value = "이미 가입 진행 중인 계정입니다. 인증 코드를 다시 보냈습니다."
+                     verify_status.color = AppColors.WARNING
+                     error_txt.value = ""
+                 except Exception:
+                     # If resend fails, the user is likely already confirmed
+                     error_txt.value = "이미 가입 완료된 계정입니다. 로그인해주세요."
              else:
                  error_txt.value = f"가입 오류: {ex}"
         finally:
@@ -153,6 +163,12 @@ async def get_signup_controls(page: ft.Page, navigate_to):
         state["email"] = email_tf.value
         if not state["email"] or not pw_tf.value:
             error_txt.value = "모든 필드를 입력해주세요."; await update_view(); return
+        
+        # [ADDED] Email Regex Validation
+        email_regex = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_regex, state["email"]):
+             error_txt.value = "유효하지 않은 이메일 형식입니다."; await update_view(); return
+
         if pw_tf.value != pw_cf_tf.value:
             error_txt.value = "비밀번호가 일치하지 않습니다."; await update_view(); return
         if len(pw_tf.value) < 8:
@@ -225,6 +241,11 @@ async def get_signup_controls(page: ft.Page, navigate_to):
 
     async def set_step_verify():
         state.update({"step": "verify"})
+        await update_view()
+
+    async def set_step_form():
+        state.update({"step": "form"})
+        error_txt.value = "" # Clear errors
         await update_view()
 
     card_content = ft.Column(

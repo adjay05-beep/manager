@@ -81,13 +81,16 @@ async def get_profile_controls(page: ft.Page, navigate_to):
     async def load_contract_async():
         try:
             # We filter by both user_id and channel_id to get the contract for THIS store
-            res = service_supabase.table("labor_contracts")\
-                .select("*")\
-                .eq("user_id", user_id)\
-                .eq("channel_id", channel_id)\
-                .order("created_at", desc=True)\
-                .limit(1)\
-                .execute()
+            # Non-blocking DB call
+            res = await asyncio.to_thread(
+                lambda: service_supabase.table("labor_contracts")
+                    .select("*")
+                    .eq("user_id", user_id)
+                    .eq("channel_id", channel_id)
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+            )
             
             contract = res.data[0] if res.data else None
             contract_info_container.controls = [get_contract_ui(contract)]
@@ -178,12 +181,12 @@ async def get_profile_controls(page: ft.Page, navigate_to):
             ),
             ft.Container(width=10),
             ft.Column([
-                 ft.Row([
-                     ft.Text(user_profile.get("full_name", "이름 없음"), size=20, weight="bold", color="#1A1A1A"),
-                     ft.IconButton(ft.Icons.EDIT, icon_color="grey", icon_size=18, tooltip="이름 수정", on_click=open_edit_profile) 
-                 ], spacing=0, alignment=ft.MainAxisAlignment.START),
+                 ft.Text(user_profile.get("full_name", "이름 없음"), size=20, weight="bold", color="#1A1A1A"),
                  ft.Container(
-                     content=ft.Text(f"{user_profile.get('role', 'staff')}", size=12, color="white"),
+                     content=ft.Text(
+                         {"owner": "대표", "manager": "관리자", "staff": "멤버"}.get(user_profile.get("role", "staff"), user_profile.get("role", "staff")), 
+                         size=12, color="white"
+                     ),
                      bgcolor="grey", padding=ft.padding.symmetric(horizontal=8, vertical=2), border_radius=10
                  ),
             ], spacing=5),

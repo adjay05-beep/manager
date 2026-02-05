@@ -97,24 +97,39 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
 
             client = SyncPostgrestClient(f"{url}/rest/v1", headers=headers, schema="public", timeout=20)
 
-            # 1. Fetch Contracts (Filtered by Channel to see ALL staff)
-            c_res = await asyncio.to_thread(lambda: client.from_("labor_contracts").select("*").eq("channel_id", channel_id).execute())
-            contracts = c_res.data or []
-
-            # 2. Fetch Overrides (is_work_schedule = True, Filtered by Channel)
+            # [OPTIMIZATION] Parallel Fetching
+            contract_task = asyncio.to_thread(lambda: client.from_("labor_contracts").select("*").eq("channel_id", channel_id).execute())
+            
             start_iso = f"{year}-{month:02d}-01T00:00:00"
             last_day = calendar.monthrange(year, month)[1]
             end_iso = f"{year}-{month:02d}-{last_day}T23:59:59"
-
-            # [TIMEOUT SAFETY] 10s limit
-            o_res = await asyncio.wait_for(asyncio.to_thread(lambda: client.from_("calendar_events")
+            
+            override_task = asyncio.to_thread(lambda: client.from_("calendar_events")
                                            .select("*")
                                            .eq("is_work_schedule", True)
                                            .gte("start_date", start_iso)
                                            .lte("start_date", end_iso)
                                            .eq("channel_id", channel_id)
-                                           .execute()), timeout=10)
-            overrides = o_res.data or []
+                                           .execute())
+            
+            # Run both tasks in parallel with 10s timeout
+            c_res, o_res = await asyncio.gather(
+                asyncio.wait_for(contract_task, timeout=10),
+                asyncio.wait_for(override_task, timeout=10),
+                return_exceptions=True
+            )
+            
+            if isinstance(c_res, Exception):
+                log_error(f"Contract Fetch Error: {c_res}")
+                contracts = []
+            else:
+                contracts = c_res.data or []
+                
+            if isinstance(o_res, Exception):
+                log_error(f"Override Fetch Error: {o_res}")
+                overrides = []
+            else:
+                overrides = o_res.data or []
         except Exception as ex:
             log_error(f"Calendar Staff Fetch Error: {ex}")
             return []
@@ -510,7 +525,7 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
 
         # Build Internal Card (The actual dialog box)
         dialog_card = ft.Container(
-            width=min(400, (page.window_width or 400) * 0.94),
+            width=min(400, getattr(page, 'window_width', 400) * 0.94),
             bgcolor=AppColors.SURFACE, padding=20,
             border_radius=20,
             on_click=lambda e: e.control.page.update(), # Eat click event so it doesn't close
@@ -521,7 +536,10 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
                                   on_click=lambda _: asyncio.create_task(async_close_and_open_editor(None, day))),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Divider(height=10, color="transparent"),
-                ft.Column(agenda_items, spacing=10, scroll=ft.ScrollMode.AUTO, max_height=400),
+                ft.Container(
+                    content=ft.Column(agenda_items, spacing=10, scroll=ft.ScrollMode.AUTO),
+                    height=400
+                ),
                 ft.Row([
                     ft.Container(expand=True),
                     ft.TextButton("닫기 (Faux)", on_click=lambda _: overlay.close())
@@ -563,7 +581,7 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
         initials = creator_name[0] if creator_name else "?"
         
         detail_card = ft.Container(
-            width=min(450, (page.window_width or 450) * 0.94),
+            width=min(450, getattr(page, 'window_width', 450) * 0.94),
             bgcolor=AppColors.SURFACE, padding=20, border_radius=28,
             on_click=lambda e: e.control.page.update(),
             shadow=ft.BoxShadow(blur_radius=20, color="#20000000"),
@@ -596,7 +614,9 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
                     content=ft.Column([
                         ft.Text("상세 내용", size=12, color=AppColors.TEXT_SECONDARY, weight="bold"),
                         ft.Text(ev.get('description', '상세 내용 없음'), size=16, color=AppColors.TEXT_PRIMARY),
-                    ], spacing=10, horizontal_alignment=ft.CrossAxisAlignment.START, scroll=ft.ScrollMode.AUTO, max_height=200),
+                        ft.Text(ev.get('description', '상세 내용 없음'), size=16, color=AppColors.TEXT_PRIMARY),
+                    ], spacing=10, horizontal_alignment=ft.CrossAxisAlignment.START, scroll=ft.ScrollMode.AUTO),
+                    height=200,
                     padding=ft.padding.symmetric(horizontal=10),
                     alignment=ft.Alignment(-1, 0)
                 ),
@@ -658,7 +678,7 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
             update_page()
 
         card = ft.Container(
-            width=min(500, (page.window_width or 500) * 0.94),
+            width=min(500, getattr(page, 'window_width', 500) * 0.94),
             bgcolor=AppColors.SURFACE, padding=20, border_radius=20,
             on_click=lambda e: e.control.page.update(),
             content=ft.Column([
@@ -669,7 +689,8 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
                 ft.ElevatedButton("기록하기", on_click=lambda _: asyncio.create_task(add_record())),
                 ft.Divider(),
                 ft.TextButton("닫기", on_click=lambda _: overlay.close())
-            ], spacing=10, scroll=ft.ScrollMode.AUTO, tight=True, max_height=page.window_height * 0.8)
+            ], spacing=10, scroll=ft.ScrollMode.AUTO, tight=True),
+            height=getattr(page, 'window_height', 600) * 0.8
         )
         overlay.open(card)
 
@@ -773,7 +794,7 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
             asyncio.create_task(_save_async())
 
         dialog_card = ft.Container(
-            width=min(450, (page.window_width or 450) * 0.94),
+            width=min(450, getattr(page, 'window_width', 450) * 0.94),
             bgcolor=AppColors.SURFACE, padding=20, border_radius=20,
             on_click=lambda e: e.control.page.update(),
             content=ft.Column([
@@ -789,7 +810,8 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
                     ft.TextButton("취소", on_click=lambda _: overlay.close()),
                     ft.ElevatedButton("저장", on_click=save, bgcolor="#00C73C", color="white")
                 ], spacing=10)
-            ], scroll=ft.ScrollMode.AUTO, spacing=15, tight=True, max_height=page.window_height * 0.8)
+            ], scroll=ft.ScrollMode.AUTO, spacing=15, tight=True),
+            height=getattr(page, 'window_height', 600) * 0.8
         )
         overlay.open(dialog_card)
 
@@ -827,16 +849,19 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
         page.close_drawer()
         navigate_to("calendar") # Refresh view
 
-    def on_drawer_change(e):
+    async def on_drawer_change(e):
         nonlocal current_cal_type
+        # 1. Close immediately for responsiveness
+        if page.drawer:
+            page.close(page.drawer)
+        
         idx = e.control.selected_index
         if idx == 0: current_cal_type = "store"
         elif idx == 1: current_cal_type = "staff"
         
-        # Update label immediately (load will do it too but for responsiveness)
+        # 2. Update label and load data
         month_label.value = f"{view_state['year']}년 {view_state['month']}월"
-        load()
-        page.close(page.drawer)
+        await load()
 
     def build_drawer():
         print("DEBUG_CAL: build_drawer start")
@@ -858,7 +883,7 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
         print(f"DEBUG_CAL: build_drawer channels: {len(channels)}")
         
         drawer = ft.NavigationDrawer(
-            on_change=on_drawer_change,
+            on_change=lambda e: page.run_task(on_drawer_change, e),
             bgcolor="white",
             selected_index=(0 if current_cal_type == 'store' else 1),
             controls=[
@@ -904,17 +929,21 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
         )
         return drawer
 
-    # Apply Drawer
+    # [FIX] Force drawer variable update to ensure it's not stale
     drawer = build_drawer()
     page.drawer = drawer
-    page.update()
 
-    # [Standardized Header]
-    async def go_prev_month(e):
-        await change_m(-1)
-
-    async def go_next_month(e):
-        await change_m(1)
+    def open_drawer_safe(e):
+        print("DEBUG: Hamburger clicked")
+        # Force re-assign local drawer to page drawer to ensure connectivity
+        page.drawer = drawer
+        if hasattr(page.drawer, "open"):
+            page.drawer.open = True
+        page.update()
+        # Explicitly update drawer control if possible
+        try:
+            drawer.update()
+        except: pass
 
     header = AppHeader(
         title_text=ft.Row([
@@ -924,7 +953,7 @@ async def get_calendar_controls(page: ft.Page, navigate_to):
         ], alignment=ft.MainAxisAlignment.CENTER),
         left_button=ft.Row([
             ft.IconButton(ft.Icons.ARROW_BACK_IOS_NEW, icon_color=AppColors.TEXT_PRIMARY, on_click=lambda e: asyncio.create_task(navigate_to("home")), tooltip="뒤로"),
-            ft.IconButton(ft.Icons.MENU, icon_color=AppColors.TEXT_PRIMARY, on_click=lambda _: page.open(drawer), tooltip="메뉴"),
+            ft.IconButton(ft.Icons.MENU, icon_color=AppColors.TEXT_PRIMARY, on_click=open_drawer_safe, tooltip="메뉴"),
         ], spacing=0),
         action_button=ft.IconButton(ft.Icons.REFRESH, on_click=lambda e: asyncio.create_task(load(e)), icon_color=AppColors.TEXT_PRIMARY)
     )

@@ -28,7 +28,8 @@ class HandoverService:
             return []
 
         try:
-            res = await asyncio.to_thread(lambda: service_supabase.table("handovers").select("*, profiles:user_id(full_name)").eq("channel_id", channel_id).order("created_at").execute())
+            # [OPTIMIZATION] Limit to last 50 entries
+            res = await asyncio.to_thread(lambda: service_supabase.table("handovers").select("*, profiles:user_id(full_name)").eq("channel_id", channel_id).order("created_at", desc=True).limit(50).execute())
             return res.data or []
         except Exception as e:
             log_error(f"Get handovers error: {e}")
